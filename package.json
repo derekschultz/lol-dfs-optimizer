@@ -1,0 +1,40 @@
+{
+  "name": "lol-dfs-optimizer",
+  "version": "1.0.0",
+  "description": "Advanced Monte Carlo simulation and optimization for League of Legends DFS",
+  "main": "index.js",
+  "scripts": {
+    "start": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "node server.js",
+    "client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "install-all": "npm install && cd client && npm install",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "fantasy",
+    "sports",
+    "analytics",
+    "simulation",
+    "optimization",
+    "league of legends",
+    "lol",
+    "esports"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "papaparse": "^5.4.1"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^8.2.2",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^4.1.7"
+  }
+}

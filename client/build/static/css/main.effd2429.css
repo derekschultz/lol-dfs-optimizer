@@ -1,0 +1,2 @@
+@tailwind base;@tailwind components;@tailwind utilities;@layer components{.bg-blue-gradient,.bg-header-gradient,.card,.card-title{@apply text-xl font-semibold mb-4 text-blue-accent}}
+/*# sourceMappingURL=main.effd2429.css.map*/
