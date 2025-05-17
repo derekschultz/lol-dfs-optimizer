@@ -45,6 +45,26 @@ let settings = {
   maxWorkers: 4
 };
 
+// Add exposure settings variable
+let exposureSettings = {
+  global: {
+    globalMinExposure: 0,
+    globalMaxExposure: 60,
+    applyToNewLineups: true,
+    prioritizeProjections: true
+  },
+  players: [],
+  teams: [],
+  positions: {
+    TOP: { min: 0, max: 100, target: null },
+    JNG: { min: 0, max: 100, target: null },
+    MID: { min: 0, max: 100, target: null },
+    ADC: { min: 0, max: 100, target: null },
+    SUP: { min: 0, max: 100, target: null },
+    CPT: { min: 0, max: 100, target: null }
+  }
+};
+
 // Helper functions
 const generateRandomId = () => Date.now() + Math.floor(Math.random() * 1000);
 
@@ -107,13 +127,13 @@ const simulateLineups = (lineupIds, simSettings) => {
     let baseProjection = 0;
     const cptProj = playerProjections.find(p => p.name === lineup.cpt.name);
     if (cptProj) {
-      baseProjection += cptProj.projPoints * 1.5; // CPT gets 1.5x points
+      baseProjection += cptProj.projectedPoints * 1.5; // CPT gets 1.5x points
     }
 
     lineup.players.forEach(player => {
       const playerProj = playerProjections.find(p => p.name === player.name);
       if (playerProj) {
-        baseProjection += playerProj.projPoints;
+        baseProjection += playerProj.projectedPoints;
       }
     });
 
@@ -151,16 +171,16 @@ const simulateLineups = (lineupIds, simSettings) => {
 
   // Generate score distributions based on projected points
   const scoreDistributions = lineupPerformance.map(perf => {
-    const projPoints = parseFloat(perf.projectedPoints);
+    const projectedPoints = parseFloat(perf.projectedPoints);
 
     // Create distribution around the projected points
     return {
       lineup: perf.id,
-      p10: (projPoints * 0.8).toFixed(1),  // 10th percentile (20% below projection)
-      p25: (projPoints * 0.9).toFixed(1),  // 25th percentile (10% below projection)
-      p50: projPoints.toFixed(1),          // Median (projected points)
-      p75: (projPoints * 1.1).toFixed(1),  // 75th percentile (10% above projection)
-      p90: (projPoints * 1.2).toFixed(1)   // 90th percentile (20% above projection)
+      p10: (projectedPoints * 0.8).toFixed(1),  // 10th percentile (20% below projection)
+      p25: (projectedPoints * 0.9).toFixed(1),  // 25th percentile (10% below projection)
+      p50: projectedPoints.toFixed(1),          // Median (projected points)
+      p75: (projectedPoints * 1.1).toFixed(1),  // 75th percentile (10% above projection)
+      p90: (projectedPoints * 1.2).toFixed(1)   // 90th percentile (20% above projection)
     };
   });
 
@@ -205,7 +225,7 @@ const generateOptimalLineups = (count) => {
     const name = `Generated Lineup ${id}`;
 
     // Choose captain (highest projected points from stack)
-    const sortedStackPlayers = [...stackPlayers].sort((a, b) => b.projPoints - a.projPoints);
+    const sortedStackPlayers = [...stackPlayers].sort((a, b) => b.projectedPoints - a.projectedPoints);
     const captain = sortedStackPlayers.length > 0 ? sortedStackPlayers[0] : playerProjections[0];
 
     // Add CPT with 1.5x salary
@@ -293,7 +313,8 @@ const parsePlayersCSV = (filePath) => {
           name: data.name || data.Name || data.PLAYER || data.Player || '',
           team: data.team || data.Team || data.TEAM || '',
           position: data.position || data.Position || data.POS || data.Pos || '',
-          projPoints: parseFloat(data.projPoints || data.Proj || data.FPTS || data.Projection || data.Median || 0) || 0,
+          projectedPoints: parseFloat(data.projectedPoints || data.Proj || data.FPTS || data.Projection || data.Median || 0) || 0,
+          ownership: parseFloat(data.Own || data.OWN || data.own || data.Ownership || data.OWNERSHIP || data.ownership || 0) || 0,
           salary: parseInt(data.salary || data.Salary || data.SALARY || 0) || 0,
           value: 0 // Calculate value
         };
@@ -301,11 +322,11 @@ const parsePlayersCSV = (filePath) => {
         // Log each row if it's causing issues
         console.log('Parsed player:', player);
 
-        // Only add valid players with a name and projPoints > 0
-        if (player.name && player.projPoints > 0) {
+        // Only add valid players with a name and projectedPoints > 0
+        if (player.name && player.projectedPoints > 0) {
           // Calculate value (points per $1000)
           player.value = player.salary > 0 ?
-            (player.projPoints / (player.salary / 1000)).toFixed(2) : 0;
+            (player.projectedPoints / (player.salary / 1000)).toFixed(2) : 0;
           results.push(player);
         }
       })
@@ -616,6 +637,41 @@ app.get('/settings', (req, res) => {
 app.post('/settings', (req, res) => {
   settings = req.body;
   res.json({ success: true, message: 'Settings saved successfully' });
+});
+
+// Add the GET endpoint for exposure settings
+app.get('/settings/exposure', (req, res) => {
+  res.json(exposureSettings);
+});
+
+// Add the missing POST endpoint for exposure settings
+app.post('/settings/exposure', (req, res) => {
+  try {
+    // Validate required fields
+    const newSettings = req.body;
+    if (!newSettings || !newSettings.global) {
+      return res.status(400).json({
+        message: 'Invalid exposure settings data structure'
+      });
+    }
+
+    // Log statistics for debugging
+    console.log(`Processing ${newSettings.players?.length || 0} player settings and ${newSettings.teams?.length || 0} team settings`);
+
+    // Save the settings
+    exposureSettings = newSettings;
+
+    console.log('Exposure settings saved successfully');
+    res.json({
+      success: true,
+      message: 'Exposure settings saved successfully'
+    });
+  } catch (error) {
+    console.error('Error handling exposure settings:', error);
+    res.status(500).json({
+      message: `Error saving exposure settings: ${error.message}`
+    });
+  }
 });
 
 // Upload player projections

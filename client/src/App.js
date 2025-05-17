@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, BarChart, Bar } from 'recharts';
-import './blue-theme.css'; // Import the CSS file
+import './blue-theme.css';
+import ExposureControl from './components/ExposureControl';
 
 /* eslint-disable react-hooks/exhaustive-deps */
 const App = () => {
@@ -26,6 +27,43 @@ const App = () => {
   const [notificationMessage, setNotificationMessage] = useState('');
   const [notificationType, setNotificationType] = useState('success');
 
+  // Add exposure settings state to store at App level for persistence
+  const [exposureSettings, setExposureSettings] = useState({
+    global: {
+      globalMinExposure: 0,
+      globalMaxExposure: 60,
+      applyToNewLineups: true,
+      prioritizeProjections: true
+    },
+    players: [],
+    teams: [],
+    positions: {
+      TOP: { min: 0, max: 100, target: null },
+      JNG: { min: 0, max: 100, target: null },
+      MID: { min: 0, max: 100, target: null },
+      ADC: { min: 0, max: 100, target: null },
+      SUP: { min: 0, max: 100, target: null },
+      CPT: { min: 0, max: 100, target: null }
+    }
+  });
+
+  // Debug function to monitor state changes
+  useEffect(() => {
+    console.log('--- APP STATE DEBUG ---');
+    console.log('Player data count:', playerData.length);
+    console.log('Exposure settings players count:', exposureSettings.players.length);
+    console.log('Lineups count:', lineups.length);
+    if (playerData.length > 0 && playerData[0]) {
+      console.log('First player sample:', {
+        id: playerData[0].id,
+        name: playerData[0].name,
+        projectedPoints: playerData[0].projectedPoints,
+        ownership: playerData[0].ownership,
+      });
+    }
+    console.log('----------------------');
+  }, [playerData.length, exposureSettings.players.length, lineups.length]);
+
   // Function to show notification
   const displayNotification = (message, type = 'success') => {
     setNotificationMessage(message);
@@ -36,6 +74,48 @@ const App = () => {
     }, 3000);
   };
 
+  // Initialize exposure settings when player data is loaded
+  useEffect(() => {
+    if (playerData.length > 0 && exposureSettings.players.length === 0) {
+      console.log('Initializing exposure settings from player data:', playerData.length);
+      // Only initialize if we don't already have player exposure settings
+      const initialPlayerExposures = playerData.map(player => ({
+        id: player.id,
+        name: player.name,
+        team: player.team,
+        position: player.position,
+        salary: player.salary,
+        projectedPoints: player.projectedPoints,
+        ownership: player.ownership,
+        min: exposureSettings.global.globalMinExposure,
+        max: exposureSettings.global.globalMaxExposure,
+        target: null,
+        actual: 0
+      }));
+
+      // Extract unique teams
+      const teams = [...new Set(playerData.map(player => player.team))].filter(Boolean);
+      const initialTeamExposures = teams.map(team => ({
+        team,
+        min: 0,
+        max: 100,
+        target: null,
+        actual: 0
+      }));
+
+      // Debug output
+      console.log('Created initial player exposures:', initialPlayerExposures.length);
+      console.log('Created initial team exposures:', initialTeamExposures.length);
+
+      // Update exposure settings with the initialized data
+      setExposureSettings(prev => ({
+        ...prev,
+        players: initialPlayerExposures,
+        teams: initialTeamExposures
+      }));
+    }
+  }, [playerData, exposureSettings.global, exposureSettings.players.length]);
+
   // Load all initial data on component mount
   useEffect(() => {
     const initializeData = async () => {
@@ -45,18 +125,48 @@ const App = () => {
         console.log('Initializing app data from backend...');
 
         // Load each data type in parallel for better performance
-        const [playersRes, stacksRes, settingsRes, lineupsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/players/projections`),
-          fetch(`${API_BASE_URL}/teams/stacks`),
-          fetch(`${API_BASE_URL}/settings`),
-          fetch(`${API_BASE_URL}/lineups`)
+        const [playersRes, stacksRes, settingsRes, lineupsRes, exposureRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/players/projections`).catch(err => {
+            console.error('Error fetching player projections:', err);
+            return { ok: false };
+          }),
+          fetch(`${API_BASE_URL}/teams/stacks`).catch(err => {
+            console.error('Error fetching team stacks:', err);
+            return { ok: false };
+          }),
+          fetch(`${API_BASE_URL}/settings`).catch(err => {
+            console.error('Error fetching settings:', err);
+            return { ok: false };
+          }),
+          fetch(`${API_BASE_URL}/lineups`).catch(err => {
+            console.error('Error fetching lineups:', err);
+            return { ok: false };
+          }),
+          fetch(`${API_BASE_URL}/settings/exposure`).catch(err => {
+            console.error('Error fetching exposure settings:', err);
+            return { ok: false };
+          })
         ]);
 
         // Process player projections
         if (playersRes.ok) {
-          const players = await playersRes.json();
-          console.log('Loaded player projections:', players.length);
-          setPlayerData(players);
+          const rawPlayers = await playersRes.json();
+
+          // Process ROO data to set projectedPoints from Median if available
+          const processedPlayers = rawPlayers.map(player => {
+            return {
+              ...player,
+              projectedPoints: player.projectedPoints !== undefined ? Number(player.projectedPoints) : 0,
+              ownership: player.ownership !== undefined ? Number(player.ownership) : undefined,
+            };
+          });
+
+          console.log('Loaded player projections:', processedPlayers.length);
+          // Debug log to check a few players
+          if (processedPlayers.length > 0) {
+            console.log('First few players:', processedPlayers.slice(0, 3));
+          }
+          setPlayerData(processedPlayers);
         } else {
           console.error('Failed to load player projections');
         }
@@ -86,6 +196,17 @@ const App = () => {
           setLineups(lineupsData);
         } else {
           console.error('Failed to load lineups');
+        }
+
+        // Process exposure settings if endpoint exists
+        if (exposureRes && exposureRes.ok) {
+          try {
+            const exposureData = await exposureRes.json();
+            console.log('Loaded exposure settings');
+            setExposureSettings(exposureData);
+          } catch (error) {
+            console.error('Failed to parse exposure settings:', error);
+          }
         }
 
         displayNotification('App data loaded successfully!');
@@ -127,6 +248,13 @@ const App = () => {
                       fileContent.includes('ADC') &&
                       fileContent.includes('SUP');
 
+        // Detect ROO format (has Median column)
+        const isRooFormat = fileContent.includes('Median');
+        if (isRooFormat) {
+          console.log('Detected ROO format with Median projection column');
+          displayNotification('Detected ROO format with Median projections', 'info');
+        }
+
         // Determine the correct endpoint based on file name and detected format
         if (file.name.includes('DKEntries') || isLolFormat) {
           endpoint = `${API_BASE_URL}/lineups/dkentries`;
@@ -135,13 +263,13 @@ const App = () => {
             console.log('Detected League of Legends DraftKings format');
             displayNotification('Detected League of Legends DraftKings format', 'info');
           }
-        } else if (file.name.includes('ROO_export')) {
+        } else if (file.name.includes('ROO_export') || isRooFormat) {
           endpoint = `${API_BASE_URL}/players/projections/upload`;
         } else if (file.name.includes('Stacks_export')) {
           endpoint = `${API_BASE_URL}/teams/stacks/upload`;
         } else {
           // Auto-detect file type based on content
-          if (fileContent.includes('Player') && fileContent.includes('Projection')) {
+          if (fileContent.includes('Player') && (fileContent.includes('Projection') || fileContent.includes('Median'))) {
             endpoint = `${API_BASE_URL}/players/projections/upload`;
             displayNotification('Auto-detected as player projections file', 'info');
           } else if (fileContent.includes('Team') && fileContent.includes('Stack')) {
@@ -221,8 +349,56 @@ const App = () => {
         // Refresh player data
         const playersRes = await fetch(`${API_BASE_URL}/players/projections`);
         if (playersRes.ok) {
-          const players = await playersRes.json();
-          setPlayerData(players);
+          const rawPlayers = await playersRes.json();
+
+          const processedPlayers = rawPlayers.map(player => {
+            return {
+              ...player,
+              projectedPoints: player.projectedPoints !== undefined ? Number(player.projectedPoints) : 0,
+             ownership : player.ownership !== undefined ? Number(player.ownership) : undefined,
+            };
+          });
+
+          // Debug log to check if Median is preserved
+          if (processedPlayers.length > 0) {
+            console.log('First few players after upload:', processedPlayers.slice(0, 3));
+          }
+
+          setPlayerData(processedPlayers);
+
+          // Re-initialize exposure settings for new player data
+          if (exposureSettings.global.applyToNewLineups) {
+            const initialPlayerExposures = processedPlayers.map(player => ({
+              id: player.id,
+              name: player.name,
+              team: player.team,
+              position: player.position,
+              salary: player.salary,
+              projectedPoints: player.projectedPoints,
+              ownership: player.ownership,
+              min: exposureSettings.global.globalMinExposure,
+              max: exposureSettings.global.globalMaxExposure,
+              target: null,
+              actual: 0
+            }));
+
+            // Extract unique teams
+            const teams = [...new Set(processedPlayers.map(player => player.team))].filter(Boolean);
+            const initialTeamExposures = teams.map(team => ({
+              team,
+              min: 0,
+              max: 100,
+              target: null,
+              actual: 0
+            }));
+
+            // Update exposure settings with the initialized data
+            setExposureSettings(prev => ({
+              ...prev,
+              players: initialPlayerExposures,
+              teams: initialTeamExposures
+            }));
+          }
         }
         displayNotification('Player projections uploaded successfully!');
       } else if (endpoint.includes('stacks')) {
@@ -327,7 +503,7 @@ const App = () => {
     }
   };
 
-  // Generate lineups
+  // Generate lineups for the "Generate 5 Optimal Lineups" button
   const generateLineups = async (count) => {
     try {
       setIsLoading(true);
@@ -406,6 +582,89 @@ const App = () => {
     }
   };
 
+  // Generate optimized lineups with exposure constraints
+  // This function is used by the LineupOptimizer component and the ExposureControl component
+  const generateOptimizedLineups = async (count, options = {}) => {
+    try {
+      setIsLoading(true);
+
+      // Validate we have necessary data
+      if (playerData.length === 0) {
+        displayNotification('No player projections loaded. Please upload player data first.', 'error');
+        setIsLoading(false);
+        return;
+      }
+
+      if (stackData.length === 0) {
+        displayNotification('No team stacks loaded. Please upload team stack data first.', 'error');
+        setIsLoading(false);
+        return;
+      }
+
+      // Create the lineup generation request with options (including exposure settings)
+      const generationRequest = {
+        count,
+        settings: {
+          ...settings,
+          ...options
+        },
+        // Include exposure settings if they should be applied to new lineups
+        ...(exposureSettings.global.applyToNewLineups && {
+          exposureSettings: exposureSettings
+        })
+      };
+
+      console.log('Generating optimized lineups with request:', generationRequest);
+
+      // Call the API to generate lineups
+      const response = await fetch(`${API_BASE_URL}/lineups/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(generationRequest)
+      });
+
+      if (!response.ok) {
+        let errorMessage = `Lineup generation failed: ${response.status} ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          if (errorData && errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (parseError) {
+          // If we can't parse JSON, try text
+          try {
+            const errorText = await response.text();
+            if (errorText) errorMessage += ` - ${errorText}`;
+          } catch (textError) {
+            // Ignore if we can't get text either
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Get the generated lineups
+      const result = await response.json();
+      console.log('Lineup generation results:', result);
+
+      if (result.lineups && Array.isArray(result.lineups)) {
+        setLineups([...lineups, ...result.lineups]);
+        displayNotification(`Generated ${result.lineups.length} new lineups!`);
+
+        // Switch to lineups tab after generation
+        setActiveTab('lineups');
+      } else {
+        throw new Error('Invalid response format for lineup generation');
+      }
+    } catch (error) {
+      console.error('Lineup generation error:', error);
+      displayNotification(`Error generating lineups: ${error.message}`, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Save settings to backend
   const saveSettings = async () => {
     try {
@@ -447,6 +706,167 @@ const App = () => {
     }
   };
 
+  // Export lineups to CSV or JSON
+  const exportLineups = async (format = 'csv') => {
+    try {
+      if (lineups.length === 0) {
+        displayNotification('No lineups to export', 'error');
+        return;
+      }
+
+      setIsLoading(true);
+
+      const response = await fetch(`${API_BASE_URL}/lineups/export?format=${format}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ lineups })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.status} ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `lol-dfs-lineups-${new Date().toISOString().split('T')[0]}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      displayNotification(`Lineups exported successfully as ${format.toUpperCase()}`);
+    } catch (error) {
+      console.error('Export error:', error);
+      displayNotification(`Error exporting lineups: ${error.message}`, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle exposure settings updates with improved error handling and type safety
+  const handleExposureUpdate = (newExposureSettings) => {
+    try {
+      // 1. Log what we received
+      console.log('Received exposure settings update:',
+        newExposureSettings ? 'Valid settings object' : 'Invalid/empty settings');
+
+      // 2. Create a completely new, clean object without any references to the original
+      const cleanSettings = {
+        global: {
+          globalMinExposure: typeof newExposureSettings.global?.globalMinExposure === 'number' ?
+            newExposureSettings.global.globalMinExposure : 0,
+          globalMaxExposure: typeof newExposureSettings.global?.globalMaxExposure === 'number' ?
+            newExposureSettings.global.globalMaxExposure : 60,
+          applyToNewLineups: Boolean(newExposureSettings.global?.applyToNewLineups),
+          prioritizeProjections: Boolean(newExposureSettings.global?.prioritizeProjections)
+        },
+        teams: Array.isArray(newExposureSettings.teams) ? newExposureSettings.teams.map(team => ({
+          team: String(team.team || ''),
+          min: team.min === null || team.min === '' ? null : Number(team.min),
+          max: team.max === null || team.max === '' ? null : Number(team.max),
+          target: team.target === null || team.target === '' ? null : Number(team.target),
+          actual: Number(team.actual) || 0
+        })) : [],
+        players: Array.isArray(newExposureSettings.players) ? newExposureSettings.players.map(player => {
+          // For debugging
+          if (player.id === newExposureSettings.players[0]?.id) {
+            console.log('Processing first player:', player);
+          }
+
+          return {
+            id: String(player.id || ''),
+            name: String(player.name || ''),
+            team: String(player.team || ''),
+            position: String(player.position || ''),
+            salary: Number(player.salary) || 0,
+            projectedPoints: player.projectedPoints !== undefined ? Number(player.projectedPoints) : 0,
+            ownership: player.ownership !== undefined ? Number(player.ownership) : undefined,
+            min: player.min === null || player.min === '' ? null : Number(player.min),
+            max: player.max === null || player.max === '' ? null : Number(player.max),
+            target: player.target === null || player.target === '' ? null : Number(player.target),
+            actual: Number(player.actual) || 0
+          };
+        }) : [],
+        positions: newExposureSettings.positions ? Object.fromEntries(
+          Object.entries(newExposureSettings.positions).map(([position, settings]) => [
+            position,
+            {
+              min: settings.min === null || settings.min === '' ? null : Number(settings.min),
+              max: settings.max === null || settings.max === '' ? null : Number(settings.max),
+              target: settings.target === null || settings.target === '' ? null : Number(settings.target)
+            }
+          ])
+        ) : {}
+      };
+
+      // 3. Update state with the clean settings
+      console.log('Setting new exposure settings with cleaned data');
+      setExposureSettings(cleanSettings);
+
+      // 4. Send to backend (wrapped in try/catch to prevent errors)
+      const isManualSave = newExposureSettings._isManualSave;
+      if (isManualSave) {
+        console.log(`Sending exposure settings to backend (${cleanSettings.players.length} players, ${cleanSettings.teams.length} teams)`);
+
+        // Use a more robust fetch with timeout and better error handling
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+        fetch(`${API_BASE_URL}/settings/exposure`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(cleanSettings),
+          signal: controller.signal
+        })
+        .then(response => {
+          clearTimeout(timeoutId);
+          console.log('Backend response received:', response.status, response.statusText);
+
+          if (!response.ok) {
+            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+          }
+          return response.text().then(text => {
+            // Try to parse as JSON if it looks like JSON
+            if (text && text.trim().startsWith('{')) {
+              try {
+                return JSON.parse(text);
+              } catch (e) {
+                console.log('Response not valid JSON:', text);
+                return text;
+              }
+            }
+            return text;
+          });
+        })
+        .then(data => {
+          console.log('Backend save successful:', data);
+          displayNotification('Exposure settings saved successfully!');
+        })
+        .catch(error => {
+          console.error('Backend save error:', error.toString());
+          // Log all available info about the error
+          if (error.name === 'AbortError') {
+            console.error('Request timed out after 10 seconds');
+            displayNotification('Settings saved locally (server timeout)', 'warning');
+          } else {
+            console.error('Error type:', error.constructor.name);
+            console.error('Error stack:', error.stack);
+            displayNotification('Settings saved locally (server error)', 'warning');
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Critical error in handleExposureUpdate:', error);
+      displayNotification('Error updating settings', 'error');
+    }
+  };
+
   return (
     <div>
       {/* Header */}
@@ -462,13 +882,13 @@ const App = () => {
         {/* Tabs */}
         <div className="tabs-container">
           <ul style={{ listStyle: 'none' }}>
-            {['upload', 'lineups', 'settings', 'results'].map(tab => (
+            {['upload', 'lineups', 'exposure', 'settings', 'results'].map(tab => (
               <li key={tab} style={{ display: 'inline-block' }}>
                 <button
                   className={`tab ${activeTab === tab ? 'active' : ''}`}
                   onClick={() => setActiveTab(tab)}
                 >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  {tab === 'exposure' ? 'Exposure Control' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               </li>
             ))}
@@ -610,6 +1030,21 @@ const App = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h2 className="card-title">My Lineups ({lineups.length})</h2>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div className="dropdown">
+                  <button className="btn">Export</button>
+                  <div className="dropdown-content">
+                    <button onClick={() => exportLineups('csv')}>CSV Format</button>
+                    <button onClick={() => exportLineups('json')}>JSON Format</button>
+                    <button onClick={() => exportLineups('dk')}>DraftKings Format</button>
+                  </div>
+                </div>
+                <button
+                  className="btn"
+                  style={{ backgroundColor: '#38b2ac', color: 'white' }}
+                  onClick={() => setActiveTab('exposure')}
+                >
+                  Manage Exposure
+                </button>
                 <button
                   className={simResults ? 'btn btn-success' : 'btn btn-disabled'}
                   onClick={() => generateLineups(1)}
@@ -742,6 +1177,18 @@ const App = () => {
               </div>
             )}
           </div>
+        )}
+
+        {/* Exposure Control Tab */}
+        {activeTab === 'exposure' && (
+          <ExposureControl
+            API_BASE_URL={API_BASE_URL}
+            playerData={playerData}
+            lineups={lineups}
+            exposureSettings={exposureSettings}  // Pass the saved settings
+            onUpdateExposures={handleExposureUpdate}
+            onGenerateLineups={generateOptimizedLineups}
+          />
         )}
 
         {/* Settings Tab */}
@@ -1013,7 +1460,7 @@ const App = () => {
               <div className="loading-bar"></div>
             </div>
             <p className="loading-text">
-              Running advanced simulation. This may take a few moments...
+             This may take a moment...
             </p>
           </div>
         </div>
