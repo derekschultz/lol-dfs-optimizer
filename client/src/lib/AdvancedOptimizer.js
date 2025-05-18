@@ -25,6 +25,7 @@ class AdvancedOptimizer {
         SUP: 1,
         TEAM: 1
       },
+      maxPlayersPerTeam: 4,
       iterations: 10000,         // Monte Carlo iterations
       randomness: 0.3,           // 0-1 scale of how much to randomize projections
       targetTop: 0.2,            // Target top % of simulations
@@ -863,7 +864,7 @@ class AdvancedOptimizer {
     return true;
   }
 
-/**
+ /**
  * Build a single lineup using a smart algorithm
  * Enhanced to consider all exposure constraints and ensure TEAM position
  */
@@ -880,11 +881,17 @@ async _buildLineup(existingLineups = []) {
   const usedPlayers = new Set();
   let remainingSalary = this.config.salaryCap;
 
+  // Track team usage for this lineup
+  const teamCounts = {};
+
   // Calculate current exposure metrics
   const totalLineups = this.generatedLineups.length + this.existingLineups.length;
 
   // Select a stack team with consideration of stack-specific exposures
   const stackTeam = this._selectStackTeam();
+
+  // Start counting players from this team
+  teamCounts[stackTeam.name] = 0;
 
   // Determine stack size based on constraints
   let stackSize = null;
@@ -923,10 +930,15 @@ async _buildLineup(existingLineups = []) {
   usedPlayers.add(lineup.cpt.id);
   remainingSalary -= lineup.cpt.salary;
 
-  // Fill positions one by one - MODIFIED to check available positions
-  // Create a prioritized list of positions to fill
+  // Update team counts for captain
+  if (lineup.cpt.team) {
+    teamCounts[lineup.cpt.team] = (teamCounts[lineup.cpt.team] || 0) + 1;
+  }
+
+  // Find available positions in player pool
   const availablePositions = new Set(this.playerPool.map(p => p.position));
 
+  // Create a prioritized list of positions to fill
   const positionsToFill = Object.entries(this.config.positionRequirements)
     .filter(([pos, count]) => {
       // Skip captain (already handled)
@@ -934,7 +946,6 @@ async _buildLineup(existingLineups = []) {
 
       // For TEAM position, only include if it exists in the player pool
       if (pos === 'TEAM' && !availablePositions.has('TEAM')) {
-        this.debugLog(`Skipping TEAM position as no TEAM players exist in player pool`);
         return false;
       }
 
@@ -946,17 +957,11 @@ async _buildLineup(existingLineups = []) {
       return (order[posA] || 99) - (order[posB] || 99);
     });
 
-  this.debugLog(`Filling positions in order: ${positionsToFill.map(([pos]) => pos).join(', ')}`);
-
   // Now fill each position in the prioritized order
   for (const [position, count] of positionsToFill) {
-    this.debugLog(`Filling position: ${position} (need ${count})`);
-
     for (let i = 0; i < count; i++) {
       // Special handling for TEAM position
       if (position === 'TEAM') {
-        this.debugLog('Selecting TEAM position player...');
-
         // First try to get TEAM player from stack team
         let teamPlayers = this.playerPool.filter(player =>
           !usedPlayers.has(player.id) &&
@@ -967,7 +972,6 @@ async _buildLineup(existingLineups = []) {
 
         // If no TEAM players from stack team, get any TEAM player
         if (teamPlayers.length === 0) {
-          this.debugLog('No TEAM players from stack team, selecting any TEAM player');
           teamPlayers = this.playerPool.filter(player =>
             !usedPlayers.has(player.id) &&
             player.position === 'TEAM' &&
@@ -990,12 +994,15 @@ async _buildLineup(existingLineups = []) {
             salary: this._safeParseFloat(selectedTeamPlayer.salary, 0)
           };
 
+          // Update team counts for the TEAM position
+          if (player.team) {
+            teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+          }
+
           lineup.players.push(player);
           usedPlayers.add(player.id);
           remainingSalary -= player.salary;
-          this.debugLog(`Added TEAM player: ${player.name} (${player.team})`);
         } else {
-          this.debugLog('No TEAM position players available within salary constraint');
           throw new Error(`Couldn't find player for position TEAM`);
         }
       } else {
@@ -1006,16 +1013,20 @@ async _buildLineup(existingLineups = []) {
           usedPlayers,
           remainingSalary,
           lineup.players,
-          stackSize
+          stackSize,
+          teamCounts
         );
 
         if (player) {
+          // Update team counts for this player
+          if (player.team) {
+            teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+          }
+
           lineup.players.push(player);
           usedPlayers.add(player.id);
           remainingSalary -= player.salary;
-          this.debugLog(`Added ${position} player: ${player.name} (${player.team})`);
         } else {
-          this.debugLog(`Failed to find player for position ${position}`);
           throw new Error(`Couldn't find player for position ${position}`);
         }
       }
@@ -1204,10 +1215,9 @@ async _buildLineup(existingLineups = []) {
 
   /**
    * Select a player for a position
-   * Enhanced to consider exposure and stack size requirements
+   * Enhanced to consider exposure, stack size requirements, and team limits
    */
-  async _selectPositionPlayer(position, stackTeam, usedPlayers, remainingSalary, selectedPlayers, targetStackSize = null) {
-    console.log(`selecting position ${position} player`)
+  async _selectPositionPlayer(position, stackTeam, usedPlayers, remainingSalary, selectedPlayers, targetStackSize = null, teamCounts = {}) {
     // Special handling for TEAM position
     if (position === 'TEAM') {
       console.log('Selecting TEAM position player...');
@@ -1262,6 +1272,32 @@ async _buildLineup(existingLineups = []) {
       // Try to find any player under salary cap
       candidates = this.playerPool.filter(player =>
         !usedPlayers.has(player.id) &&
+        this._safeParseFloat(player.salary, 0) <= remainingSalary
+      );
+
+      // If still no candidates, return null
+      if (candidates.length === 0) {
+        return null;
+      }
+    }
+
+    // Apply team limits - filter out players from teams that already have the max number of players
+    const MAX_PLAYERS_PER_TEAM = this.config.maxPlayersPerTeam || 4; // Use config value or default to 4
+
+    // First, filter by team limit
+    candidates = candidates.filter(player => {
+      const teamCount = teamCounts[player.team] || 0;
+      return teamCount < MAX_PLAYERS_PER_TEAM;
+    });
+
+    // If no candidates after team limit filter, try to find any player
+    if (candidates.length === 0) {
+      this.debugLog(`No candidates for ${position} after team limit filter, relaxing constraints`);
+
+      // Try to find any player for this position
+      candidates = this.playerPool.filter(player =>
+        !usedPlayers.has(player.id) &&
+        player.position === position &&
         this._safeParseFloat(player.salary, 0) <= remainingSalary
       );
 
@@ -1466,6 +1502,29 @@ async _buildLineup(existingLineups = []) {
       return false;
     }
 
+    const MAX_PLAYERS_PER_TEAM = this.config.maxPlayersPerTeam || 4; // Use config value or default to 4
+
+    const teamCounts = {};
+    // Count captain's team
+    if (lineup.cpt && lineup.cpt.team) {
+      teamCounts[lineup.cpt.team] = 1;
+    }
+
+    // Count players' teams
+    lineup.players.forEach(player => {
+      if (player && player.team) {
+        teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+      }
+    });
+
+    // Check if any team exceeds the limit
+    for (const team in teamCounts) {
+      if (teamCounts[team] > MAX_PLAYERS_PER_TEAM) {
+        this.debugLog(`Lineup invalid: ${team} has ${teamCounts[team]} players (max: ${MAX_PLAYERS_PER_TEAM})`);
+        return false;
+      }
+    }
+
     // Check uniqueness against existing lineups
     for (const existing of existingLineups) {
       const existingIds = [existing.cpt.id, ...existing.players.map(p => p.id)].sort().join(',');
@@ -1603,7 +1662,7 @@ async _buildLineup(existingLineups = []) {
       (firstPlaceRate * 100) +
       (top10Rate * 10) +
       (cashRate * 2)
-    );
+    ).toFixed(2);
 
     // Calculate projected points with safe handling
     let projectedPoints = 0;
