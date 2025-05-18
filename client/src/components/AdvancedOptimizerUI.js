@@ -2,6 +2,27 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import AdvancedOptimizer from '../lib/AdvancedOptimizer'; // Import the optimizer
 
+// Helper function to safely format numeric values that might be strings
+const formatNumber = (value, decimals = 2) => {
+  // If it's already a string, try to parse it
+  if (typeof value === 'string') {
+    // Try to parse and format, but fall back to the original string if it fails
+    try {
+      return parseFloat(value).toFixed(decimals);
+    } catch (e) {
+      return value; // Return original string if parsing fails
+    }
+  }
+
+  // If it's a number, format it
+  if (typeof value === 'number') {
+    return value.toFixed(decimals);
+  }
+
+  // Fall back to 0 if the value is undefined or null
+  return (0).toFixed(decimals);
+};
+
 /**
  * AdvancedOptimizerUI component implements a SaberSim-like interface
  * for the League of Legends DFS optimizer
@@ -244,7 +265,7 @@ const AdvancedOptimizerUI = ({
         // Format lineups for the parent component
         const formattedLineups = optimizationResults.lineups.map(lineup => ({
           id: lineup.id,
-          name: `Optimized ${lineup.roi}x ROI (${lineup.projectedPoints} pts)`,
+          name: `Optimized ${formatNumber(lineup.roi)}x ROI (${lineup.projectedPoints} pts)`,
           cpt: lineup.cpt,
           players: lineup.players,
           projectedPoints: lineup.projectedPoints,
@@ -541,14 +562,14 @@ const AdvancedOptimizerUI = ({
               <div className="stat-card">
                 <h4 style={{ color: '#90cdf4' }}>Top Lineup ROI</h4>
                 <p className="stat-value" style={{ color: '#10b981' }}>
-                  {optimizationResults.lineups[0]?.roi.toFixed(2)}x
+                  {formatNumber(optimizationResults.lineups[0]?.roi)}x
                 </p>
               </div>
 
               <div className="stat-card">
                 <h4 style={{ color: '#90cdf4' }}>First Place %</h4>
                 <p className="stat-value" style={{ color: '#8b5cf6' }}>
-                  {optimizationResults.lineups[0]?.firstPlace}%
+                  {formatNumber(optimizationResults.lineups[0]?.firstPlace, 1)}%
                 </p>
               </div>
 
@@ -642,9 +663,9 @@ const AdvancedOptimizerUI = ({
                     return (
                       <tr key={lineup.id}>
                         <td>{index + 1}</td>
-                        <td style={{ fontWeight: 'bold', color: '#10b981' }}>{lineup.roi.toFixed(2)}x</td>
-                        <td style={{ color: '#8b5cf6' }}>{lineup.firstPlace}%</td>
-                        <td style={{ color: '#f59e0b' }}>{lineup.projectedPoints}</td>
+                        <td style={{ fontWeight: 'bold', color: '#10b981' }}>{formatNumber(lineup.roi)}x</td>
+                        <td style={{ color: '#8b5cf6' }}>{formatNumber(lineup.firstPlace, 1)}%</td>
+                        <td style={{ color: '#f59e0b' }}>{formatNumber(lineup.projectedPoints, 1)}</td>
                         <td>
                           {/* Stack information */}
                           <div style={{
