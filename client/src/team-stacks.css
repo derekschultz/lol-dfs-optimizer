@@ -1,0 +1,115 @@
+* Team Stacks Component Styles */
+
+.team-stacks-container {
+  width: 100%;
+}
+
+.stack-filter-tabs {
+  display: flex;
+  border-bottom: 1px solid #2d3748;
+  margin-bottom: 1.5rem;
+  overflow-x: auto;
+}
+
+.stack-filter-tabs .tab {
+  display: inline-block;
+  padding: 0.75rem 1rem;
+  margin-right: 0.25rem;
+  color: #a0aec0;
+  border-radius: 0.25rem 0.25rem 0 0;
+  transition: all 0.2s;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.stack-filter-tabs .tab:hover {
+  color: white;
+  background-color: rgba(44, 82, 130, 0.2);
+}
+
+.stack-filter-tabs .tab.active {
+  color: #4fd1c5;
+  border-bottom: 2px solid #4fd1c5;
+  background-color: rgba(44, 82, 130, 0.3);
+}
+
+/* Team Stack table styles */
+.team-stacks-container table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.team-stacks-container th {
+  background-color: #1a365d;
+  color: #90cdf4;
+  font-weight: 500;
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  border-bottom: 1px solid #2c5282;
+}
+
+.team-stacks-container td {
+  padding: 0.5rem;
+  text-align: center;
+  border-bottom: 1px solid #2d3748;
+}
+
+.team-stacks-container tbody tr:hover {
+  background-color: rgba(44, 82, 130, 0.2);
+}
+
+/* Specific column stylings */
+.team-stacks-container th:nth-child(2),
+.team-stacks-container td:nth-child(2) {
+  text-align: left;
+  padding-left: 1rem;
+}
+
+/* Status indicator style */
+.status-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-active {
+  background-color: #38a169;
+}
+
+.status-pending {
+  background-color: #ed8936;
+}
+
+.status-inactive {
+  background-color: #718096;
+}
+
+/* Input field in tables */
+.team-stacks-container input[type="number"] {
+  background-color: #1a365d;
+  border: 1px solid #2c5282;
+  color: white;
+  border-radius: 0.25rem;
+  padding: 0.3rem;
+  width: 60px;
+  text-align: center;
+}
+
+/* Highlight row when team is selected */
+.team-selected {
+  background-color: rgba(79, 209, 197, 0.1) !important;
+}
+
+/* Positive/negative projection styling */
+.positive-projection {
+  color: #38a169;
+}
+
+.negative-projection {
+  color: #e53e3e;
+}

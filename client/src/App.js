@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, BarChart, Bar } from 'recharts';
 import './blue-theme.css';
+import './team-stacks.css';
 import ExposureControl from './components/ExposureControl';
+import TeamStacks from './components/TeamStacks';
+import OptimizerPage from './pages/OptimizerPage';
 
-/* eslint-disable react-hooks/exhaustive-deps */
 const App = () => {
   // API base URL - this matches the port in our server.js
   const API_BASE_URL = 'http://localhost:3001';
@@ -175,7 +177,25 @@ const App = () => {
         if (stacksRes.ok) {
           const stacks = await stacksRes.json();
           console.log('Loaded team stacks:', stacks.length);
-          setStackData(stacks);
+
+          // Enhanced team stacks with additional data for the team stacks view
+          const enhancedStacks = stacks.map(stack => {
+            // Get all players for this team
+            const teamPlayers = playerData.filter(p => p.team === stack.team);
+
+            // Calculate total projection for the team
+            const totalProjection = teamPlayers.reduce((sum, p) => sum + (p.projectedPoints || 0), 0);
+
+            // Add additional properties
+            return {
+              ...stack,
+              totalProjection,
+              poolExposure: teamPlayers.reduce((sum, p) => sum + (p.ownership || 0), 0) / Math.max(1, teamPlayers.length),
+              status: '—' // Default status
+            };
+          });
+
+          setStackData(enhancedStacks);
         } else {
           console.error('Failed to load team stacks');
         }
@@ -221,19 +241,20 @@ const App = () => {
     initializeData();
   }, []);
 
-  // Handle file upload
+  // Handle file upload - MODIFIED WITH IMPROVED FILE DETECTION
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
     const fileExt = file.name.split('.').pop().toLowerCase();
+    // Declare this variable at function scope so it's accessible throughout the function
+    let isLolFormat = false;
 
     try {
       setIsLoading(true);
       displayNotification(`Processing ${file.name}...`);
 
       let endpoint;
-      let isLolFormat = false;
 
       // Check file format first
       if (fileExt === 'csv') {
@@ -241,41 +262,65 @@ const App = () => {
         const fileContent = await readFilePreview(file, 2000);
         console.log('File preview:', fileContent.substring(0, 500) + '...');
 
-        // Detect LoL format (has TOP, JNG, MID, ADC, SUP positions)
+        // IMPROVED DETECTION LOGIC - More specific identification of file types
+        // Check for DraftKings lineups (has Entry ID, Contest ID columns)
+        const isDraftKingsFile = fileContent.includes('Entry ID') &&
+                               (fileContent.includes('Contest ID') ||
+                                fileContent.includes('Contest Name'));
+
+        // Check for ROO projections (has the specific stats columns)
+        const isRooProjectionsFile = fileContent.includes('Median') &&
+                                   (fileContent.includes('Floor') ||
+                                    fileContent.includes('Ceiling'));
+
+        // Check for team stacks file
+        const isStacksFile = fileContent.includes('Stack+') ||
+                           (fileContent.includes('Team') && fileContent.includes('Stack')) ||
+                           fileContent.includes('Fantasy');
+
+        // Check for LoL format as a fallback
         isLolFormat = fileContent.includes('TOP') &&
                       fileContent.includes('JNG') &&
                       fileContent.includes('MID') &&
                       fileContent.includes('ADC') &&
                       fileContent.includes('SUP');
 
-        // Detect ROO format (has Median column)
-        const isRooFormat = fileContent.includes('Median');
-        if (isRooFormat) {
+        // Clear messaging for user about detected file type
+        if (isRooProjectionsFile) {
           console.log('Detected ROO format with Median projection column');
-          displayNotification('Detected ROO format with Median projections', 'info');
-        }
-
-        // Determine the correct endpoint based on file name and detected format
-        if (file.name.includes('DKEntries') || isLolFormat) {
-          endpoint = `${API_BASE_URL}/lineups/dkentries`;
-
-          if (isLolFormat) {
-            console.log('Detected League of Legends DraftKings format');
-            displayNotification('Detected League of Legends DraftKings format', 'info');
-          }
-        } else if (file.name.includes('ROO_export') || isRooFormat) {
+          displayNotification('Detected ROO format with player projections', 'info');
           endpoint = `${API_BASE_URL}/players/projections/upload`;
-        } else if (file.name.includes('Stacks_export')) {
+        }
+        else if (isStacksFile) {
+          console.log('Detected team stacks file');
+          displayNotification('Detected team stacks file', 'info');
           endpoint = `${API_BASE_URL}/teams/stacks/upload`;
-        } else {
-          // Auto-detect file type based on content
-          if (fileContent.includes('Player') && (fileContent.includes('Projection') || fileContent.includes('Median'))) {
+        }
+        else if (isDraftKingsFile) {
+          console.log('Detected DraftKings entries file');
+          displayNotification('Detected DraftKings entries file', 'info');
+          endpoint = `${API_BASE_URL}/lineups/dkentries`;
+        }
+        else if (isLolFormat) {
+          console.log('Detected League of Legends DraftKings format');
+          displayNotification('Detected League of Legends DraftKings format', 'info');
+          endpoint = `${API_BASE_URL}/lineups/dkentries`;
+        }
+        else {
+          // Fallback to filename-based detection for edge cases
+          if (file.name.toLowerCase().includes('roo_export')) {
             endpoint = `${API_BASE_URL}/players/projections/upload`;
-            displayNotification('Auto-detected as player projections file', 'info');
-          } else if (fileContent.includes('Team') && fileContent.includes('Stack')) {
+            displayNotification('Using filename to detect as ROO projections file', 'info');
+          }
+          else if (file.name.toLowerCase().includes('stacks')) {
             endpoint = `${API_BASE_URL}/teams/stacks/upload`;
-            displayNotification('Auto-detected as team stacks file', 'info');
-          } else {
+            displayNotification('Using filename to detect as team stacks file', 'info');
+          }
+          else if (file.name.toLowerCase().includes('dkentries')) {
+            endpoint = `${API_BASE_URL}/lineups/dkentries`;
+            displayNotification('Using filename to detect as DraftKings entries file', 'info');
+          }
+          else {
             displayNotification('Unknown CSV file type. Please rename with proper prefix.', 'warning');
             setIsLoading(false);
             return;
@@ -298,8 +343,8 @@ const App = () => {
       formData.append('fileSize', file.size);
       formData.append('contentType', file.type);
 
-      // Flag if this is LoL format
-      if (isLolFormat) {
+      // Flag if this is LoL format - using isLolFormat which is now in scope
+      if (endpoint.includes('dkentries') && isLolFormat) {
         formData.append('format', 'lol');
       }
 
@@ -584,86 +629,80 @@ const App = () => {
 
   // Generate optimized lineups with exposure constraints
   // This function is used by the LineupOptimizer component and the ExposureControl component
-  const generateOptimizedLineups = async (count, options = {}) => {
-    try {
-      setIsLoading(true);
+ const generateOptimizedLineups = async (count, options = {}) => {
+  try {
+    setIsLoading(true);
 
-      // Validate we have necessary data
-      if (playerData.length === 0) {
-        displayNotification('No player projections loaded. Please upload player data first.', 'error');
-        setIsLoading(false);
-        return;
-      }
-
-      if (stackData.length === 0) {
-        displayNotification('No team stacks loaded. Please upload team stack data first.', 'error');
-        setIsLoading(false);
-        return;
-      }
-
-      // Create the lineup generation request with options (including exposure settings)
-      const generationRequest = {
-        count,
-        settings: {
-          ...settings,
-          ...options
-        },
-        // Include exposure settings if they should be applied to new lineups
-        ...(exposureSettings.global.applyToNewLineups && {
-          exposureSettings: exposureSettings
-        })
-      };
-
-      console.log('Generating optimized lineups with request:', generationRequest);
-
-      // Call the API to generate lineups
-      const response = await fetch(`${API_BASE_URL}/lineups/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(generationRequest)
-      });
-
-      if (!response.ok) {
-        let errorMessage = `Lineup generation failed: ${response.status} ${response.statusText}`;
-        try {
-          const errorData = await response.json();
-          if (errorData && errorData.message) {
-            errorMessage = errorData.message;
-          }
-        } catch (parseError) {
-          // If we can't parse JSON, try text
-          try {
-            const errorText = await response.text();
-            if (errorText) errorMessage += ` - ${errorText}`;
-          } catch (textError) {
-            // Ignore if we can't get text either
-          }
-        }
-        throw new Error(errorMessage);
-      }
-
-      // Get the generated lineups
-      const result = await response.json();
-      console.log('Lineup generation results:', result);
-
-      if (result.lineups && Array.isArray(result.lineups)) {
-        setLineups([...lineups, ...result.lineups]);
-        displayNotification(`Generated ${result.lineups.length} new lineups!`);
-
-        // Switch to lineups tab after generation
-        setActiveTab('lineups');
-      } else {
-        throw new Error('Invalid response format for lineup generation');
-      }
-    } catch (error) {
-      console.error('Lineup generation error:', error);
-      displayNotification(`Error generating lineups: ${error.message}`, 'error');
-    } finally {
+    // Validate we have necessary data
+    if (playerData.length === 0) {
+      displayNotification('No player projections loaded. Please upload player data first.', 'error');
       setIsLoading(false);
+      return;
     }
-  };
+
+    // Create the lineup generation request with options (including exposure settings)
+    const generationRequest = {
+      count,
+      settings: {
+        ...settings,
+        ...options
+      },
+      // Always include exposure settings
+      exposureSettings: options.exposureSettings || exposureSettings
+    };
+
+    console.log('Generating optimized lineups with request:', generationRequest);
+
+    // Call the API to generate lineups
+    const response = await fetch(`${API_BASE_URL}/lineups/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(generationRequest)
+    });
+
+    if (!response.ok) {
+      let errorMessage = `Lineup generation failed: ${response.status} ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        if (errorData && errorData.message) {
+          errorMessage = errorData.message;
+        }
+      } catch (parseError) {
+        // If we can't parse JSON, try text
+        try {
+          const errorText = await response.text();
+          if (errorText) errorMessage += ` - ${errorText}`;
+        } catch (textError) {
+          // Ignore if we can't get text either
+        }
+      }
+      throw new Error(errorMessage);
+    }
+
+    // Get the generated lineups
+    const result = await response.json();
+    console.log('Lineup generation results:', result);
+
+    if (result.lineups && Array.isArray(result.lineups)) {
+      setLineups([...lineups, ...result.lineups]);
+      displayNotification(`Generated ${result.lineups.length} new lineups!`);
+
+      // Switch to lineups tab after generation
+      setActiveTab('lineups');
+      return result.lineups;
+    } else {
+      throw new Error('Invalid response format for lineup generation');
+    }
+  } catch (error) {
+    console.error('Lineup generation error:', error);
+    displayNotification(`Error generating lineups: ${error.message}`, 'error');
+    return null;
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   // Save settings to backend
   const saveSettings = async () => {
@@ -766,6 +805,8 @@ const App = () => {
         },
         teams: Array.isArray(newExposureSettings.teams) ? newExposureSettings.teams.map(team => ({
           team: String(team.team || ''),
+          // Preserve stackSize if it exists
+          ...(team.stackSize !== undefined ? { stackSize: Number(team.stackSize) } : {}),
           min: team.min === null || team.min === '' ? null : Number(team.min),
           max: team.max === null || team.max === '' ? null : Number(team.max),
           target: team.target === null || team.target === '' ? null : Number(team.target),
@@ -800,7 +841,8 @@ const App = () => {
               target: settings.target === null || settings.target === '' ? null : Number(settings.target)
             }
           ])
-        ) : {}
+        ) : {},
+        _isManualSave: Boolean(newExposureSettings._isManualSave)
       };
 
       // 3. Update state with the clean settings
@@ -882,13 +924,14 @@ const App = () => {
         {/* Tabs */}
         <div className="tabs-container">
           <ul style={{ listStyle: 'none' }}>
-            {['upload', 'lineups', 'exposure', 'settings', 'results'].map(tab => (
+            {['upload', 'lineups', 'optimizer', 'settings', 'results'].map(tab => (
               <li key={tab} style={{ display: 'inline-block' }}>
                 <button
                   className={`tab ${activeTab === tab ? 'active' : ''}`}
                   onClick={() => setActiveTab(tab)}
                 >
-                  {tab === 'exposure' ? 'Exposure Control' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  {tab === 'optimizer' ? 'Advanced Optimizer' :
+                  tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               </li>
             ))}
@@ -1179,6 +1222,19 @@ const App = () => {
           </div>
         )}
 
+        {/* Team Stacks Tab */}
+        {activeTab === 'team-stacks' && (
+          <TeamStacks
+            API_BASE_URL={API_BASE_URL}
+            teamData={stackData}
+            playerData={playerData}
+            lineups={lineups}
+            exposureSettings={exposureSettings}
+            onUpdateExposures={handleExposureUpdate}
+            onGenerateLineups={generateOptimizedLineups}
+          />
+        )}
+
         {/* Exposure Control Tab */}
         {activeTab === 'exposure' && (
           <ExposureControl
@@ -1188,6 +1244,25 @@ const App = () => {
             exposureSettings={exposureSettings}  // Pass the saved settings
             onUpdateExposures={handleExposureUpdate}
             onGenerateLineups={generateOptimizedLineups}
+          />
+        )}
+
+        {/* Advanced Optimizer Tab */}
+        {activeTab === 'optimizer' && (
+          <OptimizerPage
+            API_BASE_URL={API_BASE_URL}
+            playerData={playerData}
+            lineups={lineups}
+            exposureSettings={exposureSettings}
+            onUpdateExposures={handleExposureUpdate}
+            onGenerateLineups={generateOptimizedLineups}
+            onImportLineups={(optimizedLineups) => {
+              // Add imported lineups to existing lineups
+              setLineups(prev => [...prev, ...optimizedLineups]);
+              displayNotification(`Imported ${optimizedLineups.length} optimized lineups!`);
+              // Switch to lineups tab after import
+              setActiveTab('lineups');
+            }}
           />
         )}
 
