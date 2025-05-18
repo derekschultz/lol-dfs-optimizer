@@ -625,7 +625,8 @@ const AdvancedOptimizerUI = ({
                       JNG: lineup.players.find(p => p.position === 'JNG'),
                       MID: lineup.players.find(p => p.position === 'MID'),
                       ADC: lineup.players.find(p => p.position === 'ADC'),
-                      SUP: lineup.players.find(p => p.position === 'SUP')
+                      SUP: lineup.players.find(p => p.position === 'SUP'),
+                      TEAM: lineup.players.find(p => p.position === 'TEAM')
                     };
 
                     // Create color map for teams to visually identify stacks
@@ -746,6 +747,21 @@ const AdvancedOptimizerUI = ({
                               }}>
                                 SUP: {playersByPos.SUP.name}
                               </div>
+                            )}
+
+                            {/* TEAM */}
+                            {playersByPos.TEAM && (
+                            <div style={{
+                                backgroundColor: `${teamColors[playersByPos.TEAM.team]}22`,
+                                border: `1px solid ${teamColors[playersByPos.TEAM.team]}`,
+                                color: teamColors[playersByPos.TEAM.team],
+                                borderRadius: '0.25rem',
+                                padding: '0.1rem 0.3rem',
+                                fontSize: '0.75rem',
+                                fontWeight: 'bold'
+                            }}>
+                                TEAM: {playersByPos.TEAM.name}
+                            </div>
                             )}
                           </div>
                         </td>

@@ -65,12 +65,13 @@ const ExposureControl = ({
 
   // Position-specific settings
   const [positionExposures, setPositionExposures] = useState({
+    CPT: { min: 0, max: 100, target: null },
     TOP: { min: 0, max: 100, target: null },
     JNG: { min: 0, max: 100, target: null },
     MID: { min: 0, max: 100, target: null },
     ADC: { min: 0, max: 100, target: null },
     SUP: { min: 0, max: 100, target: null },
-    CPT: { min: 0, max: 100, target: null }
+    TEAM: { min: 0, max: 100, target: null }
   });
 
   // Filter and sorting state

@@ -216,7 +216,8 @@ const generateOptimalLineups = async (count, options = {}) => {
         JNG: 1,
         MID: 1,
         ADC: 1,
-        SUP: 1
+        SUP: 1,
+        TEAM: 1
       },
       iterations: settings.iterations || 2000,
       randomness: 0.2,

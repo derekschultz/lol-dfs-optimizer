@@ -22,7 +22,8 @@ class AdvancedOptimizer {
         JNG: 1,
         MID: 1,
         ADC: 1,
-        SUP: 1
+        SUP: 1,
+        TEAM: 1
       },
       iterations: 10000,         // Monte Carlo iterations
       randomness: 0.3,           // 0-1 scale of how much to randomize projections
@@ -448,7 +449,8 @@ class AdvancedOptimizer {
           JNG: teamPlayers.filter(p => p.position === 'JNG'),
           MID: teamPlayers.filter(p => p.position === 'MID'),
           ADC: teamPlayers.filter(p => p.position === 'ADC'),
-          SUP: teamPlayers.filter(p => p.position === 'SUP')
+          SUP: teamPlayers.filter(p => p.position === 'SUP'),
+          TEAM: teamPlayers.filter(p => p.position === 'TEAM')
         }
       };
     });
@@ -861,74 +863,143 @@ class AdvancedOptimizer {
     return true;
   }
 
-  /**
-   * Build a single lineup using a smart algorithm
-   * Enhanced to consider all exposure constraints
-   */
-  async _buildLineup(existingLineups = []) {
-    // Start with empty lineup
-    const lineup = {
-      id: Date.now() + Math.floor(Math.random() * 10000),
-      name: `Optimized Lineup ${existingLineups.length + 1}`,
-      cpt: null,
-      players: []
-    };
+/**
+ * Build a single lineup using a smart algorithm
+ * Enhanced to consider all exposure constraints and ensure TEAM position
+ */
+async _buildLineup(existingLineups = []) {
+  // Start with empty lineup
+  const lineup = {
+    id: Date.now() + Math.floor(Math.random() * 10000),
+    name: `Optimized Lineup ${existingLineups.length + 1}`,
+    cpt: null,
+    players: []
+  };
 
-    // Track used players and salary
-    const usedPlayers = new Set();
-    let remainingSalary = this.config.salaryCap;
+  // Track used players and salary
+  const usedPlayers = new Set();
+  let remainingSalary = this.config.salaryCap;
 
-    // Calculate current exposure metrics
-    const totalLineups = this.generatedLineups.length + this.existingLineups.length;
+  // Calculate current exposure metrics
+  const totalLineups = this.generatedLineups.length + this.existingLineups.length;
 
-    // Select a stack team with consideration of stack-specific exposures
-    const stackTeam = this._selectStackTeam();
+  // Select a stack team with consideration of stack-specific exposures
+  const stackTeam = this._selectStackTeam();
 
-    // Determine stack size based on constraints
-    let stackSize = null;
+  // Determine stack size based on constraints
+  let stackSize = null;
 
-    // Check if this team has any stack-specific constraints
-    const teamStackConstraints = this.teamStackExposures.filter(tc => tc.team === stackTeam.name);
+  // Check if this team has any stack-specific constraints
+  const teamStackConstraints = this.teamStackExposures.filter(tc => tc.team === stackTeam.name);
 
-    if (teamStackConstraints.length > 0) {
-      // Find underexposed stack sizes
-      const underexposedStacks = teamStackConstraints.filter(tc => {
-        const stackKey = `${stackTeam.name}_${tc.stackSize}`;
-        const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
-        const currentPct = totalLineups > 0 ? stackCount / totalLineups : 0;
-        return currentPct < tc.min;
-      });
+  if (teamStackConstraints.length > 0) {
+    // Find underexposed stack sizes
+    const underexposedStacks = teamStackConstraints.filter(tc => {
+      const stackKey = `${stackTeam.name}_${tc.stackSize}`;
+      const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+      const currentPct = totalLineups > 0 ? stackCount / totalLineups : 0;
+      return currentPct < tc.min;
+    });
 
-      if (underexposedStacks.length > 0) {
-        // Prioritize the most underexposed stack size
-        const targetStack = underexposedStacks.sort((a, b) => {
-          const aKey = `${stackTeam.name}_${a.stackSize}`;
-          const bKey = `${stackTeam.name}_${b.stackSize}`;
-          const aCount = this.exposureTracking.teamStacks.get(aKey) || 0;
-          const bCount = this.exposureTracking.teamStacks.get(bKey) || 0;
-          const aPct = totalLineups > 0 ? aCount / totalLineups : 0;
-          const bPct = totalLineups > 0 ? bCount / totalLineups : 0;
-          return (aPct - a.min) - (bPct - b.min); // Most negative = most underexposed relative to min
-        })[0];
+    if (underexposedStacks.length > 0) {
+      // Prioritize the most underexposed stack size
+      const targetStack = underexposedStacks.sort((a, b) => {
+        const aKey = `${stackTeam.name}_${a.stackSize}`;
+        const bKey = `${stackTeam.name}_${b.stackSize}`;
+        const aCount = this.exposureTracking.teamStacks.get(aKey) || 0;
+        const bCount = this.exposureTracking.teamStacks.get(bKey) || 0;
+        const aPct = totalLineups > 0 ? aCount / totalLineups : 0;
+        const bPct = totalLineups > 0 ? bCount / totalLineups : 0;
+        return (aPct - a.min) - (bPct - b.min); // Most negative = most underexposed relative to min
+      })[0];
 
-        stackSize = targetStack.stackSize;
-        this.debugLog(`Selected ${stackSize}-stack for team ${stackTeam.name} based on exposure constraints`);
-      }
+      stackSize = targetStack.stackSize;
+      this.debugLog(`Selected ${stackSize}-stack for team ${stackTeam.name} based on exposure constraints`);
     }
+  }
 
-    // Select a captain
-    lineup.cpt = this._selectCaptain(stackTeam, usedPlayers, stackSize);
-    usedPlayers.add(lineup.cpt.id);
-    remainingSalary -= lineup.cpt.salary;
+  // Select a captain
+  lineup.cpt = this._selectCaptain(stackTeam, usedPlayers, stackSize);
+  usedPlayers.add(lineup.cpt.id);
+  remainingSalary -= lineup.cpt.salary;
 
-    // Fill positions one by one
-    for (const position of Object.keys(this.config.positionRequirements)) {
-      // Skip captain position (already filled)
-      if (position === 'CPT') continue;
+  // Fill positions one by one - MODIFIED to check available positions
+  // Create a prioritized list of positions to fill
+  const availablePositions = new Set(this.playerPool.map(p => p.position));
 
-      const count = this.config.positionRequirements[position];
+  const positionsToFill = Object.entries(this.config.positionRequirements)
+    .filter(([pos, count]) => {
+      // Skip captain (already handled)
+      if (pos === 'CPT') return false;
 
-      for (let i = 0; i < count; i++) {
+      // For TEAM position, only include if it exists in the player pool
+      if (pos === 'TEAM' && !availablePositions.has('TEAM')) {
+        this.debugLog(`Skipping TEAM position as no TEAM players exist in player pool`);
+        return false;
+      }
+
+      return true;
+    })
+    .sort(([posA], [posB]) => {
+      // Prioritize positions: Core positions first, TEAM last if it exists
+      const order = { 'TOP': 1, 'JNG': 2, 'MID': 3, 'ADC': 4, 'SUP': 5, 'TEAM': 6 };
+      return (order[posA] || 99) - (order[posB] || 99);
+    });
+
+  this.debugLog(`Filling positions in order: ${positionsToFill.map(([pos]) => pos).join(', ')}`);
+
+  // Now fill each position in the prioritized order
+  for (const [position, count] of positionsToFill) {
+    this.debugLog(`Filling position: ${position} (need ${count})`);
+
+    for (let i = 0; i < count; i++) {
+      // Special handling for TEAM position
+      if (position === 'TEAM') {
+        this.debugLog('Selecting TEAM position player...');
+
+        // First try to get TEAM player from stack team
+        let teamPlayers = this.playerPool.filter(player =>
+          !usedPlayers.has(player.id) &&
+          player.position === 'TEAM' &&
+          player.team === stackTeam.name &&
+          this._safeParseFloat(player.salary, 0) <= remainingSalary
+        );
+
+        // If no TEAM players from stack team, get any TEAM player
+        if (teamPlayers.length === 0) {
+          this.debugLog('No TEAM players from stack team, selecting any TEAM player');
+          teamPlayers = this.playerPool.filter(player =>
+            !usedPlayers.has(player.id) &&
+            player.position === 'TEAM' &&
+            this._safeParseFloat(player.salary, 0) <= remainingSalary
+          );
+        }
+
+        // If we found a TEAM player
+        if (teamPlayers.length > 0) {
+          // Select the TEAM player with highest projection
+          const selectedTeamPlayer = teamPlayers.sort((a, b) =>
+            this._safeParseFloat(b.projectedPoints, 0) - this._safeParseFloat(a.projectedPoints, 0)
+          )[0];
+
+          const player = {
+            id: selectedTeamPlayer.id,
+            name: selectedTeamPlayer.name,
+            position: 'TEAM',
+            team: selectedTeamPlayer.team,
+            salary: this._safeParseFloat(selectedTeamPlayer.salary, 0)
+          };
+
+          lineup.players.push(player);
+          usedPlayers.add(player.id);
+          remainingSalary -= player.salary;
+          this.debugLog(`Added TEAM player: ${player.name} (${player.team})`);
+        } else {
+          this.debugLog('No TEAM position players available within salary constraint');
+          throw new Error(`Couldn't find player for position TEAM`);
+        }
+      } else {
+        // Regular position selection
         const player = await this._selectPositionPlayer(
           position,
           stackTeam,
@@ -942,17 +1013,32 @@ class AdvancedOptimizer {
           lineup.players.push(player);
           usedPlayers.add(player.id);
           remainingSalary -= player.salary;
+          this.debugLog(`Added ${position} player: ${player.name} (${player.team})`);
         } else {
+          this.debugLog(`Failed to find player for position ${position}`);
           throw new Error(`Couldn't find player for position ${position}`);
         }
       }
     }
-
-    // Balance team exposures if needed
-    this._balanceTeamExposures(lineup, usedPlayers, remainingSalary);
-
-    return lineup;
   }
+
+  // Verify lineup has required positions
+  const positionCounts = {};
+  lineup.players.forEach(player => {
+    positionCounts[player.position] = (positionCounts[player.position] || 0) + 1;
+  });
+
+  for (const [position, count] of Object.entries(this.config.positionRequirements)) {
+    if (position !== 'CPT' && (positionCounts[position] || 0) !== count) {
+      this.debugLog(`ISSUE: Position ${position} requires ${count} but has ${positionCounts[position] || 0}`);
+    }
+  }
+
+  // Balance team exposures if needed
+  this._balanceTeamExposures(lineup, usedPlayers, remainingSalary);
+
+  return lineup;
+}
 
   /**
    * Select a team to stack
@@ -1121,6 +1207,49 @@ class AdvancedOptimizer {
    * Enhanced to consider exposure and stack size requirements
    */
   async _selectPositionPlayer(position, stackTeam, usedPlayers, remainingSalary, selectedPlayers, targetStackSize = null) {
+    console.log(`selecting position ${position} player`)
+    // Special handling for TEAM position
+    if (position === 'TEAM') {
+      console.log('Selecting TEAM position player...');
+
+      // First try to get a TEAM player from the stack team
+      let teamPlayers = this.playerPool.filter(player =>
+        !usedPlayers.has(player.id) &&
+        player.position === 'TEAM' &&
+        player.team === stackTeam.name &&
+        this._safeParseFloat(player.salary, 0) <= remainingSalary
+      );
+
+      // If no TEAM players from stack team, get any TEAM player
+      if (teamPlayers.length === 0) {
+        console.log('No TEAM players from stack team, selecting any TEAM player');
+        teamPlayers = this.playerPool.filter(player =>
+          !usedPlayers.has(player.id) &&
+          player.position === 'TEAM' &&
+          this._safeParseFloat(player.salary, 0) <= remainingSalary
+        );
+      }
+
+      // If still no TEAM players, this is an error condition
+      if (teamPlayers.length === 0) {
+        console.error('No TEAM position players available within salary constraint');
+        return null;
+      }
+
+      // Select the TEAM player with highest projection
+      const selectedPlayer = teamPlayers.sort((a, b) =>
+        this._safeParseFloat(b.projectedPoints, 0) - this._safeParseFloat(a.projectedPoints, 0)
+      )[0];
+
+      return {
+        id: selectedPlayer.id,
+        name: selectedPlayer.name,
+        position: 'TEAM',
+        team: selectedPlayer.team,
+        salary: this._safeParseFloat(selectedPlayer.salary, 0)
+      };
+    }
+
     // Get potential players for this position who are under salary cap
     let candidates = this.playerPool.filter(player =>
       !usedPlayers.has(player.id) &&
@@ -1272,6 +1401,9 @@ class AdvancedOptimizer {
       // TOP is less commonly stacked
       case 'TOP':
         return Math.random() < 0.5; // 50% chance to stack TOP
+
+      case 'TEAM':
+      return true; // Always include TEAM in stacks
 
       default:
         return false;
