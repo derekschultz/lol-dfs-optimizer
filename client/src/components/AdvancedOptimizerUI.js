@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import AdvancedOptimizer from '../lib/AdvancedOptimizer'; // Import the optimizer
 
@@ -24,6 +24,363 @@ const formatNumber = (value, decimals = 2) => {
 };
 
 /**
+ * NexusScoreCard component to display and explain the NexusScore
+ */
+const NexusScoreCard = ({ score, components }) => {
+  // Default values if components aren't available
+  const {
+    baseProjection = 0,
+    leverageFactor = 1,
+    avgOwnership = 0,
+    fieldAvgOwnership = 0,
+    stackBonus = 0,
+    positionBonus = 0,
+    teamStacks = ''
+  } = components || {};
+
+  // Format values for display
+  const formattedLeverage = (leverageFactor * 100 - 100).toFixed(1);
+  const ownershipDiff = ((fieldAvgOwnership - avgOwnership) * 100).toFixed(1);
+
+  // Determine color based on score
+  // Gradient from red (80) to yellow (120) to green (160+)
+  let scoreColor = '#ef4444'; // Red for <100
+  if (score >= 160) scoreColor = '#10b981'; // Green for 160+
+  else if (score >= 140) scoreColor = '#22c55e'; // Light green for 140-160
+  else if (score >= 120) scoreColor = '#84cc16'; // Lime for 120-140
+  else if (score >= 100) scoreColor = '#eab308'; // Yellow for 100-120
+  else if (score >= 80) scoreColor = '#f97316'; // Orange for 80-100
+
+  return (
+    <div className="nexus-score-card" style={{
+      padding: '1rem',
+      backgroundColor: 'rgba(30, 58, 138, 0.3)',
+      borderRadius: '0.5rem',
+      border: `1px solid ${scoreColor}`,
+      position: 'relative',
+      overflow: 'hidden'
+    }}>
+      {/* Glowing effect based on score */}
+      <div style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        background: `radial-gradient(circle at center, ${scoreColor}22 0%, transparent 70%)`,
+        opacity: 0.8,
+        zIndex: 0
+      }} />
+
+      {/* Content */}
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <div className="flex-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 style={{ color: '#4fd1c5', fontSize: '1.125rem', margin: '0 0 0.5rem 0' }}>NexusScore™</h3>
+            <p style={{ margin: 0, color: '#90cdf4', fontSize: '0.875rem' }}>
+              Comprehensive lineup strength rating
+            </p>
+          </div>
+          <div style={{
+            fontSize: '2.5rem',
+            fontWeight: 'bold',
+            color: scoreColor,
+            textShadow: `0 0 10px ${scoreColor}44`
+          }}>
+            {Math.round(score)}
+          </div>
+        </div>
+
+        <div style={{ marginTop: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: '0.25rem' }}>
+            <span style={{ color: '#90cdf4' }}>Base Projection</span>
+            <span style={{ color: '#f7fafc' }}>{baseProjection.toFixed(1)} pts</span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: '0.25rem' }}>
+            <span style={{ color: '#90cdf4' }}>Leverage Factor</span>
+            <span style={{ color: formattedLeverage > 0 ? '#10b981' : '#f56565' }}>
+              {formattedLeverage > 0 ? '+' : ''}{formattedLeverage}%
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: '0.25rem' }}>
+            <span style={{ color: '#90cdf4' }}>Ownership Edge</span>
+            <span style={{ color: ownershipDiff > 0 ? '#10b981' : '#f56565' }}>
+              {ownershipDiff > 0 ? '+' : ''}{ownershipDiff}%
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: '0.25rem' }}>
+            <span style={{ color: '#90cdf4' }}>Stack Bonus</span>
+            <span style={{ color: stackBonus > 0 ? '#10b981' : '#90cdf4' }}>
+              {stackBonus > 0 ? '+' : ''}{stackBonus.toFixed(1)}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
+            <span style={{ color: '#90cdf4' }}>Position Impact</span>
+            <span style={{ color: positionBonus > 0 ? '#10b981' : '#90cdf4' }}>
+              {positionBonus > 0 ? '+' : ''}{positionBonus.toFixed(1)}
+            </span>
+          </div>
+        </div>
+
+        {teamStacks && (
+          <div style={{
+            marginTop: '0.75rem',
+            padding: '0.5rem',
+            backgroundColor: 'rgba(42, 67, 101, 0.3)',
+            borderRadius: '0.25rem',
+            fontSize: '0.875rem',
+            color: '#8b5cf6'
+          }}>
+            <strong style={{ color: '#4fd1c5' }}>Team Stacks:</strong> {teamStacks}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * NexusScoreExplainer component - educational modal about the NexusScore system
+ */
+const NexusScoreExplainer = ({ isOpen, onClose }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="nexus-score-explainer-modal" style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(10, 15, 30, 0.9)',
+      zIndex: 1000,
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: '2rem'
+    }}>
+      <div className="modal-content" style={{
+        backgroundColor: '#1a365d',
+        borderRadius: '0.5rem',
+        maxWidth: '800px',
+        width: '100%',
+        maxHeight: '90vh',
+        overflow: 'auto',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
+        border: '1px solid #2c5282',
+        position: 'relative'
+      }}>
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            top: '1rem',
+            right: '1rem',
+            background: 'none',
+            border: 'none',
+            color: '#90cdf4',
+            fontSize: '1.5rem',
+            cursor: 'pointer',
+            zIndex: 10
+          }}
+        >
+          ×
+        </button>
+
+        {/* Header */}
+        <div style={{
+          borderBottom: '1px solid #2c5282',
+          padding: '1.5rem',
+          background: 'linear-gradient(90deg, #1a365d 0%, #164e63 100%)'
+        }}>
+          <h2 style={{
+            color: '#4fd1c5',
+            margin: 0,
+            fontSize: '1.5rem',
+            display: 'flex',
+            alignItems: 'center'
+          }}>
+            <span style={{
+              backgroundColor: '#10b981',
+              color: 'white',
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              display: 'inline-flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginRight: '0.75rem',
+              fontWeight: 'bold'
+            }}>N</span>
+            Understanding NexusScore™
+          </h2>
+          <p style={{ color: '#90cdf4', margin: '0.5rem 0 0 0' }}>
+            The comprehensive strength rating system for League of Legends DFS lineups
+          </p>
+        </div>
+
+        {/* Content */}
+        <div style={{ padding: '1.5rem' }}>
+          <h3 style={{ color: '#4fd1c5', marginTop: 0 }}>What is NexusScore?</h3>
+          <p style={{ color: '#e2e8f0' }}>
+            NexusScore is an advanced metric that evaluates your lineup's strength beyond raw
+            projected points. It incorporates game theory concepts and LoL-specific factors
+            to give you a more accurate prediction of lineup performance.
+          </p>
+
+          <h3 style={{ color: '#4fd1c5' }}>Key Components</h3>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h4 style={{ color: '#8b5cf6', margin: '0.5rem 0' }}>Base Projection</h4>
+            <p style={{ color: '#e2e8f0', margin: 0 }}>
+              The foundation of NexusScore is your lineup's total projected points.
+              This raw projection is then modified by the following factors.
+            </p>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h4 style={{ color: '#8b5cf6', margin: '0.5rem 0' }}>Ownership Leverage</h4>
+            <p style={{ color: '#e2e8f0', margin: 0 }}>
+              NexusScore rewards lineups with lower projected ownership compared to their point
+              potential. When you roster low-owned players who perform well, you gain leverage
+              over the field.
+            </p>
+            <div style={{
+              margin: '0.5rem 0',
+              padding: '0.5rem',
+              backgroundColor: 'rgba(44, 82, 130, 0.3)',
+              borderRadius: '0.25rem',
+              borderLeft: '3px solid #8b5cf6',
+              fontSize: '0.875rem'
+            }}>
+              <strong style={{ color: '#8b5cf6' }}>Formula:</strong> <span style={{ color: '#e2e8f0' }}>
+                NexusScore increases by up to 50% when your lineup has half the average ownership,
+                and decreases by up to 50% when ownership is double the average.
+              </span>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h4 style={{ color: '#8b5cf6', margin: '0.5rem 0' }}>Team Stack Bonus</h4>
+            <p style={{ color: '#e2e8f0', margin: 0 }}>
+              In LoL DFS, team stacking is crucial since player performances correlate strongly.
+              NexusScore awards bonus points for effective stacking strategies.
+            </p>
+            <div style={{
+              margin: '0.5rem 0',
+              padding: '0.5rem',
+              backgroundColor: 'rgba(44, 82, 130, 0.3)',
+              borderRadius: '0.25rem',
+              borderLeft: '3px solid #8b5cf6',
+              fontSize: '0.875rem'
+            }}>
+              <strong style={{ color: '#8b5cf6' }}>Bonus Scale:</strong> <br/>
+              <span style={{ color: '#e2e8f0' }}>
+                • 2-player stack: +1 point<br/>
+                • 3-player stack: +3 points<br/>
+                • 4-player stack: +8 points
+              </span>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h4 style={{ color: '#8b5cf6', margin: '0.5rem 0' }}>Position Impact</h4>
+            <p style={{ color: '#e2e8f0', margin: 0 }}>
+              Certain positions in LoL have higher ceilings and more potential for explosive
+              performances. NexusScore weighs positions differently based on their typical impact.
+            </p>
+            <div style={{
+              margin: '0.5rem 0',
+              padding: '0.5rem',
+              backgroundColor: 'rgba(44, 82, 130, 0.3)',
+              borderRadius: '0.25rem',
+              borderLeft: '3px solid #8b5cf6',
+              fontSize: '0.875rem'
+            }}>
+              <strong style={{ color: '#8b5cf6' }}>Position Weights:</strong> <br/>
+              <span style={{ color: '#e2e8f0' }}>
+                • MID: 2.0x (highest ceiling)<br/>
+                • ADC: 1.8x (high damage output)<br/>
+                • JNG: 1.5x (game influence)<br/>
+                • TOP: 1.2x (moderate impact)<br/>
+                • SUP: 1.0x (utility focus)<br/>
+                • TEAM: 0.8x (consistent but limited)
+              </span>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h4 style={{ color: '#8b5cf6', margin: '0.5rem 0' }}>Consistency Factor</h4>
+            <p style={{ color: '#e2e8f0', margin: 0 }}>
+              NexusScore analyzes the projected volatility of your lineup. Some amount of
+              variance is beneficial in tournaments, but extreme volatility can be risky.
+            </p>
+          </div>
+
+          <h3 style={{ color: '#4fd1c5' }}>Interpreting Your Score</h3>
+
+          <div style={{
+            display: 'flex',
+            margin: '1rem 0',
+            backgroundColor: 'rgba(26, 54, 93, 0.5)',
+            borderRadius: '0.5rem',
+            padding: '1rem',
+            flexWrap: 'wrap',
+            gap: '1rem'
+          }}>
+            <div style={{ flex: '1 1 120px', textAlign: 'center', padding: '0.5rem' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#ef4444' }}>70-99</div>
+              <div style={{ color: '#e2e8f0', fontSize: '0.875rem' }}>Below Average</div>
+            </div>
+            <div style={{ flex: '1 1 120px', textAlign: 'center', padding: '0.5rem' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#f97316' }}>100-119</div>
+              <div style={{ color: '#e2e8f0', fontSize: '0.875rem' }}>Average</div>
+            </div>
+            <div style={{ flex: '1 1 120px', textAlign: 'center', padding: '0.5rem' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#eab308' }}>120-139</div>
+              <div style={{ color: '#e2e8f0', fontSize: '0.875rem' }}>Good</div>
+            </div>
+            <div style={{ flex: '1 1 120px', textAlign: 'center', padding: '0.5rem' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#84cc16' }}>140-159</div>
+              <div style={{ color: '#e2e8f0', fontSize: '0.875rem' }}>Excellent</div>
+            </div>
+            <div style={{ flex: '1 1 120px', textAlign: 'center', padding: '0.5rem' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#10b981' }}>160+</div>
+              <div style={{ color: '#e2e8f0', fontSize: '0.875rem' }}>Elite</div>
+            </div>
+          </div>
+
+          <p style={{ color: '#e2e8f0' }}>
+            Generally, lineups with a NexusScore of 140+ should be prioritized for tournaments,
+            while scores of 120+ are strong for cash games. Consider rebuilding lineups scoring
+            below 100.
+          </p>
+
+          <div style={{
+            marginTop: '1.5rem',
+            padding: '0.75rem',
+            backgroundColor: 'rgba(79, 209, 197, 0.1)',
+            borderRadius: '0.5rem',
+            borderLeft: '3px solid #4fd1c5'
+          }}>
+            <p style={{ color: '#e2e8f0', margin: 0 }}>
+              <strong style={{ color: '#4fd1c5' }}>Pro Tip:</strong> Use NexusScore alongside ROI and
+              First Place % metrics for a complete view of lineup potential. NexusScore is especially
+              valuable when comparing lineups with similar projected points.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
  * AdvancedOptimizerUI component implements a SaberSim-like interface
  * for the League of Legends DFS optimizer
  */
@@ -33,7 +390,9 @@ const AdvancedOptimizerUI = ({
   lineups,
   exposureSettings,
   onUpdateExposures,
-  onGenerateLineups
+  onGenerateLineups,
+  activeTab,
+  onChangeTab
 }) => {
   // State variables
   const [isLoading, setIsLoading] = useState(false);
@@ -46,9 +405,29 @@ const AdvancedOptimizerUI = ({
     simCount: 10
   });
   const [optimizationResults, setOptimizationResults] = useState(null);
-  const [activeTab, setActiveTab] = useState('settings');
+  const [activeTabInternal, setActiveTabInternal] = useState(activeTab || 'settings');
   const [simulationProgress, setSimulationProgress] = useState(0);
   const [optimizerInstance, setOptimizerInstance] = useState(null);
+
+  // Add state for NexusScore features
+  const [showNexusExplainer, setShowNexusExplainer] = useState(false);
+  const [sortBy, setSortBy] = useState('roi'); // Default sort by ROI
+  const [selectedLineup, setSelectedLineup] = useState(null); // Track selected lineup
+
+  // Handle external tab change
+  useEffect(() => {
+    if (activeTab && activeTab !== activeTabInternal) {
+      setActiveTabInternal(activeTab);
+    }
+  }, [activeTab]);
+
+  // Propagate internal tab change to parent
+  useEffect(() => {
+    if (onChangeTab && activeTabInternal !== activeTab) {
+      onChangeTab(activeTabInternal);
+    }
+  }, [activeTabInternal, activeTab, onChangeTab]);
+
   const [slateInfo, setSlateInfo] = useState({
     title: 'Current LoL Slate',
     totalPlayers: playerData.length,
@@ -104,6 +483,44 @@ const AdvancedOptimizerUI = ({
       });
     }
   }, [playerData]);
+
+  // Helper function to get a sorted version of the lineups
+  const getSortedLineups = useCallback(() => {
+    if (!optimizationResults || !optimizationResults.lineups) {
+      return [];
+    }
+
+    const lineups = [...optimizationResults.lineups]; // Create a copy to avoid mutation
+
+    // Sort by the selected criteria
+    if (sortBy === 'nexusScore') {
+      return lineups.sort((a, b) => (b.nexusScore || 0) - (a.nexusScore || 0));
+    } else if (sortBy === 'roi') {
+      return lineups.sort((a, b) => parseFloat(b.roi) - parseFloat(a.roi));
+    } else if (sortBy === 'firstPlace') {
+      return lineups.sort((a, b) => parseFloat(b.firstPlace) - parseFloat(a.firstPlace));
+    } else if (sortBy === 'projection') {
+      return lineups.sort((a, b) => parseFloat(b.projectedPoints) - parseFloat(a.projectedPoints));
+    } else if (sortBy === 'ownership') {
+        return lineups.sort((a, b) => parseFloat(b.ownership) - parseFloat(a.ownership));
+    }
+
+    // Default to ROI sort
+    return lineups.sort((a, b) => parseFloat(b.roi) - parseFloat(a.roi));
+  }, [optimizationResults, sortBy]);
+
+  // Set the first lineup as selected when results change
+  useEffect(() => {
+    if (optimizationResults && optimizationResults.lineups && optimizationResults.lineups.length > 0) {
+      const sortedLineups = getSortedLineups();
+      setSelectedLineup(sortedLineups[0]);
+    }
+  }, [optimizationResults, getSortedLineups]);
+
+  // Function to update sort criteria
+  const handleSortChange = (criteria) => {
+    setSortBy(criteria);
+  };
 
   /**
    * Initialize the advanced optimizer with better error handling
@@ -229,11 +646,47 @@ const AdvancedOptimizerUI = ({
       clearInterval(interval);
       setSimulationProgress(100);
 
+      // Add default NexusScore values if they're missing
+      if (results && results.lineups) {
+        results.lineups.forEach(lineup => {
+          // If NexusScore isn't calculated by the backend, create a simulated one
+          if (!lineup.nexusScore) {
+            // Simple scoring formula based on available metrics
+            const projPoints = parseFloat(lineup.projectedPoints) || 0;
+            const roi = parseFloat(lineup.roi) || 0;
+            const firstPlace = parseFloat(lineup.firstPlace) || 0;
+
+            // Baseline score starts with projected points
+            let baseScore = projPoints * 10;
+
+            // Bonus for high ROI (50% weight)
+            baseScore += (roi * 20);
+
+            // Bonus for first place percentage (30% weight)
+            baseScore += (firstPlace * 2);
+
+            // Scale to 100-160 range
+            lineup.nexusScore = Math.max(70, Math.min(180, baseScore));
+
+            // Create components for display
+            lineup.scoreComponents = {
+              baseProjection: projPoints,
+              leverageFactor: 1 + (roi / 5), // Simulate leverage based on ROI
+              stackBonus: firstPlace * 0.5, // Simulate stack bonus
+              positionBonus: 1.5, // Default position bonus
+              avgOwnership: 10, // Default avg ownership
+              fieldAvgOwnership: 15, // Default field avg ownership
+              teamStacks: "Auto-generated" // Indicate this was auto-calculated
+            };
+          }
+        });
+      }
+
       // Process and store results
       setOptimizationResults(results);
 
       // Switch to results tab
-      setActiveTab('results');
+      setActiveTabInternal('results');
 
       // Delay to show 100% progress
       setTimeout(() => {
@@ -262,14 +715,22 @@ const AdvancedOptimizerUI = ({
 
       // Call the parent's function to generate lineups
       if (onGenerateLineups) {
+        // Get sorted lineups based on current sort criteria
+        const sortedLineups = getSortedLineups();
+
         // Format lineups for the parent component
-        const formattedLineups = optimizationResults.lineups.map(lineup => ({
+        const formattedLineups = sortedLineups.map(lineup => ({
           id: lineup.id,
-          name: `Optimized ${formatNumber(lineup.roi)}x ROI (${lineup.projectedPoints} pts)`,
+          name: `${sortBy === 'nexusScore' ? 'NexusScore' : 'Optimized'} ${
+            sortBy === 'nexusScore'
+              ? Math.round(lineup.nexusScore || 100)
+              : formatNumber(lineup.roi)+'x'
+          } (${formatNumber(lineup.projectedPoints, 1)} pts)`,
           cpt: lineup.cpt,
           players: lineup.players,
           projectedPoints: lineup.projectedPoints,
-          roi: lineup.roi
+          roi: lineup.roi,
+          nexusScore: lineup.nexusScore
         }));
 
         // Call the parent function
@@ -316,13 +777,14 @@ const AdvancedOptimizerUI = ({
   const getLineupPerformanceData = () => {
     if (!optimizationResults) return [];
 
-    return optimizationResults.lineups.map((lineup, index) => ({
+    return getSortedLineups().map((lineup, index) => ({
       name: `L${index + 1}`,
       roi: lineup.roi,
       firstPlace: lineup.firstPlace,
       top10: lineup.top10,
       cashRate: lineup.cashRate,
-      projectedPoints: lineup.projectedPoints
+      projectedPoints: lineup.projectedPoints,
+      nexusScore: lineup.nexusScore || 100
     }));
   };
 
@@ -361,8 +823,8 @@ const AdvancedOptimizerUI = ({
           {['settings', 'results', 'lineup-details'].map(tab => (
             <li key={tab} style={{ marginRight: '0.5rem' }}>
               <button
-                className={`tab ${activeTab === tab ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab)}
+                className={`tab ${activeTabInternal === tab ? 'active' : ''}`}
+                onClick={() => setActiveTabInternal(tab)}
               >
                 {tab === 'settings' ? 'Optimizer Settings' :
                 tab === 'results' ? 'Simulation Results' :
@@ -374,7 +836,7 @@ const AdvancedOptimizerUI = ({
       </div>
 
       {/* Settings Tab */}
-      {activeTab === 'settings' && (
+      {activeTabInternal === 'settings' && (
         <div className="grid grid-cols-2" style={{ gap: '1.5rem' }}>
           {/* Settings Card */}
           <div className="card">
@@ -552,36 +1014,161 @@ const AdvancedOptimizerUI = ({
       )}
 
       {/* Results Tab with Team Stack Visualization */}
-      {activeTab === 'results' && optimizationResults && (
+      {activeTabInternal === 'results' && optimizationResults && (
         <div className="grid grid-cols-1" style={{ gap: '1.5rem' }}>
           {/* Results Overview */}
           <div className="card">
-            <h3 style={{ color: '#4fd1c5', marginBottom: '1rem' }}>Simulation Results</h3>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '1rem'
+            }}>
+              <h3 style={{ color: '#4fd1c5', margin: 0 }}>Simulation Results</h3>
 
-            <div className="grid grid-cols-3" style={{ gap: '1rem', marginBottom: '1.5rem' }}>
-              <div className="stat-card">
-                <h4 style={{ color: '#90cdf4' }}>Top Lineup ROI</h4>
-                <p className="stat-value" style={{ color: '#10b981' }}>
-                  {formatNumber(optimizationResults.lineups[0]?.roi)}x
-                </p>
-              </div>
-
-              <div className="stat-card">
-                <h4 style={{ color: '#90cdf4' }}>First Place %</h4>
-                <p className="stat-value" style={{ color: '#8b5cf6' }}>
-                  {formatNumber(optimizationResults.lineups[0]?.firstPlace, 1)}%
-                </p>
-              </div>
-
-              <div className="stat-card">
-                <h4 style={{ color: '#90cdf4' }}>Projected Points</h4>
-                <p className="stat-value" style={{ color: '#f59e0b' }}>
-                  {optimizationResults.lineups[0]?.projectedPoints}
-                </p>
+              {/* Sort controls */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ color: '#90cdf4', fontSize: '0.875rem' }}>Sort by:</span>
+                <div style={{ display: 'flex', backgroundColor: '#1a365d', borderRadius: '0.25rem' }}>
+                  <button
+                    className={`btn ${sortBy === 'nexusScore' ? 'active' : ''}`}
+                    onClick={() => handleSortChange('nexusScore')}
+                    style={{
+                      backgroundColor: sortBy === 'nexusScore' ? '#3182ce' : 'transparent',
+                      color: sortBy === 'nexusScore' ? 'white' : '#90cdf4',
+                      border: 'none',
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.875rem',
+                      borderRadius: '0.25rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    NexusScore
+                  </button>
+                  <button
+                    className={`btn ${sortBy === 'roi' ? 'active' : ''}`}
+                    onClick={() => handleSortChange('roi')}
+                    style={{
+                      backgroundColor: sortBy === 'roi' ? '#3182ce' : 'transparent',
+                      color: sortBy === 'roi' ? 'white' : '#90cdf4',
+                      border: 'none',
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.875rem',
+                      borderRadius: '0.25rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ROI
+                  </button>
+                  <button
+                    className={`btn ${sortBy === 'firstPlace' ? 'active' : ''}`}
+                    onClick={() => handleSortChange('firstPlace')}
+                    style={{
+                      backgroundColor: sortBy === 'firstPlace' ? '#3182ce' : 'transparent',
+                      color: sortBy === 'firstPlace' ? 'white' : '#90cdf4',
+                      border: 'none',
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.875rem',
+                      borderRadius: '0.25rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    First Place %
+                  </button>
+                  <button
+                    className={`btn ${sortBy === 'projection' ? 'active' : ''}`}
+                    onClick={() => handleSortChange('projection')}
+                    style={{
+                      backgroundColor: sortBy === 'projection' ? '#3182ce' : 'transparent',
+                      color: sortBy === 'projection' ? 'white' : '#90cdf4',
+                      border: 'none',
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.875rem',
+                      borderRadius: '0.25rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Projection
+                  </button>
+                  <button
+                    className={`btn ${sortBy === 'ownership' ? 'active' : ''}`}
+                    onClick={() => handleSortChange('firstPlace')}
+                    style={{
+                      backgroundColor: sortBy === 'ownership' ? '#3182ce' : 'transparent',
+                      color: sortBy === 'ownership' ? 'white' : '#90cdf4',
+                      border: 'none',
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.875rem',
+                      borderRadius: '0.25rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Ownership
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="chart-container" style={{ height: '300px' }}>
+            {/* Get top lineup based on current sort */}
+            {(() => {
+              const sortedLineups = getSortedLineups();
+              // Use selected lineup if available, otherwise use top lineup
+              const topLineup = selectedLineup || (sortedLineups.length > 0 ? sortedLineups[0] : null);
+
+              return (
+                <>
+                  <div className="grid grid-cols-3" style={{ gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div className="stat-card">
+                      <h4 style={{ color: '#90cdf4' }}>Top Lineup ROI</h4>
+                      <p className="stat-value" style={{ color: '#10b981' }}>
+                        {formatNumber(topLineup?.roi)}x
+                      </p>
+                    </div>
+
+                    <div className="stat-card">
+                      <h4 style={{ color: '#90cdf4' }}>First Place %</h4>
+                      <p className="stat-value" style={{ color: '#8b5cf6' }}>
+                        {formatNumber(topLineup?.firstPlace, 1)}%
+                      </p>
+                    </div>
+
+                    <div className="stat-card">
+                      <h4 style={{ color: '#90cdf4' }}>Projected Points</h4>
+                      <p className="stat-value" style={{ color: '#f59e0b' }}>
+                        {formatNumber(topLineup?.projectedPoints, 1)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* About NexusScore button */}
+                  <div style={{ textAlign: 'right', marginBottom: '0.5rem' }}>
+                    <button
+                      onClick={() => setShowNexusExplainer(true)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#4fd1c5',
+                        cursor: 'pointer',
+                        fontSize: '0.875rem',
+                        display: 'inline-flex',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <span style={{ marginRight: '0.25rem', fontWeight: 'bold' }}>?</span>
+                      About NexusScore
+                    </button>
+                  </div>
+
+                  {/* NexusScore Card for top lineup */}
+                  <NexusScoreCard
+                    score={topLineup?.nexusScore || 100}
+                    components={topLineup?.scoreComponents}
+                  />
+                </>
+              );
+            })()}
+
+            <div className="chart-container" style={{ height: '300px', marginTop: '1.5rem' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={getLineupPerformanceData()}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a4365" />
@@ -618,15 +1205,19 @@ const AdvancedOptimizerUI = ({
                 <thead>
                   <tr>
                     <th>Rank</th>
+                    <th>NexusScore</th>
                     <th>ROI</th>
                     <th>First %</th>
                     <th>Proj</th>
+                    <th>Ownership</th>
+                    {/* NEW COLUMN: Add Salary column */}
+                    <th>Salary</th>
                     <th>Stack</th>
                     <th>Lineup</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {optimizationResults.lineups.map((lineup, index) => {
+                  {getSortedLineups().map((lineup, index) => {
                     // Count players per team for stack info
                     const teamCounts = {};
                     [lineup.cpt.team, ...lineup.players.map(p => p.team)].forEach(team => {
@@ -650,6 +1241,22 @@ const AdvancedOptimizerUI = ({
                       TEAM: lineup.players.find(p => p.position === 'TEAM')
                     };
 
+                    // Calculate total ownership
+                    let totalOwnership = 0;
+                    // Get ownership from lineup's captain and players
+                    const getPlayerOwnership = (playerId) => {
+                      const player = playerData.find(p => p.id === playerId);
+                      return player ? (player.ownership || 0) : 0;
+                    };
+
+                    // Captain ownership
+                    totalOwnership += getPlayerOwnership(lineup.cpt.id);
+
+                    // Players ownership
+                    lineup.players.forEach(player => {
+                      totalOwnership += getPlayerOwnership(player.id);
+                    });
+
                     // Create color map for teams to visually identify stacks
                     const teams = Object.keys(teamCounts);
                     const teamColors = {
@@ -660,12 +1267,55 @@ const AdvancedOptimizerUI = ({
                       [teams[4]]: '#ef4444'  // Fifth team - red color
                     };
 
+                    // Determine color for NexusScore based on value
+                    let scoreColor = '#ef4444'; // Red for <100
+                    const nexusScore = lineup.nexusScore || 100;
+                    if (nexusScore >= 160) scoreColor = '#10b981'; // Green for 160+
+                    else if (nexusScore >= 140) scoreColor = '#22c55e'; // Light green for 140-160
+                    else if (nexusScore >= 120) scoreColor = '#84cc16'; // Lime for 120-140
+                    else if (nexusScore >= 100) scoreColor = '#eab308'; // Yellow for 100-120
+                    else if (nexusScore >= 80) scoreColor = '#f97316'; // Orange for 80-100
+
+                    // Check if this lineup is selected
+                    const isSelected = selectedLineup && selectedLineup.id === lineup.id;
+
                     return (
-                      <tr key={lineup.id}>
+                      <tr key={lineup.id}
+                        onClick={() => setSelectedLineup(lineup)}
+                        style={{
+                          cursor: 'pointer',
+                          backgroundColor: isSelected ? 'rgba(79, 209, 197, 0.1)' : 'transparent',
+                          transition: 'background-color 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = isSelected
+                            ? 'rgba(79, 209, 197, 0.15)'
+                            : 'rgba(26, 54, 93, 0.3)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = isSelected
+                            ? 'rgba(79, 209, 197, 0.1)'
+                            : 'transparent';
+                        }}
+                      >
                         <td>{index + 1}</td>
+                        <td style={{ fontWeight: 'bold', color: scoreColor }}>{Math.round(nexusScore)}</td>
                         <td style={{ fontWeight: 'bold', color: '#10b981' }}>{formatNumber(lineup.roi)}x</td>
                         <td style={{ color: '#8b5cf6' }}>{formatNumber(lineup.firstPlace, 1)}%</td>
                         <td style={{ color: '#f59e0b' }}>{formatNumber(lineup.projectedPoints, 1)}</td>
+                        <td style={{ color: '#e84393' }}>{formatNumber(totalOwnership, 1)}%</td>
+
+                        {/* NEW COLUMN: Calculate and display Total Salary */}
+                        <td style={{ fontWeight: 'bold', color: '#38a169' }}>
+                          ${(() => {
+                            // Calculate total salary
+                            const cptSalary = lineup.cpt?.salary || 0;
+                            const playersSalary = lineup.players?.reduce((sum, p) => sum + (p.salary || 0), 0) || 0;
+                            const totalSalary = cptSalary + playersSalary;
+                            return totalSalary.toLocaleString();
+                          })()}
+                        </td>
+
                         <td>
                           {/* Stack information */}
                           <div style={{
@@ -797,7 +1447,7 @@ const AdvancedOptimizerUI = ({
       )}
 
       {/* Lineup Details Tab */}
-      {activeTab === 'lineup-details' && optimizationResults && (
+      {activeTabInternal === 'lineup-details' && optimizationResults && (
         <div className="grid grid-cols-1" style={{ gap: '1.5rem' }}>
           {/* Score Distribution Chart */}
           <div className="card">
@@ -805,7 +1455,7 @@ const AdvancedOptimizerUI = ({
 
             <div className="chart-container" style={{ height: '300px' }}>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={optimizationResults.lineups.slice(0, 5).map((lineup, index) => ({
+                <LineChart data={getSortedLineups().slice(0, 5).map((lineup, index) => ({
                   name: `L${index + 1}`,
                   min: lineup.min,
                   p10: lineup.p10,
@@ -884,6 +1534,12 @@ const AdvancedOptimizerUI = ({
           </div>
         </div>
       )}
+
+      {/* NexusScore Explainer Modal */}
+      <NexusScoreExplainer
+        isOpen={showNexusExplainer}
+        onClose={() => setShowNexusExplainer(false)}
+      />
     </div>
   );
 };

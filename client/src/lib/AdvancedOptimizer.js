@@ -9,6 +9,7 @@
  * - Correlation modeling for players and teams
  * - Randomization with projection-based weighting
  * - Stack-specific exposure constraints
+ * - NexusScore comprehensive lineup evaluation
  */
 
 class AdvancedOptimizer {
@@ -25,7 +26,7 @@ class AdvancedOptimizer {
         SUP: 1,
         TEAM: 1
       },
-      maxPlayersPerTeam: 4,
+      maxPlayersPerTeam: 4, // Added max players per team constraint (adjust as needed)
       iterations: 10000,         // Monte Carlo iterations
       randomness: 0.3,           // 0-1 scale of how much to randomize projections
       targetTop: 0.2,            // Target top % of simulations
@@ -450,8 +451,7 @@ class AdvancedOptimizer {
           JNG: teamPlayers.filter(p => p.position === 'JNG'),
           MID: teamPlayers.filter(p => p.position === 'MID'),
           ADC: teamPlayers.filter(p => p.position === 'ADC'),
-          SUP: teamPlayers.filter(p => p.position === 'SUP'),
-          TEAM: teamPlayers.filter(p => p.position === 'TEAM')
+          SUP: teamPlayers.filter(p => p.position === 'SUP')
         }
       };
     });
@@ -721,6 +721,8 @@ class AdvancedOptimizer {
 
   /**
    * Run a full Monte Carlo simulation on lineups
+   * MODIFIED: Improved ROI and First % calculations with global thresholds
+   * MODIFIED: Added NexusScore calculation for each lineup
    */
   async runSimulation(count = 100) {
     if (!this.optimizerReady) {
@@ -771,29 +773,36 @@ class AdvancedOptimizer {
       const top10Count = lineup.performances.filter(p => p >= top10Threshold).length;
       const cashCount = lineup.performances.filter(p => p >= cashThreshold).length;
 
-      // Update metrics with new global values
-      lineup.firstPlace = (firstPlaceCount / iterations * 100).toFixed(1);
-      lineup.top10 = (top10Count / iterations * 100).toFixed(1);
-      lineup.cashRate = (cashCount / iterations * 100).toFixed(1);
+      // Update metrics with new global values - NUMERIC VALUES (not strings)
+      lineup.firstPlace = (firstPlaceCount / iterations * 100);
+      lineup.top10 = (top10Count / iterations * 100);
+      lineup.cashRate = (cashCount / iterations * 100);
 
-      // Calculate ROI using actual rates (instead of the old fixed values)
+      // Calculate ROI using actual rates - NUMERIC VALUES
       lineup.roi = (
         (firstPlaceCount / iterations * 100) +
         (top10Count / iterations * 10) +
         (cashCount / iterations * 2)
-      ).toFixed(2);
+      );
 
       this.debugLog(`Lineup ${index+1} metrics: ROI=${lineup.roi}, 1st=${lineup.firstPlace}%, Top10=${lineup.top10}%`);
     });
 
-    // Sort by ROI descending, then by projected points descending for ties
+    // Calculate NexusScore for each lineup
+    this.simulationResults.forEach(lineup => {
+      const nexusResult = this._calculateNexusScore(lineup);
+      lineup.nexusScore = nexusResult.score;
+      lineup.scoreComponents = nexusResult.components;
+    });
+
+    // Sort by ROI descending, then by NexusScore for ties
     this.simulationResults.sort((a, b) => {
-      // If ROIs are the same, sort by projected points
-      if (parseFloat(b.roi) === parseFloat(a.roi)) {
-        return b.projectedPoints - a.projectedPoints;
+      // If ROIs are the same, sort by NexusScore
+      if (b.roi === a.roi) {
+        return b.nexusScore - a.nexusScore;
       }
       // Otherwise sort by ROI
-      return parseFloat(b.roi) - parseFloat(a.roi);
+      return b.roi - a.roi;
     });
 
     this.debugLog("Simulation complete");
@@ -801,6 +810,140 @@ class AdvancedOptimizer {
     return {
       lineups: this.simulationResults,
       summary: this._getSimulationSummary()
+    };
+  }
+
+  /**
+   * Calculate NexusScore - a comprehensive lineup evaluation metric
+   */
+  _calculateNexusScore(lineup) {
+    // 1. Base projection (sum of all players' projected points)
+    let baseProjection = 0;
+
+    // Calculate captain's points (1.5x)
+    const cptPlayer = this.playerPool.find(p => p.id === lineup.cpt.id);
+    if (cptPlayer) {
+      baseProjection += this._safeParseFloat(cptPlayer.projectedPoints, 0) * 1.5;
+    }
+
+    // Add regular players' points
+    for (const player of lineup.players) {
+      const poolPlayer = this.playerPool.find(p => p.id === player.id);
+      if (poolPlayer) {
+        baseProjection += this._safeParseFloat(poolPlayer.projectedPoints, 0);
+      }
+    }
+
+    // 2. Calculate ownership leverage
+    // Average ownership across all players in the lineup
+    let totalOwnership = 0;
+    let playerCount = 0;
+
+    if (cptPlayer) {
+      totalOwnership += this._safeParseFloat(cptPlayer.ownership, 0);
+      playerCount++;
+    }
+
+    for (const player of lineup.players) {
+      const poolPlayer = this.playerPool.find(p => p.id === player.id);
+      if (poolPlayer) {
+        totalOwnership += this._safeParseFloat(poolPlayer.ownership, 0);
+        playerCount++;
+      }
+    }
+
+    const avgLineupOwnership = playerCount > 0 ? totalOwnership / playerCount : 0;
+
+    // Calculate average field ownership
+    const fieldAvgOwnership = this.playerPool.reduce((sum, p) =>
+      sum + this._safeParseFloat(p.ownership, 0), 0) / Math.max(1, this.playerPool.length);
+
+    // Leverage factor - reward lineups with lower ownership
+    // Scale: 0.5 at 2x avg ownership, 1.5 at 0.5x avg ownership
+    const ownershipRatio = fieldAvgOwnership > 0 ? avgLineupOwnership / fieldAvgOwnership : 1;
+    const leverageFactor = Math.max(0.5, Math.min(1.5, 2 - ownershipRatio));
+
+    // 3. Team synergy bonus (reward effective stacking)
+    const teamCounts = {};
+
+    // Count captain's team
+    if (lineup.cpt && lineup.cpt.team) {
+      teamCounts[lineup.cpt.team] = 1;
+    }
+
+    // Count regular players' teams
+    for (const player of lineup.players) {
+      if (player.team) {
+        teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+      }
+    }
+
+    // Calculate stack bonus
+    let stackBonus = 0;
+    for (const [team, count] of Object.entries(teamCounts)) {
+      // Exponential bonus for larger stacks
+      if (count >= 3) {
+        stackBonus += Math.pow(count - 2, 1.5) * 3;
+      }
+    }
+
+    // 4. Position impact weighting
+    // Certain positions have higher ceiling/impact
+    let positionBonus = 0;
+
+    // Position impact values (based on volatility and ceiling)
+    const positionImpact = {
+      MID: 2,    // High carry potential
+      ADC: 1.8,  // High carry potential
+      JNG: 1.5,  // Game influence
+      TOP: 1.2,  // Moderate impact
+      SUP: 1.0,  // Lower ceiling
+      TEAM: 0.8  // Consistent but limited upside
+    };
+
+    // Check if captain is in a high-impact position
+    if (cptPlayer) {
+      const posImpact = positionImpact[cptPlayer.position] || 1;
+      positionBonus += posImpact * 2; // Double impact for captain
+    }
+
+    // 5. Calculate consistency/ceiling factor using performance simulation data
+    let consistencyFactor = 1;
+
+    // If we have simulation data for this lineup
+    const simData = this.simulationResults.find(r => r.id === lineup.id);
+    if (simData && simData.performances) {
+      // Calculate coefficient of variation (higher = more volatile)
+      const mean = simData.median || baseProjection;
+      const stdDev = simData.p90 && simData.p10 ? (simData.p90 - simData.p10) / 2.56 : 0;
+
+      // Slight bonus for moderate volatility, penalty for extreme volatility
+      const cv = mean > 0 ? stdDev / mean : 0;
+      consistencyFactor = 1 + 0.2 * Math.sin(Math.PI * (cv * 2)); // Peaks at CV=0.25, dips at CV=0.5
+    }
+
+    // 6. Combine all factors for final NexusScore
+    // Scale the base projection by our modifiers
+    const nexusScore = baseProjection * leverageFactor * consistencyFactor + stackBonus + positionBonus;
+
+    // Add component breakdown for UI explanation
+    const scoreComponents = {
+      baseProjection,
+      leverageFactor,
+      avgOwnership: avgLineupOwnership,
+      fieldAvgOwnership,
+      stackBonus,
+      positionBonus,
+      consistencyFactor,
+      teamStacks: Object.entries(teamCounts)
+                    .filter(([_, count]) => count >= 2)
+                    .map(([team, count]) => `${team} (${count})`)
+                    .join(', ')
+    };
+
+    return {
+      score: Math.round(nexusScore * 10) / 10, // Round to 1 decimal
+      components: scoreComponents
     };
   }
 
@@ -1506,6 +1649,7 @@ class AdvancedOptimizer {
 
   /**
    * Check if a lineup is valid based on all constraints
+   * Modified to check team limit
    */
   _isValidLineup(lineup, existingLineups) {
     // Check salary cap
@@ -1574,6 +1718,7 @@ class AdvancedOptimizer {
 
   /**
    * Simulate a lineup across all iterations
+   * MODIFIED: Store raw performances for global calculations
    */
   async _simulateLineup(lineup) {
     // Get all player IDs in the lineup
@@ -1717,14 +1862,31 @@ class AdvancedOptimizer {
    * Get simulation summary stats
    */
   _getSimulationSummary() {
-    // Implementation would calculate aggregate statistics
+    // Calculate average ROI across all lineups
+    const avgRoi = this.simulationResults.reduce((sum, r) => sum + r.roi, 0) /
+                Math.max(1, this.simulationResults.length);
+
+    // Get top lineup's ROI
+    const topLineupRoi = this.simulationResults.length > 0 ? this.simulationResults[0].roi : 0;
+
+    // Get top lineup's NexusScore
+    const topNexusScore = this.simulationResults.length > 0 ? this.simulationResults[0].nexusScore : 0;
+
+    // Calculate average NexusScore
+    const avgNexusScore = this.simulationResults.reduce((sum, r) => sum + (r.nexusScore || 0), 0) /
+                       Math.max(1, this.simulationResults.length);
+
+    // Count distinct teams used
+    const distinctTeams = new Set(this.simulationResults.flatMap(r =>
+      [r.cpt.team, ...r.players.map(p => p.team)]
+    )).size;
+
     return {
-      averageROI: this.simulationResults.reduce((sum, r) => sum + parseFloat(r.roi), 0) /
-                 Math.max(1, this.simulationResults.length),
-      topLineupROI: this.simulationResults.length > 0 ? parseFloat(this.simulationResults[0].roi) : 0,
-      distinctTeams: new Set(this.simulationResults.flatMap(r =>
-        [r.cpt.team, ...r.players.map(p => p.team)]
-      )).size,
+      averageROI: avgRoi,
+      topLineupROI: topLineupRoi,
+      averageNexusScore: avgNexusScore,
+      topNexusScore: topNexusScore,
+      distinctTeams,
       playerExposures: this._calculatePlayerExposures()
     };
   }
