@@ -124,7 +124,7 @@ const LineupList = ({
       const roi =
         lineup.roi !== undefined
           ? lineup.roi
-          : ((nexusScore / 100) * 2 + Math.random() * 0.5).toFixed(2);
+          : ((nexusScore / 100) * 2 - 1) * 100 + Math.random() * 50; // Modified to be percentage-based with potential negative values
 
       return {
         ...lineup,

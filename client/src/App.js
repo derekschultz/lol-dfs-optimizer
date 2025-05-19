@@ -916,8 +916,12 @@ const App = () => {
           const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership));
           const nexusScore = (totalProj * leverageFactor + stackBonus) / 7;
 
-          // Calculate ROI based on NexusScore
-          const roi = ((nexusScore / 100) * 2 + Math.random() * 0.5).toFixed(2);
+          // Calculate ROI as a percentage (can be negative)
+          const roi = (
+            (nexusScore / 100) * 200 -
+            100 +
+            Math.random() * 50
+          ).toFixed(2);
 
           return {
             ...lineup,
