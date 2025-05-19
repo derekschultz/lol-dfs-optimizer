@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import "./blue-theme.css";
 import "./team-stacks.css";
+import "./slider-styles.css";
 import ExposureControl from "./components/ExposureControl";
 import TeamStacks from "./components/TeamStacks";
 import OptimizerPage from "./pages/OptimizerPage";

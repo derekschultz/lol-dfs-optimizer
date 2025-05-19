@@ -268,8 +268,7 @@ const NexusScoreExplainer = ({ isOpen, onClose }) => {
             right: "1rem",
             background: "none",
             border: "none",
-            color: "#90cdf4",
-            fontSize: "1.5rem",
+            color: "white",
             cursor: "pointer",
             zIndex: 10,
           }}
@@ -280,7 +279,7 @@ const NexusScoreExplainer = ({ isOpen, onClose }) => {
         {/* Header */}
         <div
           style={{
-            borderBottom: "1px solid #2c5282",
+            borderBottom: "1px solid #4fd1c5",
             padding: "1.5rem",
             background: "linear-gradient(90deg, #1a365d 0%, #164e63 100%)",
           }}
@@ -618,8 +617,11 @@ const AdvancedOptimizerUI = ({
     activeTab || "settings"
   );
   const [simulationProgress, setSimulationProgress] = useState(0);
+  const [simulationStage, setSimulationStage] = useState(""); // NEW: Track the current stage
+  const [simulationStatus, setSimulationStatus] = useState(""); // NEW: Track status text
   const [optimizerInstance, setOptimizerInstance] = useState(null);
-  const [saveSuccess, setSaveSuccess] = useState(false); // NEW: Track save success
+  const [saveSuccess, setSaveSuccess] = useState(false); // Track save success
+  const [isCancelling, setIsCancelling] = useState(false); // NEW: Track cancellation
 
   // Add ref to track internal tab changes to break circular loop
   const isInternalTabChange = useRef(false);
@@ -628,8 +630,8 @@ const AdvancedOptimizerUI = ({
   const [showNexusExplainer, setShowNexusExplainer] = useState(false);
   const [sortBy, setSortBy] = useState("roi"); // Default sort by ROI
   const [selectedLineup, setSelectedLineup] = useState(null); // Track selected lineup
-  const [selectedLineups, setSelectedLineups] = useState({}); // NEW: Track multiple selected lineups
-  const [savedLineups, setSavedLineups] = useState([]); // NEW: Track saved lineups
+  const [selectedLineups, setSelectedLineups] = useState({}); // Track multiple selected lineups
+  const [savedLineups, setSavedLineups] = useState([]); // Track saved lineups
 
   // FIXED: Tab management to prevent infinite loop
   useEffect(() => {
@@ -813,6 +815,9 @@ const AdvancedOptimizerUI = ({
   const initializeOptimizer = async () => {
     try {
       setIsLoading(true);
+      setSimulationProgress(0);
+      setSimulationStage("initialization");
+      setSimulationStatus("Initializing optimizer...");
 
       console.log("Creating new optimizer instance...");
       // Make sure we clear any previous instance first
@@ -831,6 +836,16 @@ const AdvancedOptimizerUI = ({
           sameTeamSamePosition: 0.2, // Same as before
           captain: 0.9, // Increased captain correlation
         },
+      });
+
+      // NEW: Set up progress and status callbacks
+      optimizer.setProgressCallback((percent, stage) => {
+        setSimulationProgress(percent);
+        if (stage) setSimulationStage(stage);
+      });
+
+      optimizer.setStatusCallback((status) => {
+        setSimulationStatus(status);
       });
 
       // Store in ref for persistence
@@ -875,12 +890,33 @@ const AdvancedOptimizerUI = ({
       }
 
       setOptimizerReady(true);
+      setSimulationStatus("Optimizer ready");
     } catch (error) {
       console.error("Error initializing optimizer:", error);
+      setSimulationStatus(`Error: ${error.message}`);
       alert("Error initializing optimizer: " + error.message);
       setOptimizerReady(false);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  /**
+   * NEW: Cancel current operation
+   */
+  const cancelOperation = () => {
+    if (optimizerRef.current) {
+      setIsCancelling(true);
+      // Call the cancel method on the optimizer
+      optimizerRef.current.cancel();
+
+      // Add slight delay to allow cleanup
+      setTimeout(() => {
+        setIsLoading(false);
+        setIsCancelling(false);
+        setSimulationProgress(0);
+        setSimulationStatus("Operation cancelled");
+      }, 500);
     }
   };
 
@@ -895,6 +931,12 @@ const AdvancedOptimizerUI = ({
       optimizerRef.current ? "exists" : "missing"
     );
 
+    // Show immediate feedback when button is clicked
+    setIsLoading(true);
+    setSimulationProgress(0); // Start from 0%
+    setSimulationStage("starting");
+    setSimulationStatus("Starting optimization...");
+
     // If we have player data but optimizer isn't ready, try initializing again
     if (!optimizerReady && playerData.length > 0) {
       console.log("Optimizer not ready, attempting initialization...");
@@ -905,6 +947,8 @@ const AdvancedOptimizerUI = ({
         alert(
           "Optimizer could not be initialized. Please check the console for errors."
         );
+        setIsLoading(false);
+        setSimulationProgress(0);
         return;
       }
     }
@@ -913,13 +957,12 @@ const AdvancedOptimizerUI = ({
       alert(
         "Optimizer not initialized. Please initialize the optimizer first."
       );
+      setIsLoading(false);
+      setSimulationProgress(0);
       return;
     }
 
     try {
-      setIsLoading(true);
-      setSimulationProgress(0);
-
       // Check explicitly if the optimizer is ready
       if (!optimizerRef.current.optimizerReady) {
         console.log(
@@ -940,61 +983,14 @@ const AdvancedOptimizerUI = ({
         }
       }
 
-      // Fixed: Use a local variable for the interval ID
-      let progressInterval;
-
-      // Progress simulation
-      progressInterval = setInterval(() => {
-        setSimulationProgress((prev) => {
-          const newValue = prev + (100 - prev) * 0.1;
-          return Math.min(newValue, 95);
-        });
-      }, 500);
-
-      // Run simulation
+      // Run simulation - progress updates will happen via the callback we set up
       const results = await optimizerRef.current.runSimulation(
         optimizerSettings.simCount
       );
 
-      // Stop progress simulation - Fixed: Clear the local interval variable
-      clearInterval(progressInterval);
+      // Set progress to 100% at completion
       setSimulationProgress(100);
-
-      // Add default NexusScore values if they're missing
-      if (results && results.lineups) {
-        results.lineups.forEach((lineup) => {
-          // If NexusScore isn't calculated by the backend, create a simulated one
-          if (!lineup.nexusScore) {
-            // Simple scoring formula based on available metrics
-            const projPoints = parseFloat(lineup.projectedPoints) || 0;
-            const roi = parseFloat(lineup.roi) || 0;
-            const firstPlace = parseFloat(lineup.firstPlace) || 0;
-
-            // Baseline score starts with projected points
-            let baseScore = projPoints * 10;
-
-            // Bonus for high ROI (50% weight)
-            baseScore += roi * 20;
-
-            // Bonus for first place percentage (30% weight)
-            baseScore += firstPlace * 2;
-
-            // Scale to 100-160 range
-            lineup.nexusScore = Math.max(70, Math.min(180, baseScore));
-
-            // Create components for display
-            lineup.scoreComponents = {
-              baseProjection: projPoints,
-              leverageFactor: 1 + roi / 5, // Simulate leverage based on ROI
-              stackBonus: firstPlace * 0.5, // Simulate stack bonus
-              positionBonus: 1.5, // Default position bonus
-              avgOwnership: 10, // Default avg ownership
-              fieldAvgOwnership: 15, // Default field avg ownership
-              teamStacks: "Auto-generated", // Indicate this was auto-calculated
-            };
-          }
-        });
-      }
+      setSimulationStatus("Simulation completed");
 
       // Process and store results
       setOptimizationResults(results);
@@ -1014,12 +1010,13 @@ const AdvancedOptimizerUI = ({
       console.error("Error running optimizer:", error);
       setIsLoading(false);
       setSimulationProgress(0);
+      setSimulationStatus(`Error: ${error.message}`);
       alert("Error running optimizer: " + error.message);
     }
   };
 
   /**
-   * NEW: Toggle selection of a lineup for saving
+   * Toggle selection of a lineup for saving
    */
   const toggleLineupSelection = (lineup) => {
     setSelectedLineups((prev) => {
@@ -1034,7 +1031,7 @@ const AdvancedOptimizerUI = ({
   };
 
   /**
-   * NEW: Save multiple selected lineups
+   * Save multiple selected lineups
    */
   const saveSelectedLineups = async () => {
     const selectedLineupsList = Object.values(selectedLineups);
@@ -1094,7 +1091,6 @@ const AdvancedOptimizerUI = ({
 
   /**
    * Generate lineups from optimization results
-   * UPDATED: to use the new multi-select and save functionality
    */
   const generateLineupsFromResults = async () => {
     if (!optimizationResults) {
@@ -1231,6 +1227,29 @@ const AdvancedOptimizerUI = ({
     };
   };
 
+  /**
+   * Helper function to get a descriptive status message based on progress and stage
+   */
+  const getProgressStatusMessage = () => {
+    // If we have a specific status message from the optimizer, use that
+    if (simulationStatus) {
+      return simulationStatus;
+    }
+
+    // Otherwise, generate based on progress and stage
+    if (simulationProgress < 5) {
+      return "Initializing...";
+    } else if (simulationProgress < 40) {
+      return "Generating lineups...";
+    } else if (simulationProgress < 70) {
+      return "Running simulations...";
+    } else if (simulationProgress < 90) {
+      return "Calculating metrics...";
+    } else {
+      return "Finalizing results...";
+    }
+  };
+
   return (
     <div className="advanced-optimizer">
       {/* Header */}
@@ -1333,132 +1352,118 @@ const AdvancedOptimizerUI = ({
                 </p>
               </div>
 
-              <div>
-                <label className="form-label">Randomness Factor (0-1)</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={optimizerSettings.randomness}
-                  onChange={(e) =>
-                    updateOptimizerSettings(
-                      "randomness",
-                      parseFloat(e.target.value)
-                    )
-                  }
-                />
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <span style={{ color: "#90cdf4", fontSize: "0.875rem" }}>
-                    Projection Heavy
-                  </span>
-                  <span
-                    style={{
-                      color: "#90cdf4",
-                      fontSize: "0.875rem",
-                      textAlign: "right",
-                    }}
-                  >
-                    More Random
+              {/* NEW REDESIGNED SLIDER */}
+              <div className="slider-container">
+                <div className="slider-header">
+                  <label className="slider-label">Randomness Factor</label>
+                  <span className="slider-value">
+                    {optimizerSettings.randomness.toFixed(2)}
                   </span>
                 </div>
-                <p
-                  style={{
-                    color: "#90cdf4",
-                    fontSize: "0.875rem",
-                    marginTop: "0.5rem",
-                  }}
-                >
-                  Current value: {optimizerSettings.randomness.toFixed(2)}
-                </p>
+
+                <div className="slider-track">
+                  <div
+                    className="slider-fill"
+                    style={{ width: `${optimizerSettings.randomness * 100}%` }}
+                  ></div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={optimizerSettings.randomness}
+                    onChange={(e) =>
+                      updateOptimizerSettings(
+                        "randomness",
+                        parseFloat(e.target.value)
+                      )
+                    }
+                    className="slider-input"
+                  />
+                </div>
+
+                <div className="slider-range-labels">
+                  <span>Projection Heavy</span>
+                  <span>More Random</span>
+                </div>
               </div>
 
-              <div>
-                <label className="form-label">Leverage Multiplier</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={optimizerSettings.leverageMultiplier}
-                  onChange={(e) =>
-                    updateOptimizerSettings(
-                      "leverageMultiplier",
-                      parseFloat(e.target.value)
-                    )
-                  }
-                />
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <span style={{ color: "#90cdf4", fontSize: "0.875rem" }}>
-                    Ignore Ownership
-                  </span>
-                  <span
-                    style={{
-                      color: "#90cdf4",
-                      fontSize: "0.875rem",
-                      textAlign: "right",
-                    }}
-                  >
-                    Max Leverage
+              {/* NEW REDESIGNED SLIDER */}
+              <div className="slider-container">
+                <div className="slider-header">
+                  <label className="slider-label">Leverage Multiplier</label>
+                  <span className="slider-value">
+                    {optimizerSettings.leverageMultiplier.toFixed(1)}
                   </span>
                 </div>
-                <p
-                  style={{
-                    color: "#90cdf4",
-                    fontSize: "0.875rem",
-                    marginTop: "0.5rem",
-                  }}
-                >
-                  Current value:{" "}
-                  {optimizerSettings.leverageMultiplier.toFixed(1)}
-                </p>
+
+                <div className="slider-track">
+                  <div
+                    className="slider-fill"
+                    style={{
+                      width: `${
+                        (optimizerSettings.leverageMultiplier / 2) * 100
+                      }%`,
+                    }}
+                  ></div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    value={optimizerSettings.leverageMultiplier}
+                    onChange={(e) =>
+                      updateOptimizerSettings(
+                        "leverageMultiplier",
+                        parseFloat(e.target.value)
+                      )
+                    }
+                    className="slider-input"
+                  />
+                </div>
+
+                <div className="slider-range-labels">
+                  <span>Ignore Ownership</span>
+                  <span>Max Leverage</span>
+                </div>
               </div>
 
-              <div>
-                <label className="form-label">Target Top Percentile</label>
-                <input
-                  type="range"
-                  min="0.01"
-                  max="0.5"
-                  step="0.01"
-                  value={optimizerSettings.targetTop}
-                  onChange={(e) =>
-                    updateOptimizerSettings(
-                      "targetTop",
-                      parseFloat(e.target.value)
-                    )
-                  }
-                />
-                <div
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <span style={{ color: "#90cdf4", fontSize: "0.875rem" }}>
-                    Top 1%
-                  </span>
-                  <span
-                    style={{
-                      color: "#90cdf4",
-                      fontSize: "0.875rem",
-                      textAlign: "right",
-                    }}
-                  >
-                    Top 50%
+              {/* NEW REDESIGNED SLIDER */}
+              <div className="slider-container">
+                <div className="slider-header">
+                  <label className="slider-label">Target Top Percentile</label>
+                  <span className="slider-value">
+                    Top {(optimizerSettings.targetTop * 100).toFixed(0)}%
                   </span>
                 </div>
-                <p
-                  style={{
-                    color: "#90cdf4",
-                    fontSize: "0.875rem",
-                    marginTop: "0.5rem",
-                  }}
-                >
-                  Current value: Top{" "}
-                  {(optimizerSettings.targetTop * 100).toFixed(0)}%
-                </p>
+
+                <div className="slider-track">
+                  <div
+                    className="slider-fill"
+                    style={{
+                      width: `${(optimizerSettings.targetTop / 0.5) * 100}%`,
+                    }}
+                  ></div>
+                  <input
+                    type="range"
+                    min="0.01"
+                    max="0.5"
+                    step="0.01"
+                    value={optimizerSettings.targetTop}
+                    onChange={(e) =>
+                      updateOptimizerSettings(
+                        "targetTop",
+                        parseFloat(e.target.value)
+                      )
+                    }
+                    className="slider-input"
+                  />
+                </div>
+
+                <div className="slider-range-labels">
+                  <span>Top 1%</span>
+                  <span>Top 50%</span>
+                </div>
               </div>
 
               <div>
@@ -1862,7 +1867,7 @@ const AdvancedOptimizerUI = ({
           <div style={{ marginBottom: "1rem" }}>
             {getSortedLineups().map((lineup, index) => (
               <div
-                key={lineup.id}
+                key={`${lineup.id}_${index}`}
                 style={{
                   marginBottom: "0.5rem",
                   display: "flex",
@@ -2056,24 +2061,45 @@ const AdvancedOptimizerUI = ({
         </div>
       )}
 
-      {/* Loading overlay */}
+      {/* Loading overlay with IMPROVED progress reporting */}
       {isLoading && (
         <div className="loading-overlay">
           <div className="loading-card">
             <h3 className="loading-title">Running Advanced Simulation</h3>
+
+            {/* Progress bar */}
             <div className="loading-progress">
               <div
                 className="loading-bar"
                 style={{ width: `${simulationProgress}%` }}
               ></div>
             </div>
+
+            {/* Status message that shows the current operation */}
             <p className="loading-text">
-              {simulationProgress < 100
-                ? `Processing simulation iterations (${Math.round(
-                    simulationProgress
-                  )}%)`
-                : "Finalizing results..."}
+              {isCancelling
+                ? "Cancelling operation..."
+                : getProgressStatusMessage()}
             </p>
+
+            {/* NEW: Add cancel button */}
+            {!isCancelling && (
+              <button
+                onClick={cancelOperation}
+                style={{
+                  marginTop: "10px",
+                  padding: "4px 12px",
+                  background: "rgba(239, 68, 68, 0.2)",
+                  color: "#ef4444",
+                  border: "1px solid #ef4444",
+                  borderRadius: "4px",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            )}
           </div>
         </div>
       )}
