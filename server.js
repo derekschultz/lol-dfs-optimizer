@@ -1,13 +1,13 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
-const csv = require('csv-parser');
+const express = require("express");
+const cors = require("cors");
+const bodyParser = require("body-parser");
+const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
+const csv = require("csv-parser");
 
 // Import the AdvancedOptimizer class
-const AdvancedOptimizer = require('./client/src/lib/AdvancedOptimizer');
+const AdvancedOptimizer = require("./client/src/lib/AdvancedOptimizer");
 
 // Create Express app
 const app = express();
@@ -23,7 +23,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Set up file upload storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, 'uploads');
+    const dir = path.join(__dirname, "uploads");
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -31,7 +31,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     cb(null, `${Date.now()}-${file.originalname}`);
-  }
+  },
 });
 
 const upload = multer({ storage });
@@ -44,8 +44,8 @@ let settings = {
   iterations: 2000,
   fieldSize: 1176,
   entryFee: 5,
-  outputDir: './output',
-  maxWorkers: 4
+  outputDir: "./output",
+  maxWorkers: 4,
 };
 
 // Add exposure settings variable
@@ -54,7 +54,7 @@ let exposureSettings = {
     globalMinExposure: 0,
     globalMaxExposure: 60,
     applyToNewLineups: true,
-    prioritizeProjections: true
+    prioritizeProjections: true,
   },
   players: [],
   teams: [],
@@ -64,8 +64,8 @@ let exposureSettings = {
     MID: { min: 0, max: 100, target: null },
     ADC: { min: 0, max: 100, target: null },
     SUP: { min: 0, max: 100, target: null },
-    CPT: { min: 0, max: 100, target: null }
-  }
+    CPT: { min: 0, max: 100, target: null },
+  },
 };
 
 // Helper functions
@@ -78,11 +78,11 @@ const calculateExposures = (lineupList) => {
   let totalPlayers = 0;
 
   // Initialize position counters
-  ['TOP', 'JNG', 'MID', 'ADC', 'SUP', 'TEAM'].forEach(pos => {
+  ["TOP", "JNG", "MID", "ADC", "SUP", "TEAM"].forEach((pos) => {
     positionExposure[pos] = 0;
   });
 
-  lineupList.forEach(lineup => {
+  lineupList.forEach((lineup) => {
     // Count CPT team
     const cptTeam = lineup.cpt.team;
     teamExposure[cptTeam] = (teamExposure[cptTeam] || 0) + 1;
@@ -94,19 +94,20 @@ const calculateExposures = (lineupList) => {
     totalPlayers++;
 
     // Count players
-    lineup.players.forEach(player => {
+    lineup.players.forEach((player) => {
       teamExposure[player.team] = (teamExposure[player.team] || 0) + 1;
-      positionExposure[player.position] = (positionExposure[player.position] || 0) + 1;
+      positionExposure[player.position] =
+        (positionExposure[player.position] || 0) + 1;
       totalPlayers++;
     });
   });
 
   // Convert counts to percentages
-  Object.keys(teamExposure).forEach(team => {
+  Object.keys(teamExposure).forEach((team) => {
     teamExposure[team] = (teamExposure[team] / totalPlayers) * 100;
   });
 
-  Object.keys(positionExposure).forEach(pos => {
+  Object.keys(positionExposure).forEach((pos) => {
     positionExposure[pos] = (positionExposure[pos] / totalPlayers) * 100;
   });
 
@@ -115,7 +116,9 @@ const calculateExposures = (lineupList) => {
 
 // Simulate lineup performance based on player projections
 const simulateLineups = (lineupIds, simSettings) => {
-  const selectedLineups = lineups.filter(lineup => lineupIds.includes(lineup.id));
+  const selectedLineups = lineups.filter((lineup) =>
+    lineupIds.includes(lineup.id)
+  );
 
   if (selectedLineups.length === 0) {
     return { error: "No valid lineups found" };
@@ -125,16 +128,16 @@ const simulateLineups = (lineupIds, simSettings) => {
   const exposures = calculateExposures(selectedLineups);
 
   // Generate performance metrics based on player projections
-  const lineupPerformance = selectedLineups.map(lineup => {
+  const lineupPerformance = selectedLineups.map((lineup) => {
     // Calculate base projected points using actual player data
     let baseProjection = 0;
-    const cptProj = playerProjections.find(p => p.name === lineup.cpt.name);
+    const cptProj = playerProjections.find((p) => p.name === lineup.cpt.name);
     if (cptProj) {
       baseProjection += cptProj.projectedPoints * 1.5; // CPT gets 1.5x points
     }
 
-    lineup.players.forEach(player => {
-      const playerProj = playerProjections.find(p => p.name === player.name);
+    lineup.players.forEach((player) => {
+      const playerProj = playerProjections.find((p) => p.name === player.name);
       if (playerProj) {
         baseProjection += playerProj.projectedPoints;
       }
@@ -152,9 +155,9 @@ const simulateLineups = (lineupIds, simSettings) => {
     const firstPlaceMultiplier = 100;
 
     const roi = (
-      (minCashPct / 100 * minCashMultiplier) +
-      (top10Pct / 100 * top10Multiplier) +
-      (firstPlacePct / 100 * firstPlaceMultiplier)
+      (minCashPct / 100) * minCashMultiplier +
+      (top10Pct / 100) * top10Multiplier +
+      (firstPlacePct / 100) * firstPlaceMultiplier
     ).toFixed(2);
 
     return {
@@ -165,7 +168,7 @@ const simulateLineups = (lineupIds, simSettings) => {
       top10: top10Pct.toFixed(2),
       minCash: minCashPct.toFixed(2),
       averagePayout: (roi * simSettings.entryFee).toFixed(2),
-      projectedPoints: baseProjection.toFixed(1)
+      projectedPoints: baseProjection.toFixed(1),
     };
   });
 
@@ -173,30 +176,33 @@ const simulateLineups = (lineupIds, simSettings) => {
   lineupPerformance.sort((a, b) => parseFloat(b.roi) - parseFloat(a.roi));
 
   // Generate score distributions based on projected points
-  const scoreDistributions = lineupPerformance.map(perf => {
+  const scoreDistributions = lineupPerformance.map((perf) => {
     const projectedPoints = parseFloat(perf.projectedPoints);
 
     // Create distribution around the projected points
     return {
       lineup: perf.id,
-      p10: (projectedPoints * 0.8).toFixed(1),  // 10th percentile (20% below projection)
-      p25: (projectedPoints * 0.9).toFixed(1),  // 25th percentile (10% below projection)
-      p50: projectedPoints.toFixed(1),          // Median (projected points)
-      p75: (projectedPoints * 1.1).toFixed(1),  // 75th percentile (10% above projection)
-      p90: (projectedPoints * 1.2).toFixed(1)   // 90th percentile (20% above projection)
+      p10: (projectedPoints * 0.8).toFixed(1), // 10th percentile (20% below projection)
+      p25: (projectedPoints * 0.9).toFixed(1), // 25th percentile (10% below projection)
+      p50: projectedPoints.toFixed(1), // Median (projected points)
+      p75: (projectedPoints * 1.1).toFixed(1), // 75th percentile (10% above projection)
+      p90: (projectedPoints * 1.2).toFixed(1), // 90th percentile (20% above projection)
     };
   });
 
   return {
     lineupPerformance,
     exposures,
-    scoreDistributions
+    scoreDistributions,
   };
 };
 
 // Generate optimized lineups using the AdvancedOptimizer
 const generateOptimalLineups = async (count, options = {}) => {
-  console.log("Generating lineups with options:", JSON.stringify(options, null, 2));
+  console.log(
+    "Generating lineups with options:",
+    JSON.stringify(options, null, 2)
+  );
 
   if (playerProjections.length === 0) {
     return { error: "No player projections available" };
@@ -217,13 +223,13 @@ const generateOptimalLineups = async (count, options = {}) => {
         MID: 1,
         ADC: 1,
         SUP: 1,
-        TEAM: 1
+        TEAM: 1,
       },
       iterations: settings.iterations || 2000,
       randomness: 0.2,
       targetTop: 0.1,
       leverageMultiplier: 0.7,
-      debugMode: true  // Enable for detailed logging
+      debugMode: true, // Enable for detailed logging
     });
 
     console.log("Using Advanced Optimizer for lineup generation");
@@ -233,20 +239,22 @@ const generateOptimalLineups = async (count, options = {}) => {
 
     // If a specific stack size is targeted in the options, add stack-specific constraints
     if (options.activeStackSize) {
-      console.log(`Adding stack-specific constraints for ${options.activeStackSize}-stacks`);
+      console.log(
+        `Adding stack-specific constraints for ${options.activeStackSize}-stacks`
+      );
 
       // Add stack-specific constraints for any teams being filtered
       if (options.preferredTeams && Array.isArray(options.preferredTeams)) {
         // Convert simple team names to objects with stack size if needed
-        const processedTeams = options.preferredTeams.map(item => {
+        const processedTeams = options.preferredTeams.map((item) => {
           // If it's already an object with team and stackSize
-          if (typeof item === 'object' && item.team) {
+          if (typeof item === "object" && item.team) {
             return item;
           }
           // If it's just a team name string
           return {
-            team: typeof item === 'string' ? item : item.team || item.name,
-            stackSize: options.activeStackSize
+            team: typeof item === "string" ? item : item.team || item.name,
+            stackSize: options.activeStackSize,
           };
         });
 
@@ -256,10 +264,10 @@ const generateOptimalLineups = async (count, options = {}) => {
         }
 
         // Add or update stack-specific constraints
-        processedTeams.forEach(team => {
+        processedTeams.forEach((team) => {
           // Find if we already have a constraint for this team+stackSize
-          const existingIndex = mergedExposureSettings.teams.findIndex(t =>
-            t.team === team.team && t.stackSize === team.stackSize
+          const existingIndex = mergedExposureSettings.teams.findIndex(
+            (t) => t.team === team.team && t.stackSize === team.stackSize
           );
 
           if (existingIndex >= 0) {
@@ -268,7 +276,10 @@ const generateOptimalLineups = async (count, options = {}) => {
               ...mergedExposureSettings.teams[existingIndex],
               stackSize: team.stackSize,
               // If min exposure is set in the team object, use it, otherwise keep existing
-              min: team.min !== undefined ? team.min : mergedExposureSettings.teams[existingIndex].min
+              min:
+                team.min !== undefined
+                  ? team.min
+                  : mergedExposureSettings.teams[existingIndex].min,
             };
           } else {
             // Add new constraint
@@ -276,7 +287,7 @@ const generateOptimalLineups = async (count, options = {}) => {
               team: team.team,
               stackSize: team.stackSize,
               min: team.min || 25, // Default to 25% min exposure if not specified
-              max: team.max || 100
+              max: team.max || 100,
             });
           }
         });
@@ -299,29 +310,28 @@ const generateOptimalLineups = async (count, options = {}) => {
     console.log(`Generated ${result.lineups.length} optimized lineups`);
 
     // Format lineups to match our expected structure
-    const formattedLineups = result.lineups.map(lineup => {
+    const formattedLineups = result.lineups.map((lineup) => {
       return {
         id: lineup.id || generateRandomId(),
         name: lineup.name || `Optimized Lineup ${generateRandomId()}`,
         cpt: {
           id: lineup.cpt.id,
           name: lineup.cpt.name,
-          position: 'CPT', // Ensure position is CPT
+          position: "CPT", // Ensure position is CPT
           team: lineup.cpt.team,
-          salary: lineup.cpt.salary
+          salary: lineup.cpt.salary,
         },
-        players: lineup.players.map(player => ({
+        players: lineup.players.map((player) => ({
           id: player.id,
           name: player.name,
           position: player.position,
           team: player.team,
-          salary: player.salary
-        }))
+          salary: player.salary,
+        })),
       };
     });
 
     return formattedLineups;
-
   } catch (error) {
     console.error("Error using advanced optimizer:", error);
     return { error: "Error generating lineups", message: error.message };
@@ -341,7 +351,7 @@ const fallbackGenerateLineups = (count, options = {}) => {
   const teamExposureCounts = {};
 
   // Initialize exposure tracking for all teams
-  teamExposures.forEach(team => {
+  teamExposures.forEach((team) => {
     // Create a unique key for each team+stackSize combination
     const key = team.stackSize ? `${team.team}_${team.stackSize}` : team.team;
 
@@ -354,7 +364,7 @@ const fallbackGenerateLineups = (count, options = {}) => {
       target: team.target || null,
       required: team.min > 0,
       // Track if this is a stack-specific exposure
-      isStackSpecific: team.stackSize !== null && team.stackSize !== undefined
+      isStackSpecific: team.stackSize !== null && team.stackSize !== undefined,
     };
   });
 
@@ -364,13 +374,13 @@ const fallbackGenerateLineups = (count, options = {}) => {
   const getFilteredStacks = (stackSize = null) => {
     if (!stackSize) return teamStacks;
 
-    return teamStacks.filter(stack => {
+    return teamStacks.filter((stack) => {
       if (!stack.stack) return false;
       if (Array.isArray(stack.stack)) {
         return stack.stack.length === stackSize;
       }
-      if (typeof stack.stack === 'string') {
-        return stack.stack.split(',').filter(Boolean).length === stackSize;
+      if (typeof stack.stack === "string") {
+        return stack.stack.split(",").filter(Boolean).length === stackSize;
       }
       return false;
     });
@@ -385,7 +395,9 @@ const fallbackGenerateLineups = (count, options = {}) => {
     availableStacks = teamStacks;
   }
 
-  console.log(`Using ${availableStacks.length} available stacks for lineup generation`);
+  console.log(
+    `Using ${availableStacks.length} available stacks for lineup generation`
+  );
 
   for (let i = 0; i < count; i++) {
     // Calculate current exposure percentages
@@ -396,7 +408,7 @@ const fallbackGenerateLineups = (count, options = {}) => {
         ...data,
         currentPercentage,
         // Check if this team needs more exposure
-        needsExposure: data.required && currentPercentage < data.min
+        needsExposure: data.required && currentPercentage < data.min,
       };
     });
 
@@ -408,69 +420,99 @@ const fallbackGenerateLineups = (count, options = {}) => {
         team: data.team,
         stackSize: data.stackSize,
         currentPercentage: data.currentPercentage,
-        target: data.min
+        target: data.min,
       }));
 
-    console.log(`Lineup ${i+1}: Teams needing more exposure:`,
-      unmetTeams.length > 0 ? unmetTeams : "None");
+    console.log(
+      `Lineup ${i + 1}: Teams needing more exposure:`,
+      unmetTeams.length > 0 ? unmetTeams : "None"
+    );
 
     // Choose a team stack
     let randomStack;
 
     if (unmetTeams.length > 0) {
       // Prioritize a team that needs more exposure
-      const teamToUse = unmetTeams[Math.floor(Math.random() * unmetTeams.length)];
+      const teamToUse =
+        unmetTeams[Math.floor(Math.random() * unmetTeams.length)];
 
       // Check if this team needs a specific stack size
       if (teamToUse.stackSize) {
         // Find stacks of the specific size for this team
-        const sizeSpecificStacks = availableStacks.filter(stack =>
-          stack.team === teamToUse.team &&
-          ((Array.isArray(stack.stack) && stack.stack.length === teamToUse.stackSize) ||
-           (typeof stack.stack === 'string' &&
-            stack.stack.split(',').filter(Boolean).length === teamToUse.stackSize))
+        const sizeSpecificStacks = availableStacks.filter(
+          (stack) =>
+            stack.team === teamToUse.team &&
+            ((Array.isArray(stack.stack) &&
+              stack.stack.length === teamToUse.stackSize) ||
+              (typeof stack.stack === "string" &&
+                stack.stack.split(",").filter(Boolean).length ===
+                  teamToUse.stackSize))
         );
 
         if (sizeSpecificStacks.length > 0) {
-          randomStack = sizeSpecificStacks[Math.floor(Math.random() * sizeSpecificStacks.length)];
-          console.log(`Using ${teamToUse.stackSize}-stack for team ${teamToUse.team}`);
+          randomStack =
+            sizeSpecificStacks[
+              Math.floor(Math.random() * sizeSpecificStacks.length)
+            ];
+          console.log(
+            `Using ${teamToUse.stackSize}-stack for team ${teamToUse.team}`
+          );
         } else {
           // Fallback to any stack for this team if no specific size found
-          const anyTeamStacks = availableStacks.filter(stack => stack.team === teamToUse.team);
+          const anyTeamStacks = availableStacks.filter(
+            (stack) => stack.team === teamToUse.team
+          );
           if (anyTeamStacks.length > 0) {
-            randomStack = anyTeamStacks[Math.floor(Math.random() * anyTeamStacks.length)];
-            console.log(`No ${teamToUse.stackSize}-stack found for ${teamToUse.team}, using available stack`);
+            randomStack =
+              anyTeamStacks[Math.floor(Math.random() * anyTeamStacks.length)];
+            console.log(
+              `No ${teamToUse.stackSize}-stack found for ${teamToUse.team}, using available stack`
+            );
           } else {
             // If no stacks for this team, pick a random stack
-            randomStack = availableStacks[Math.floor(Math.random() * availableStacks.length)];
-            console.log(`No stacks found for team ${teamToUse.team}, using random stack`);
+            randomStack =
+              availableStacks[
+                Math.floor(Math.random() * availableStacks.length)
+              ];
+            console.log(
+              `No stacks found for team ${teamToUse.team}, using random stack`
+            );
           }
         }
       } else {
         // Just find any stack for this team
-        const teamStacks = availableStacks.filter(stack => stack.team === teamToUse.team);
+        const teamStacks = availableStacks.filter(
+          (stack) => stack.team === teamToUse.team
+        );
         if (teamStacks.length > 0) {
-          randomStack = teamStacks[Math.floor(Math.random() * teamStacks.length)];
+          randomStack =
+            teamStacks[Math.floor(Math.random() * teamStacks.length)];
           console.log(`Using any stack for team ${teamToUse.team}`);
         } else {
-          randomStack = availableStacks[Math.floor(Math.random() * availableStacks.length)];
-          console.log(`No stacks found for team ${teamToUse.team}, using random stack`);
+          randomStack =
+            availableStacks[Math.floor(Math.random() * availableStacks.length)];
+          console.log(
+            `No stacks found for team ${teamToUse.team}, using random stack`
+          );
         }
       }
     } else {
       // Just pick a random stack
-      randomStack = availableStacks[Math.floor(Math.random() * availableStacks.length)];
-      console.log(`Using random stack for lineup ${i+1}`);
+      randomStack =
+        availableStacks[Math.floor(Math.random() * availableStacks.length)];
+      console.log(`Using random stack for lineup ${i + 1}`);
     }
 
     const stackTeam = randomStack.team;
     const stackSize = Array.isArray(randomStack.stack)
       ? randomStack.stack.length
-      : (typeof randomStack.stack === 'string'
-          ? randomStack.stack.split(',').filter(Boolean).length
-          : null);
+      : typeof randomStack.stack === "string"
+      ? randomStack.stack.split(",").filter(Boolean).length
+      : null;
 
-    console.log(`Using ${stackSize}-stack for team ${stackTeam} in lineup ${i+1}`);
+    console.log(
+      `Using ${stackSize}-stack for team ${stackTeam} in lineup ${i + 1}`
+    );
 
     // Update exposure counts for this team
     // Check both standard team exposure and stack-specific exposure
@@ -486,15 +528,16 @@ const fallbackGenerateLineups = (count, options = {}) => {
     }
 
     // Filter players from the stack team and by positions in the stack
-    const stackPlayers = playerProjections.filter(player =>
-      player.team === stackTeam &&
-      randomStack.stack.includes(player.position)
+    const stackPlayers = playerProjections.filter(
+      (player) =>
+        player.team === stackTeam && randomStack.stack.includes(player.position)
     );
 
     // Other players not from stack team
-    const otherPlayers = playerProjections.filter(player =>
-      player.team !== stackTeam ||
-      !randomStack.stack.includes(player.position)
+    const otherPlayers = playerProjections.filter(
+      (player) =>
+        player.team !== stackTeam ||
+        !randomStack.stack.includes(player.position)
     );
 
     // Create lineup
@@ -502,16 +545,21 @@ const fallbackGenerateLineups = (count, options = {}) => {
     const name = `Generated Lineup ${id}`;
 
     // Choose captain (highest projected points from stack)
-    const sortedStackPlayers = [...stackPlayers].sort((a, b) => b.projectedPoints - a.projectedPoints);
-    const captain = sortedStackPlayers.length > 0 ? sortedStackPlayers[0] : playerProjections[0];
+    const sortedStackPlayers = [...stackPlayers].sort(
+      (a, b) => b.projectedPoints - a.projectedPoints
+    );
+    const captain =
+      sortedStackPlayers.length > 0
+        ? sortedStackPlayers[0]
+        : playerProjections[0];
 
     // Add CPT with 1.5x salary
     const cpt = {
       id: captain.id || generateRandomId(),
       name: captain.name,
-      position: 'CPT',
+      position: "CPT",
       team: captain.team,
-      salary: Math.round(captain.salary * 1.5)
+      salary: Math.round(captain.salary * 1.5),
     };
 
     // Choose 5 players from stack and other players
@@ -519,7 +567,10 @@ const fallbackGenerateLineups = (count, options = {}) => {
     const usedPlayerIds = new Set([captain.id]);
 
     // First add 2-3 players from the stack
-    const stackCount = Math.min(stackPlayers.length, 2 + Math.floor(Math.random() * 2));
+    const stackCount = Math.min(
+      stackPlayers.length,
+      2 + Math.floor(Math.random() * 2)
+    );
     for (let j = 0; j < stackCount; j++) {
       if (j < stackPlayers.length && !usedPlayerIds.has(stackPlayers[j].id)) {
         const player = stackPlayers[j];
@@ -528,7 +579,7 @@ const fallbackGenerateLineups = (count, options = {}) => {
           name: player.name,
           position: player.position,
           team: player.team,
-          salary: player.salary
+          salary: player.salary,
         });
         usedPlayerIds.add(player.id);
       }
@@ -540,15 +591,13 @@ const fallbackGenerateLineups = (count, options = {}) => {
       const player = otherPlayers[randomIndex];
 
       // Check if player is already selected or is the captain
-      if (
-        !usedPlayerIds.has(player.id)
-      ) {
+      if (!usedPlayerIds.has(player.id)) {
         selectedPlayers.push({
           id: player.id || generateRandomId(),
           name: player.name,
           position: player.position,
           team: player.team,
-          salary: player.salary
+          salary: player.salary,
         });
         usedPlayerIds.add(player.id);
       }
@@ -559,7 +608,7 @@ const fallbackGenerateLineups = (count, options = {}) => {
       id,
       name,
       cpt,
-      players: selectedPlayers
+      players: selectedPlayers,
     };
 
     newLineups.push(newLineup);
@@ -573,11 +622,11 @@ const fallbackGenerateLineups = (count, options = {}) => {
           count: data.count,
           percentage: `${currentPercentage}%`,
           min: `${data.min}%`,
-          required: data.required
+          required: data.required,
         };
       });
 
-      console.log(`Exposure status after ${i+1} lineups:`, exposureStatus);
+      console.log(`Exposure status after ${i + 1} lineups:`, exposureStatus);
     }
   }
 
@@ -591,7 +640,7 @@ const fallbackGenerateLineups = (count, options = {}) => {
       exposurePercentage: `${pct}%`,
       count: data.count,
       minRequired: `${data.min}%`,
-      met: parseFloat(pct) >= data.min
+      met: parseFloat(pct) >= data.min,
     };
   });
 
@@ -607,40 +656,60 @@ const parsePlayersCSV = (filePath) => {
 
     fs.createReadStream(filePath)
       .pipe(csv())
-      .on('data', (data) => {
+      .on("data", (data) => {
         // Process CSV data
         // Try to find column names in the file
-        console.log('CSV row data:', data);
+        console.log("CSV row data:", data);
 
         // Extract data with flexible column naming
         const player = {
           id: data.id || data.ID || data.Id || generateRandomId(),
-          name: data.name || data.Name || data.PLAYER || data.Player || '',
-          team: data.team || data.Team || data.TEAM || '',
-          position: data.position || data.Position || data.POS || data.Pos || '',
-          projectedPoints: parseFloat(data.projectedPoints || data.Proj || data.FPTS || data.Projection || data.Median || 0) || 0,
-          ownership: parseFloat(data.Own || data.OWN || data.own || data.Ownership || data.OWNERSHIP || data.ownership || 0) || 0,
+          name: data.name || data.Name || data.PLAYER || data.Player || "",
+          team: data.team || data.Team || data.TEAM || "",
+          position:
+            data.position || data.Position || data.POS || data.Pos || "",
+          projectedPoints:
+            parseFloat(
+              data.projectedPoints ||
+                data.Proj ||
+                data.FPTS ||
+                data.Projection ||
+                data.Median ||
+                0
+            ) || 0,
+          ownership:
+            parseFloat(
+              data.Own ||
+                data.OWN ||
+                data.own ||
+                data.Ownership ||
+                data.OWNERSHIP ||
+                data.ownership ||
+                0
+            ) || 0,
           salary: parseInt(data.salary || data.Salary || data.SALARY || 0) || 0,
-          value: 0 // Calculate value
+          value: 0, // Calculate value
         };
 
         // Log each row if it's causing issues
-        console.log('Parsed player:', player);
+        console.log("Parsed player:", player);
 
         // Only add valid players with a name and projectedPoints > 0
         if (player.name && player.projectedPoints > 0) {
           // Calculate value (points per $1000)
-          player.value = player.salary > 0 ?
-            (player.projectedPoints / (player.salary / 1000)).toFixed(2) : 0;
+          player.value =
+            player.salary > 0
+              ? (player.projectedPoints / (player.salary / 1000)).toFixed(2)
+              : 0;
           results.push(player);
         }
       })
-      .on('end', () => {
+      .on("end", () => {
         console.log(`Parsed ${results.length} players from CSV`);
         resolve(results);
       })
-      .on('error', (error) => {
-        console.error('Error parsing player CSV:', error);
+      .on("error", (error) => {
+        console.error("Error parsing player CSV:", error);
         reject(error);
       });
   });
@@ -649,32 +718,38 @@ const parsePlayersCSV = (filePath) => {
 const parseStacksCSV = (filePath) => {
   return new Promise((resolve, reject) => {
     // First, read the file content to log raw data and detect headers
-    fs.readFile(filePath, 'utf8', (err, fileContent) => {
+    fs.readFile(filePath, "utf8", (err, fileContent) => {
       if (err) {
-        console.error('Error reading file for preview:', err);
+        console.error("Error reading file for preview:", err);
         reject(err);
         return;
       }
 
       // Log a preview of the file content
-      console.log('CSV file content preview (first 500 chars):', fileContent.substring(0, 500));
+      console.log(
+        "CSV file content preview (first 500 chars):",
+        fileContent.substring(0, 500)
+      );
 
       // Check for common CSV issues
       if (fileContent.length === 0) {
-        console.error('CSV file is empty');
-        reject(new Error('CSV file is empty'));
+        console.error("CSV file is empty");
+        reject(new Error("CSV file is empty"));
         return;
       }
 
       // Count the number of comma-separated values in the first line
-      const firstLineEnd = fileContent.indexOf('\n');
-      const firstLine = fileContent.substring(0, firstLineEnd > 0 ? firstLineEnd : fileContent.length);
+      const firstLineEnd = fileContent.indexOf("\n");
+      const firstLine = fileContent.substring(
+        0,
+        firstLineEnd > 0 ? firstLineEnd : fileContent.length
+      );
       const commaCount = (firstLine.match(/,/g) || []).length;
       console.log(`First line has ${commaCount + 1} potential columns`);
 
       // Log first few lines for debugging
-      const lines = fileContent.split('\n').slice(0, 3);
-      console.log('First few lines of CSV:');
+      const lines = fileContent.split("\n").slice(0, 3);
+      console.log("First few lines of CSV:");
       lines.forEach((line, i) => console.log(`Line ${i}: ${line}`));
 
       // Begin the actual parsing
@@ -682,62 +757,70 @@ const parseStacksCSV = (filePath) => {
       const rawRowsForDebug = [];
 
       fs.createReadStream(filePath)
-        .pipe(csv({
-          // Force lowercase property names and preserve original keys
-          mapHeaders: ({ header }) => {
-            console.log(`Processing header: "${header}"`);
-            return header; // Return just the original header string
-          },
-          // Add these options to make parsing more flexible
-          skipLines: 0,       // Don't skip any lines (starts at line 0)
-          strict: false,      // Don't be strict about column count
-          trim: true,         // Trim whitespace from values
-          skipEmptyLines: true // Skip empty lines
-        }))
-        .on('headers', (headers) => {
+        .pipe(
+          csv({
+            // Force lowercase property names and preserve original keys
+            mapHeaders: ({ header }) => {
+              console.log(`Processing header: "${header}"`);
+              return header; // Return just the original header string
+            },
+            // Add these options to make parsing more flexible
+            skipLines: 0, // Don't skip any lines (starts at line 0)
+            strict: false, // Don't be strict about column count
+            trim: true, // Trim whitespace from values
+            skipEmptyLines: true, // Skip empty lines
+          })
+        )
+        .on("headers", (headers) => {
           // Log all headers to help debugging
-          console.log('CSV HEADERS DETECTED:', headers);
+          console.log("CSV HEADERS DETECTED:", headers);
 
           // Specifically look for team and stack-related columns
-          const teamColumn = headers.find(h =>
-            h.toLowerCase() === 'team' ||
-            h.toLowerCase() === 'teams' ||
-            h.toLowerCase() === 'teamname'
+          const teamColumn = headers.find(
+            (h) =>
+              h.toLowerCase() === "team" ||
+              h.toLowerCase() === "teams" ||
+              h.toLowerCase() === "teamname"
           );
 
-          const stackColumns = headers.filter(h =>
-            h.toLowerCase().includes('stack') ||
-            h.toLowerCase().includes('stk') ||
-            h.toLowerCase().includes('value') ||
-            h.toLowerCase().includes('fan')
+          const stackColumns = headers.filter(
+            (h) =>
+              h.toLowerCase().includes("stack") ||
+              h.toLowerCase().includes("stk") ||
+              h.toLowerCase().includes("value") ||
+              h.toLowerCase().includes("fan")
           );
 
-          console.log('Team column found:', teamColumn || 'NOT FOUND');
-          console.log('Stack-related columns found:', stackColumns.length ? stackColumns : 'NONE FOUND');
+          console.log("Team column found:", teamColumn || "NOT FOUND");
+          console.log(
+            "Stack-related columns found:",
+            stackColumns.length ? stackColumns : "NONE FOUND"
+          );
         })
-        .on('data', (data) => {
+        .on("data", (data) => {
           // Save a copy of the raw data for debugging
-          rawRowsForDebug.push({...data});
+          rawRowsForDebug.push({ ...data });
 
           // Debug the actual object keys we've received for the first row
           if (rawRowsForDebug.length === 1) {
-            console.log('First row keys:', Object.keys(data));
-            console.log('First row raw data:', data);
+            console.log("First row keys:", Object.keys(data));
+            console.log("First row raw data:", data);
 
             // Print all columns in the CSV
-            console.log('All CSV columns:', Object.keys(data).join(', '));
+            console.log("All CSV columns:", Object.keys(data).join(", "));
 
             // Enhanced debug for Stack+ fields
-            const stackRelatedKeys = Object.keys(data).filter(key =>
-              key.toLowerCase().includes('stack') ||
-              key.toLowerCase().includes('stk') ||
-              key.toLowerCase().includes('value') ||
-              key.toLowerCase().includes('fan')
+            const stackRelatedKeys = Object.keys(data).filter(
+              (key) =>
+                key.toLowerCase().includes("stack") ||
+                key.toLowerCase().includes("stk") ||
+                key.toLowerCase().includes("value") ||
+                key.toLowerCase().includes("fan")
             );
 
             if (stackRelatedKeys.length > 0) {
-              console.log('Stack-related columns found:', stackRelatedKeys);
-              stackRelatedKeys.forEach(key => {
+              console.log("Stack-related columns found:", stackRelatedKeys);
+              stackRelatedKeys.forEach((key) => {
                 console.log(`Column "${key}" value:`, data[key]);
               });
             }
@@ -748,20 +831,29 @@ const parseStacksCSV = (filePath) => {
             id: generateRandomId(),
             team: null, // Will be filled below
             stack: [], // Will be populated below
-            originalRow: {...data} // Store all original data
+            originalRow: { ...data }, // Store all original data
           };
 
           // First, find the team name in a flexible way
           // Try common variations of team column names
           const teamColumnNames = [
-            'team', 'Team', 'TEAM', 'teamName', 'TeamName', 'TEAMNAME',
-            'name', 'Name', 'NAME'
+            "team",
+            "Team",
+            "TEAM",
+            "teamName",
+            "TeamName",
+            "TEAMNAME",
+            "name",
+            "Name",
+            "NAME",
           ];
 
           for (const colName of teamColumnNames) {
-            if (data[colName] !== undefined && data[colName] !== '') {
+            if (data[colName] !== undefined && data[colName] !== "") {
               stack.team = data[colName];
-              console.log(`Found team name "${stack.team}" in column "${colName}"`);
+              console.log(
+                `Found team name "${stack.team}" in column "${colName}"`
+              );
               break;
             }
           }
@@ -770,11 +862,16 @@ const parseStacksCSV = (filePath) => {
           if (!stack.team) {
             for (const key in data) {
               const value = data[key];
-              if (typeof value === 'string' && value.length > 0 &&
-                  !key.toLowerCase().includes('stack') &&
-                  !key.toLowerCase().includes('pos')) {
+              if (
+                typeof value === "string" &&
+                value.length > 0 &&
+                !key.toLowerCase().includes("stack") &&
+                !key.toLowerCase().includes("pos")
+              ) {
                 stack.team = value;
-                console.log(`Extracted team name "${stack.team}" from column "${key}"`);
+                console.log(
+                  `Extracted team name "${stack.team}" from column "${key}"`
+                );
                 break;
               }
             }
@@ -782,23 +879,23 @@ const parseStacksCSV = (filePath) => {
 
           // If still no team name, skip this row
           if (!stack.team) {
-            console.log('Skipping row with no team name:', data);
+            console.log("Skipping row with no team name:", data);
             return;
           }
 
           // Extract all possible Stack+ values using various column names
           const stackPlusVariations = [
-            data['Stack+'],
-            data['stack+'],
+            data["Stack+"],
+            data["stack+"],
             data.stackplus,
             data.StackPlus,
             data.stackPlus,
             // Add more ROO-specific column variations
-            data['Stack_Plus'],
+            data["Stack_Plus"],
             data.Stack_Plus,
             data.stack_plus,
-            data['stack_plus'],
-            data['Stk+'],
+            data["stack_plus"],
+            data["Stk+"],
             data.Stk,
             data.STK,
             data.stk,
@@ -806,16 +903,16 @@ const parseStacksCSV = (filePath) => {
             data.value,
             data.Value,
             data.VALUE,
-            data['Stack Value'],
-            data['stack value'],
+            data["Stack Value"],
+            data["stack value"],
             // More variations
             data.STACK,
             data.Stack,
             data.stack,
             // Raw number column possibilities
-            data['1'],
-            data['2'],
-            data['3'],
+            data["1"],
+            data["2"],
+            data["3"],
             // Generic value columns
             data.val,
             data.Val,
@@ -823,44 +920,60 @@ const parseStacksCSV = (filePath) => {
             // Check Fantasy column which was in the error message
             data.Fantasy,
             data.fantasy,
-            data.FANTASY
+            data.FANTASY,
           ];
 
           // Log all potential values for debugging
-          console.log(`Team ${stack.team} potential Stack+ values:`, stackPlusVariations
-            .filter(v => v !== undefined)
-            .map(v => typeof v === 'string' ? v.trim() : v));
-
-          // Find first non-undefined, non-empty value
-          const validStackPlus = stackPlusVariations.find(v =>
-            v !== undefined && v !== '' && !isNaN(parseFloat(v))
+          console.log(
+            `Team ${stack.team} potential Stack+ values:`,
+            stackPlusVariations
+              .filter((v) => v !== undefined)
+              .map((v) => (typeof v === "string" ? v.trim() : v))
           );
 
-          stack.stackPlus = validStackPlus !== undefined ? parseFloat(validStackPlus) : 0;
+          // Find first non-undefined, non-empty value
+          const validStackPlus = stackPlusVariations.find(
+            (v) => v !== undefined && v !== "" && !isNaN(parseFloat(v))
+          );
+
+          stack.stackPlus =
+            validStackPlus !== undefined ? parseFloat(validStackPlus) : 0;
           console.log(`Team ${stack.team} stackPlus value:`, stack.stackPlus);
 
           // Ensure Stack+ is available with both camelCase and original format
-          stack['Stack+'] = stack.stackPlus;
+          stack["Stack+"] = stack.stackPlus;
 
           // Also set stackPlusValue for the frontend
           stack.stackPlusValue = stack.stackPlus;
 
           // Extract positions for stacks
-          const positions = ['TOP', 'JNG', 'MID', 'ADC', 'SUP'];
+          const positions = ["TOP", "JNG", "MID", "ADC", "SUP"];
           const stackPositions = [];
 
           // Method 1: Check if positions are column names with boolean/numeric values
-          positions.forEach(pos => {
+          positions.forEach((pos) => {
             // Check various formats (e.g., "TOP", "top", "Top")
-            const variations = [pos, pos.toLowerCase(), pos.charAt(0) + pos.slice(1).toLowerCase()];
+            const variations = [
+              pos,
+              pos.toLowerCase(),
+              pos.charAt(0) + pos.slice(1).toLowerCase(),
+            ];
 
             for (const variant of variations) {
               if (data[variant] !== undefined) {
                 const value = data[variant];
                 // Accept various "true" values: "true", "1", "yes", etc.
-                if (value === true || value === 1 || value === '1' ||
-                    value === 'true' || value === 'yes' || value === 'y' ||
-                    value === 'TRUE' || value === 'YES' || value === 'Y') {
+                if (
+                  value === true ||
+                  value === 1 ||
+                  value === "1" ||
+                  value === "true" ||
+                  value === "yes" ||
+                  value === "y" ||
+                  value === "TRUE" ||
+                  value === "YES" ||
+                  value === "Y"
+                ) {
                   stackPositions.push(pos);
                   console.log(`Position ${pos} found in column ${variant}`);
                   break;
@@ -871,7 +984,13 @@ const parseStacksCSV = (filePath) => {
 
           // Method 2: Try to find positions in specific position columns
           for (let i = 1; i <= 5; i++) {
-            const posKeys = [`pos${i}`, `Pos${i}`, `POS${i}`, `position${i}`, `Position${i}`];
+            const posKeys = [
+              `pos${i}`,
+              `Pos${i}`,
+              `POS${i}`,
+              `position${i}`,
+              `Position${i}`,
+            ];
 
             for (const key of posKeys) {
               if (data[key]) {
@@ -879,10 +998,16 @@ const parseStacksCSV = (filePath) => {
                 // Map position abbreviations
                 let mappedPos = posValue;
 
-                if (posValue === 'JUNGLE' || posValue === 'JG') mappedPos = 'JNG';
-                else if (posValue === 'MIDDLE') mappedPos = 'MID';
-                else if (posValue === 'BOT' || posValue === 'BOTTOM' || posValue === 'CARRY') mappedPos = 'ADC';
-                else if (posValue === 'SUPPORT') mappedPos = 'SUP';
+                if (posValue === "JUNGLE" || posValue === "JG")
+                  mappedPos = "JNG";
+                else if (posValue === "MIDDLE") mappedPos = "MID";
+                else if (
+                  posValue === "BOT" ||
+                  posValue === "BOTTOM" ||
+                  posValue === "CARRY"
+                )
+                  mappedPos = "ADC";
+                else if (posValue === "SUPPORT") mappedPos = "SUP";
 
                 if (positions.includes(mappedPos)) {
                   stackPositions.push(mappedPos);
@@ -894,11 +1019,15 @@ const parseStacksCSV = (filePath) => {
 
           // Default to 3-stack if no positions found
           if (stackPositions.length === 0) {
-            stack.stack = ['MID', 'JNG', 'TOP']; // Default 3-stack
-            console.log(`No positions found for team ${stack.team}, using default: MID,JNG,TOP`);
+            stack.stack = ["MID", "JNG", "TOP"]; // Default 3-stack
+            console.log(
+              `No positions found for team ${stack.team}, using default: MID,JNG,TOP`
+            );
           } else {
             stack.stack = stackPositions;
-            console.log(`Team ${stack.team} stack positions: ${stackPositions.join(',')}`);
+            console.log(
+              `Team ${stack.team} stack positions: ${stackPositions.join(",")}`
+            );
           }
 
           // Only add valid stacks with a team
@@ -906,17 +1035,23 @@ const parseStacksCSV = (filePath) => {
             console.log(`Adding valid stack for team ${stack.team}`);
             results.push(stack);
           } else {
-            console.log(`Skipping invalid stack for team ${stack.team || 'unknown'}`);
+            console.log(
+              `Skipping invalid stack for team ${stack.team || "unknown"}`
+            );
           }
         })
-        .on('end', () => {
+        .on("end", () => {
           console.log(`Parsed ${results.length} team stacks from CSV`);
 
           // Log the first few results for debugging
           if (results.length > 0) {
             console.log("First 3 parsed stacks with Stack+ values:");
             results.slice(0, 3).forEach((stack, i) => {
-              console.log(`Stack ${i+1} - Team: ${stack.team} | Stack+: ${stack.stackPlus} | Display: ${stack.stackPlusValue}`);
+              console.log(
+                `Stack ${i + 1} - Team: ${stack.team} | Stack+: ${
+                  stack.stackPlus
+                } | Display: ${stack.stackPlusValue}`
+              );
               console.log("Original data for this stack:", stack.originalRow);
             });
           } else {
@@ -924,17 +1059,21 @@ const parseStacksCSV = (filePath) => {
 
             // Debug raw rows to understand why no stacks were parsed
             if (rawRowsForDebug.length > 0) {
-              console.log(`The CSV had ${rawRowsForDebug.length} rows, but none were parsed as valid stacks.`);
+              console.log(
+                `The CSV had ${rawRowsForDebug.length} rows, but none were parsed as valid stacks.`
+              );
               console.log("First row raw data:", rawRowsForDebug[0]);
             } else {
-              console.log("The CSV parser did not read any rows from the file at all.");
+              console.log(
+                "The CSV parser did not read any rows from the file at all."
+              );
             }
           }
 
           resolve(results);
         })
-        .on('error', (error) => {
-          console.error('Error parsing stacks CSV:', error);
+        .on("error", (error) => {
+          console.error("Error parsing stacks CSV:", error);
           reject(error);
         });
     });
@@ -946,35 +1085,40 @@ const parseStacksCSV = (filePath) => {
 const processDraftKingsFile = (filePath) => {
   return new Promise((resolve, reject) => {
     // Read the file content first to check format
-    const fileContent = fs.readFileSync(filePath, 'utf-8');
-    console.log('File content preview:', fileContent.substring(0, 500) + '...');
+    const fileContent = fs.readFileSync(filePath, "utf-8");
+    console.log("File content preview:", fileContent.substring(0, 500) + "...");
 
     // Check if it's a League of Legends format file
-    const hasLolPositions = fileContent.includes('TOP') &&
-                           fileContent.includes('JNG') &&
-                           fileContent.includes('MID') &&
-                           fileContent.includes('ADC') &&
-                           fileContent.includes('SUP');
+    const hasLolPositions =
+      fileContent.includes("TOP") &&
+      fileContent.includes("JNG") &&
+      fileContent.includes("MID") &&
+      fileContent.includes("ADC") &&
+      fileContent.includes("SUP");
 
     if (!hasLolPositions) {
-      console.warn('File does not appear to be in LoL format');
-      return reject(new Error('The file does not appear to be a League of Legends DraftKings file. Expected positions (TOP, JNG, MID, ADC, SUP) were not found.'));
+      console.warn("File does not appear to be in LoL format");
+      return reject(
+        new Error(
+          "The file does not appear to be a League of Legends DraftKings file. Expected positions (TOP, JNG, MID, ADC, SUP) were not found."
+        )
+      );
     }
 
-    console.log('Detected League of Legends DraftKings format');
+    console.log("Detected League of Legends DraftKings format");
 
     const results = [];
 
     // Now parse the file properly
     fs.createReadStream(filePath)
       .pipe(csv())
-      .on('headers', (headers) => {
-        console.log('CSV Headers:', headers);
+      .on("headers", (headers) => {
+        console.log("CSV Headers:", headers);
       })
-      .on('data', (row) => {
+      .on("data", (row) => {
         results.push(row);
       })
-      .on('end', () => {
+      .on("end", () => {
         console.log(`Read ${results.length} rows from CSV`);
 
         // Process results into lineups
@@ -985,25 +1129,29 @@ const processDraftKingsFile = (filePath) => {
             const row = results[i];
 
             // Skip if this is a header row
-            if (row['Entry ID'] === 'Entry ID' || !row['Entry ID'] || isNaN(row['Entry ID'])) {
-              console.log('Skipping header or invalid row:', row);
+            if (
+              row["Entry ID"] === "Entry ID" ||
+              !row["Entry ID"] ||
+              isNaN(row["Entry ID"])
+            ) {
+              console.log("Skipping header or invalid row:", row);
               continue;
             }
 
             // Generate ID from Entry ID if available, otherwise random
-            const id = row['Entry ID'] || generateRandomId().toString();
+            const id = row["Entry ID"] || generateRandomId().toString();
             const name = `DK Lineup ${id}`;
 
             // Extract CPT player
             let cpt = null;
-            if (row['CPT']) {
-              const cptName = extractPlayerName(row['CPT']);
-              const cptId = extractPlayerId(row['CPT']);
+            if (row["CPT"]) {
+              const cptName = extractPlayerName(row["CPT"]);
+              const cptId = extractPlayerId(row["CPT"]);
               cpt = {
                 name: cptName,
                 id: cptId,
-                position: 'CPT',
-                salary: 0 // Will be filled from player projections if available
+                position: "CPT",
+                salary: 0, // Will be filled from player projections if available
               };
             }
 
@@ -1017,62 +1165,62 @@ const processDraftKingsFile = (filePath) => {
             const players = [];
 
             // Add TOP player
-            if (row['TOP']) {
+            if (row["TOP"]) {
               players.push({
-                name: extractPlayerName(row['TOP']),
-                id: extractPlayerId(row['TOP']),
-                position: 'TOP',
-                salary: 0
+                name: extractPlayerName(row["TOP"]),
+                id: extractPlayerId(row["TOP"]),
+                position: "TOP",
+                salary: 0,
               });
             }
 
             // Add JNG player
-            if (row['JNG']) {
+            if (row["JNG"]) {
               players.push({
-                name: extractPlayerName(row['JNG']),
-                id: extractPlayerId(row['JNG']),
-                position: 'JNG',
-                salary: 0
+                name: extractPlayerName(row["JNG"]),
+                id: extractPlayerId(row["JNG"]),
+                position: "JNG",
+                salary: 0,
               });
             }
 
             // Add MID player
-            if (row['MID']) {
+            if (row["MID"]) {
               players.push({
-                name: extractPlayerName(row['MID']),
-                id: extractPlayerId(row['MID']),
-                position: 'MID',
-                salary: 0
+                name: extractPlayerName(row["MID"]),
+                id: extractPlayerId(row["MID"]),
+                position: "MID",
+                salary: 0,
               });
             }
 
             // Add ADC player
-            if (row['ADC']) {
+            if (row["ADC"]) {
               players.push({
-                name: extractPlayerName(row['ADC']),
-                id: extractPlayerId(row['ADC']),
-                position: 'ADC',
-                salary: 0
+                name: extractPlayerName(row["ADC"]),
+                id: extractPlayerId(row["ADC"]),
+                position: "ADC",
+                salary: 0,
               });
             }
 
             // Add SUP player
-            if (row['SUP']) {
+            if (row["SUP"]) {
               players.push({
-                name: extractPlayerName(row['SUP']),
-                id: extractPlayerId(row['SUP']),
-                position: 'SUP',
-                salary: 0
+                name: extractPlayerName(row["SUP"]),
+                id: extractPlayerId(row["SUP"]),
+                position: "SUP",
+                salary: 0,
               });
             }
 
             // Add TEAM if available
-            if (row['TEAM']) {
+            if (row["TEAM"]) {
               players.push({
-                name: extractPlayerName(row['TEAM']),
-                id: extractPlayerId(row['TEAM']),
-                position: 'TEAM',
-                salary: 0
+                name: extractPlayerName(row["TEAM"]),
+                id: extractPlayerId(row["TEAM"]),
+                position: "TEAM",
+                salary: 0,
               });
             }
 
@@ -1082,15 +1230,19 @@ const processDraftKingsFile = (filePath) => {
               // (This is optional but helps with better data representation)
               if (playerProjections.length > 0) {
                 // Match captain
-                const cptProj = playerProjections.find(p => p.name === cpt.name);
+                const cptProj = playerProjections.find(
+                  (p) => p.name === cpt.name
+                );
                 if (cptProj) {
                   cpt.team = cptProj.team;
                   cpt.salary = cptProj.salary || 0;
                 }
 
                 // Match players
-                players.forEach(player => {
-                  const playerProj = playerProjections.find(p => p.name === player.name);
+                players.forEach((player) => {
+                  const playerProj = playerProjections.find(
+                    (p) => p.name === player.name
+                  );
                   if (playerProj) {
                     player.team = playerProj.team;
                     player.salary = playerProj.salary || 0;
@@ -1102,10 +1254,12 @@ const processDraftKingsFile = (filePath) => {
                 id,
                 name,
                 cpt,
-                players
+                players,
               });
             } else {
-              console.warn(`Skipping incomplete lineup in row ${i}: missing CPT or not enough players`);
+              console.warn(
+                `Skipping incomplete lineup in row ${i}: missing CPT or not enough players`
+              );
             }
           } catch (error) {
             console.error(`Error processing row ${i}:`, error);
@@ -1113,15 +1267,20 @@ const processDraftKingsFile = (filePath) => {
           }
         }
 
-        console.log(`Successfully extracted ${extractedLineups.length} lineups`);
+        console.log(
+          `Successfully extracted ${extractedLineups.length} lineups`
+        );
         if (extractedLineups.length > 0) {
-          console.log('First lineup:', JSON.stringify(extractedLineups[0], null, 2));
+          console.log(
+            "First lineup:",
+            JSON.stringify(extractedLineups[0], null, 2)
+          );
         }
 
         resolve(extractedLineups);
       })
-      .on('error', (error) => {
-        console.error('CSV parsing error:', error);
+      .on("error", (error) => {
+        console.error("CSV parsing error:", error);
         reject(error);
       });
   });
@@ -1129,7 +1288,7 @@ const processDraftKingsFile = (filePath) => {
 
 // Helper function to extract player name from DraftKings format
 function extractPlayerName(playerStr) {
-  if (!playerStr) return '';
+  if (!playerStr) return "";
 
   // Extract player name (everything before the ID parentheses)
   const nameMatch = playerStr.match(/^(.*?)(?:\s+\(|$)/);
@@ -1138,54 +1297,68 @@ function extractPlayerName(playerStr) {
 
 // Helper function to extract player ID from DraftKings format
 function extractPlayerId(playerStr) {
-  if (!playerStr) return '';
+  if (!playerStr) return "";
 
   // Extract player ID if present in parentheses
   const idMatch = playerStr.match(/\((\d+)\)$/);
-  return idMatch ? idMatch[1] : '';
+  return idMatch ? idMatch[1] : "";
 }
 
 // API Routes
 // Get player projections
-app.get('/players/projections', (req, res) => {
+app.get("/players/projections", (req, res) => {
   res.json(playerProjections);
 });
 
 // Get team stacks
-app.get('/teams/stacks', (req, res) => {
-  console.log('GET /teams/stacks called, returning', teamStacks.length, 'stacks');
+app.get("/teams/stacks", (req, res) => {
+  console.log(
+    "GET /teams/stacks called, returning",
+    teamStacks.length,
+    "stacks"
+  );
 
   // If we have player data, enhance the stack data with projections
   if (playerProjections.length > 0 && teamStacks.length > 0) {
-    console.log('Enhancing stacks with player projection data');
-    const enhancedStacks = teamStacks.map(stack => {
+    console.log("Enhancing stacks with player projection data");
+    const enhancedStacks = teamStacks.map((stack) => {
       // Get all players for this team
-      const teamPlayers = playerProjections.filter(p => p.team === stack.team);
+      const teamPlayers = playerProjections.filter(
+        (p) => p.team === stack.team
+      );
 
       // Calculate total projection for the team
-      const totalProjection = teamPlayers.reduce((sum, p) =>
-        sum + Number(p.projectedPoints || 0), 0);
+      const totalProjection = teamPlayers.reduce(
+        (sum, p) => sum + Number(p.projectedPoints || 0),
+        0
+      );
 
       // Get stack-specific players
-      const stackPlayers = teamPlayers.filter(player =>
-        stack.stack && stack.stack.includes(player.position)
+      const stackPlayers = teamPlayers.filter(
+        (player) => stack.stack && stack.stack.includes(player.position)
       );
 
       // Calculate stack-specific projections
-      const stackProjection = stackPlayers.reduce((sum, player) =>
-        sum + Number(player.projectedPoints || 0), 0);
+      const stackProjection = stackPlayers.reduce(
+        (sum, player) => sum + Number(player.projectedPoints || 0),
+        0
+      );
 
       // Calculate ownership data
-      const avgTeamOwnership = teamPlayers.length > 0
-        ? teamPlayers.reduce((sum, p) => sum + Number(p.ownership || 0), 0) / teamPlayers.length
-        : 0;
+      const avgTeamOwnership =
+        teamPlayers.length > 0
+          ? teamPlayers.reduce((sum, p) => sum + Number(p.ownership || 0), 0) /
+            teamPlayers.length
+          : 0;
 
-      const avgStackOwnership = stackPlayers.length > 0
-        ? stackPlayers.reduce((sum, p) => sum + Number(p.ownership || 0), 0) / stackPlayers.length
-        : 0;
+      const avgStackOwnership =
+        stackPlayers.length > 0
+          ? stackPlayers.reduce((sum, p) => sum + Number(p.ownership || 0), 0) /
+            stackPlayers.length
+          : 0;
 
       // Add time info (for UI display)
-      const times = ['1:00 AM', '2:00 AM', '4:00 AM', '11:00 PM'];
+      const times = ["1:00 AM", "2:00 AM", "4:00 AM", "11:00 PM"];
       const randomTime = times[Math.floor(Math.random() * times.length)];
 
       // Return enhanced stack
@@ -1198,7 +1371,7 @@ app.get('/teams/stacks', (req, res) => {
         teamPlayerCount: teamPlayers.length,
         stackPlayerCount: stackPlayers.length,
         time: randomTime,
-        status: '—'  // Default status
+        status: "—", // Default status
       };
     });
 
@@ -1215,91 +1388,102 @@ app.get('/teams/stacks', (req, res) => {
 });
 
 // Get lineups
-app.get('/lineups', (req, res) => {
+app.get("/lineups", (req, res) => {
   res.json(lineups);
 });
 
 // Get settings
-app.get('/settings', (req, res) => {
+app.get("/settings", (req, res) => {
   res.json(settings);
 });
 
 // Save settings
-app.post('/settings', (req, res) => {
+app.post("/settings", (req, res) => {
   settings = req.body;
-  res.json({ success: true, message: 'Settings saved successfully' });
+  res.json({ success: true, message: "Settings saved successfully" });
 });
 
 // Add the GET endpoint for exposure settings
-app.get('/settings/exposure', (req, res) => {
+app.get("/settings/exposure", (req, res) => {
   res.json(exposureSettings);
 });
 
 // Add the missing POST endpoint for exposure settings
-app.post('/settings/exposure', (req, res) => {
+app.post("/settings/exposure", (req, res) => {
   try {
     // Validate required fields
     const newSettings = req.body;
     if (!newSettings || !newSettings.global) {
       return res.status(400).json({
-        message: 'Invalid exposure settings data structure'
+        message: "Invalid exposure settings data structure",
       });
     }
 
     // Log statistics for debugging
-    console.log(`Processing ${newSettings.players?.length || 0} player settings and ${newSettings.teams?.length || 0} team settings`);
+    console.log(
+      `Processing ${newSettings.players?.length || 0} player settings and ${
+        newSettings.teams?.length || 0
+      } team settings`
+    );
 
     // Save the settings
     exposureSettings = newSettings;
 
-    console.log('Exposure settings saved successfully');
+    console.log("Exposure settings saved successfully");
     res.json({
       success: true,
-      message: 'Exposure settings saved successfully'
+      message: "Exposure settings saved successfully",
     });
   } catch (error) {
-    console.error('Error handling exposure settings:', error);
+    console.error("Error handling exposure settings:", error);
     res.status(500).json({
-      message: `Error saving exposure settings: ${error.message}`
+      message: `Error saving exposure settings: ${error.message}`,
     });
   }
 });
 
 // Upload player projections
-app.post('/players/projections/upload', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
-
-  try {
-    console.log(`Processing player projections from: ${req.file.path}`);
-    const parsedPlayers = await parsePlayersCSV(req.file.path);
-
-    if (parsedPlayers.length === 0) {
-      return res.status(400).json({
-        error: 'No valid player data found in the file',
-        message: 'The uploaded file did not contain any valid player data. Please check the file format.'
-      });
+app.post(
+  "/players/projections/upload",
+  upload.single("file"),
+  async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
     }
 
-    // Replace playerProjections with new data
-    playerProjections = parsedPlayers;
+    try {
+      console.log(`Processing player projections from: ${req.file.path}`);
+      const parsedPlayers = await parsePlayersCSV(req.file.path);
 
-    console.log(`Successfully loaded ${playerProjections.length} players`);
-    res.json({
-      success: true,
-      message: `Loaded ${playerProjections.length} player projections successfully`
-    });
-  } catch (error) {
-    console.error('Error processing player projections:', error);
-    res.status(500).json({ error: 'Error processing file', message: error.message });
+      if (parsedPlayers.length === 0) {
+        return res.status(400).json({
+          error: "No valid player data found in the file",
+          message:
+            "The uploaded file did not contain any valid player data. Please check the file format.",
+        });
+      }
+
+      // Replace playerProjections with new data
+      playerProjections = parsedPlayers;
+
+      console.log(`Successfully loaded ${playerProjections.length} players`);
+      res.json({
+        success: true,
+        message: `Loaded ${playerProjections.length} player projections successfully`,
+      });
+    } catch (error) {
+      console.error("Error processing player projections:", error);
+      res
+        .status(500)
+        .json({ error: "Error processing file", message: error.message });
+    }
   }
-});
+);
 
 // Team stacks upload endpoint with the original parsing logic but without default stack generation
-app.post('/teams/stacks/upload', upload.single('file'), async (req, res) => {
+app.post("/teams/stacks/upload", upload.single("file"), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
+    return res.status(400).json({ error: "No file uploaded" });
   }
 
   try {
@@ -1310,57 +1494,67 @@ app.post('/teams/stacks/upload', upload.single('file'), async (req, res) => {
     console.log(`File size: ${stats.size} bytes`);
 
     // Preview file contents
-    const fileContent = fs.readFileSync(req.file.path, 'utf8').slice(0, 500);
-    console.log('File content preview:', fileContent);
+    const fileContent = fs.readFileSync(req.file.path, "utf8").slice(0, 500);
+    console.log("File content preview:", fileContent);
 
     const parsedStacks = await parseStacksCSV(req.file.path);
     console.log(`Parsed ${parsedStacks.length} stacks from CSV`);
 
     if (parsedStacks.length === 0) {
       // Use a warning instead of a hard error
-      console.warn("No stacks found in file. This is unusual but proceeding anyway.");
+      console.warn(
+        "No stacks found in file. This is unusual but proceeding anyway."
+      );
     }
 
     // Enhanced stacks processing - add more useful data for the UI
     if (playerProjections.length > 0) {
-      console.log('Enhancing stacks with player data');
+      console.log("Enhancing stacks with player data");
       // Get team stats to enhance the stacks
       const teamGroups = {};
 
       // Group players by team
-      playerProjections.forEach(player => {
+      playerProjections.forEach((player) => {
         if (!player.team) return;
 
         if (!teamGroups[player.team]) {
           teamGroups[player.team] = {
             players: [],
             totalProjection: 0,
-            avgOwnership: 0
+            avgOwnership: 0,
           };
         }
 
         teamGroups[player.team].players.push(player);
-        teamGroups[player.team].totalProjection += Number(player.projectedPoints || 0);
+        teamGroups[player.team].totalProjection += Number(
+          player.projectedPoints || 0
+        );
       });
 
       // Calculate additional stats for each stack
-      parsedStacks.forEach(stack => {
+      parsedStacks.forEach((stack) => {
         const teamData = teamGroups[stack.team];
 
         if (teamData) {
           // Get players in this stack
-          const stackPlayers = teamData.players.filter(player =>
+          const stackPlayers = teamData.players.filter((player) =>
             stack.stack.includes(player.position)
           );
 
           // Calculate stack-specific projections
-          const stackProjection = stackPlayers.reduce((sum, player) =>
-            sum + Number(player.projectedPoints || 0), 0);
+          const stackProjection = stackPlayers.reduce(
+            (sum, player) => sum + Number(player.projectedPoints || 0),
+            0
+          );
 
           // Calculate ownership for the stack
-          const avgStackOwnership = stackPlayers.length > 0
-            ? stackPlayers.reduce((sum, p) => sum + Number(p.ownership || 0), 0) / stackPlayers.length
-            : 0;
+          const avgStackOwnership =
+            stackPlayers.length > 0
+              ? stackPlayers.reduce(
+                  (sum, p) => sum + Number(p.ownership || 0),
+                  0
+                ) / stackPlayers.length
+              : 0;
 
           // Add enhanced data to the stack
           stack.totalProjection = teamData.totalProjection;
@@ -1379,21 +1573,21 @@ app.post('/teams/stacks/upload', upload.single('file'), async (req, res) => {
     res.json({
       success: true,
       message: `Loaded ${teamStacks.length} team stacks successfully`,
-      stacks: teamStacks
+      stacks: teamStacks,
     });
   } catch (error) {
-    console.error('Error processing team stacks:', error);
+    console.error("Error processing team stacks:", error);
     res.status(500).json({
-      error: 'Error processing file',
-      message: error.message
+      error: "Error processing file",
+      message: error.message,
     });
   }
 });
 
 // Upload DraftKings entries
-app.post('/lineups/dkentries', upload.single('file'), async (req, res) => {
+app.post("/lineups/dkentries", upload.single("file"), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
+    return res.status(400).json({ error: "No file uploaded" });
   }
 
   try {
@@ -1402,8 +1596,9 @@ app.post('/lineups/dkentries', upload.single('file'), async (req, res) => {
 
     if (extractedLineups.length === 0) {
       return res.status(400).json({
-        error: 'No valid lineup data found in the file',
-        message: 'The uploaded file did not contain any valid lineup data. Please check the file format.'
+        error: "No valid lineup data found in the file",
+        message:
+          "The uploaded file did not contain any valid lineup data. Please check the file format.",
       });
     }
 
@@ -1414,85 +1609,97 @@ app.post('/lineups/dkentries', upload.single('file'), async (req, res) => {
     res.json({
       success: true,
       lineups: extractedLineups,
-      message: `Imported ${extractedLineups.length} lineups successfully`
+      message: `Imported ${extractedLineups.length} lineups successfully`,
     });
   } catch (error) {
-    console.error('Error processing DraftKings file:', error);
-    res.status(500).json({ error: 'Error processing file', message: error.message });
+    console.error("Error processing DraftKings file:", error);
+    res
+      .status(500)
+      .json({ error: "Error processing file", message: error.message });
   }
 });
 
 // Import JSON lineups
-app.post('/lineups/import', upload.single('file'), (req, res) => {
+app.post("/lineups/import", upload.single("file"), (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
+    return res.status(400).json({ error: "No file uploaded" });
   }
 
   try {
     console.log(`Processing JSON lineups from: ${req.file.path}`);
-    const fileContent = fs.readFileSync(req.file.path, 'utf8');
+    const fileContent = fs.readFileSync(req.file.path, "utf8");
     let importedLineups;
 
     try {
       importedLineups = JSON.parse(fileContent);
     } catch (parseError) {
       return res.status(400).json({
-        error: 'Invalid JSON format',
-        message: 'The uploaded file is not valid JSON. Please check the file format.'
+        error: "Invalid JSON format",
+        message:
+          "The uploaded file is not valid JSON. Please check the file format.",
       });
     }
 
     if (!Array.isArray(importedLineups)) {
       return res.status(400).json({
-        error: 'Invalid lineup format',
-        message: 'The JSON file must contain an array of lineups.'
+        error: "Invalid lineup format",
+        message: "The JSON file must contain an array of lineups.",
       });
     }
 
     if (importedLineups.length === 0) {
       return res.status(400).json({
-        error: 'No lineups found',
-        message: 'The JSON file contains an empty array. No lineups to import.'
+        error: "No lineups found",
+        message: "The JSON file contains an empty array. No lineups to import.",
       });
     }
 
     // Add IDs if missing
-    const processedLineups = importedLineups.map(lineup => ({
+    const processedLineups = importedLineups.map((lineup) => ({
       ...lineup,
-      id: lineup.id || generateRandomId()
+      id: lineup.id || generateRandomId(),
     }));
 
     // Add new lineups to our store
     lineups = [...lineups, ...processedLineups];
 
-    console.log(`Successfully imported ${processedLineups.length} lineups from JSON`);
+    console.log(
+      `Successfully imported ${processedLineups.length} lineups from JSON`
+    );
     res.json({
       success: true,
       lineups: processedLineups,
-      message: `Imported ${processedLineups.length} lineups successfully`
+      message: `Imported ${processedLineups.length} lineups successfully`,
     });
   } catch (error) {
-    console.error('Error importing JSON lineups:', error);
-    res.status(500).json({ error: 'Error processing file', message: error.message });
+    console.error("Error importing JSON lineups:", error);
+    res
+      .status(500)
+      .json({ error: "Error processing file", message: error.message });
   }
 });
 
 // Generate lineups
-app.post('/lineups/generate', async (req, res) => {
-  const { count = 5, settings: reqSettings = {}, exposureSettings: reqExposureSettings = {} } = req.body;
+app.post("/lineups/generate", async (req, res) => {
+  const {
+    count = 5,
+    settings: reqSettings = {},
+    exposureSettings: reqExposureSettings = {},
+  } = req.body;
 
   // Check if we have necessary data
   if (playerProjections.length === 0) {
     return res.status(400).json({
       error: "No player projections available",
-      message: "Please upload player projections data before generating lineups."
+      message:
+        "Please upload player projections data before generating lineups.",
     });
   }
 
   if (teamStacks.length === 0) {
     return res.status(400).json({
       error: "No team stacks available",
-      message: "Please upload team stacks data before generating lineups."
+      message: "Please upload team stacks data before generating lineups.",
     });
   }
 
@@ -1505,9 +1712,11 @@ app.post('/lineups/generate', async (req, res) => {
       ...req.body,
       settings: {
         ...settings,
-        ...reqSettings
+        ...reqSettings,
       },
-      exposureSettings: reqExposureSettings.teams ? reqExposureSettings : exposureSettings
+      exposureSettings: reqExposureSettings.teams
+        ? reqExposureSettings
+        : exposureSettings,
     };
 
     // Generate lineups using the Advanced Optimizer
@@ -1521,37 +1730,41 @@ app.post('/lineups/generate', async (req, res) => {
       res.json({
         success: true,
         lineups: newLineups,
-        message: `Generated ${newLineups.length} lineups successfully`
+        message: `Generated ${newLineups.length} lineups successfully`,
       });
     } else {
       // Error occurred during lineup generation
       res.status(400).json({
-        error: newLineups.error || 'Error generating lineups',
-        message: newLineups.message || 'An error occurred during lineup generation.'
+        error: newLineups.error || "Error generating lineups",
+        message:
+          newLineups.message || "An error occurred during lineup generation.",
       });
     }
   } catch (error) {
-    console.error('Error generating lineups:', error);
-    res.status(500).json({ error: 'Error generating lineups', message: error.message });
+    console.error("Error generating lineups:", error);
+    res
+      .status(500)
+      .json({ error: "Error generating lineups", message: error.message });
   }
 });
 
 // Run simulation
-app.post('/simulation/run', (req, res) => {
+app.post("/simulation/run", (req, res) => {
   const { settings: simSettings, lineups: lineupIds } = req.body;
 
   // Validate inputs
   if (!lineupIds || !Array.isArray(lineupIds) || lineupIds.length === 0) {
     return res.status(400).json({
-      error: 'No lineups selected',
-      message: 'Please select at least one lineup to run the simulation.'
+      error: "No lineups selected",
+      message: "Please select at least one lineup to run the simulation.",
     });
   }
 
   if (playerProjections.length === 0) {
     return res.status(400).json({
-      error: 'No player projections available',
-      message: 'Please upload player projections data before running a simulation.'
+      error: "No player projections available",
+      message:
+        "Please upload player projections data before running a simulation.",
     });
   }
 
@@ -1563,29 +1776,31 @@ app.post('/simulation/run', (req, res) => {
     if (results.error) {
       return res.status(400).json({
         error: results.error,
-        message: results.message || 'An error occurred during simulation.'
+        message: results.message || "An error occurred during simulation.",
       });
     }
 
-    console.log('Simulation completed successfully');
+    console.log("Simulation completed successfully");
     res.json(results);
   } catch (error) {
-    console.error('Error running simulation:', error);
-    res.status(500).json({ error: 'Error running simulation', message: error.message });
+    console.error("Error running simulation:", error);
+    res
+      .status(500)
+      .json({ error: "Error running simulation", message: error.message });
   }
 });
 
 // Delete lineup
-app.delete('/lineups/:id', (req, res) => {
+app.delete("/lineups/:id", (req, res) => {
   const id = parseInt(req.params.id) || req.params.id;
 
   // Find the lineup
-  const index = lineups.findIndex(lineup => lineup.id == id);
+  const index = lineups.findIndex((lineup) => lineup.id == id);
 
   if (index === -1) {
     return res.status(404).json({
-      error: 'Lineup not found',
-      message: `No lineup with ID ${id} was found.`
+      error: "Lineup not found",
+      message: `No lineup with ID ${id} was found.`,
     });
   }
 
@@ -1595,25 +1810,25 @@ app.delete('/lineups/:id', (req, res) => {
   console.log(`Deleted lineup with ID: ${id}`);
   res.json({
     success: true,
-    message: 'Lineup deleted successfully'
+    message: "Lineup deleted successfully",
   });
 });
 
 // Add a new endpoint to calculate team stats
-app.get('/teams/stats', (req, res) => {
+app.get("/teams/stats", (req, res) => {
   try {
     // Validate that we have the necessary data
     if (playerProjections.length === 0) {
       return res.status(400).json({
-        error: 'No player projections available',
-        message: 'Please upload player projections data first.'
+        error: "No player projections available",
+        message: "Please upload player projections data first.",
       });
     }
 
     // Group players by team
     const teamMap = {};
 
-    playerProjections.forEach(player => {
+    playerProjections.forEach((player) => {
       if (!player.team) return;
 
       if (!teamMap[player.team]) {
@@ -1622,32 +1837,39 @@ app.get('/teams/stats', (req, res) => {
           players: [],
           totalProjection: 0,
           totalSalary: 0,
-          avgOwnership: 0
+          avgOwnership: 0,
         };
       }
 
       teamMap[player.team].players.push(player);
-      teamMap[player.team].totalProjection += Number(player.projectedPoints || 0);
+      teamMap[player.team].totalProjection += Number(
+        player.projectedPoints || 0
+      );
       teamMap[player.team].totalSalary += Number(player.salary || 0);
     });
 
     // Calculate averages and additional stats
-    const teamStats = Object.values(teamMap).map(team => {
+    const teamStats = Object.values(teamMap).map((team) => {
       const playerCount = team.players.length;
       const ownerships = team.players
-        .map(p => Number(p.ownership || 0))
-        .filter(o => !isNaN(o));
+        .map((p) => Number(p.ownership || 0))
+        .filter((o) => !isNaN(o));
 
-      const avgOwnership = ownerships.length > 0
-        ? ownerships.reduce((sum, o) => sum + o, 0) / ownerships.length
-        : 0;
+      const avgOwnership =
+        ownerships.length > 0
+          ? ownerships.reduce((sum, o) => sum + o, 0) / ownerships.length
+          : 0;
 
       // Add positions breakdown
       const positionCounts = {
-        TOP: 0, JNG: 0, MID: 0, ADC: 0, SUP: 0
+        TOP: 0,
+        JNG: 0,
+        MID: 0,
+        ADC: 0,
+        SUP: 0,
       };
 
-      team.players.forEach(player => {
+      team.players.forEach((player) => {
         if (player.position && positionCounts[player.position] !== undefined) {
           positionCounts[player.position]++;
         }
@@ -1659,7 +1881,7 @@ app.get('/teams/stats', (req, res) => {
         avgProjection: playerCount > 0 ? team.totalProjection / playerCount : 0,
         avgSalary: playerCount > 0 ? team.totalSalary / playerCount : 0,
         avgOwnership,
-        positionCounts
+        positionCounts,
       };
     });
 
@@ -1667,13 +1889,34 @@ app.get('/teams/stats', (req, res) => {
     teamStats.sort((a, b) => b.totalProjection - a.totalProjection);
 
     res.json(teamStats);
-
   } catch (error) {
-    console.error('Error calculating team stats:', error);
+    console.error("Error calculating team stats:", error);
     res.status(500).json({
-      error: 'Error processing team stats',
-      message: error.message
+      error: "Error processing team stats",
+      message: error.message,
     });
+  }
+});
+
+app.post("/nexusscore/formula", async (req, res) => {
+  try {
+    const formulaData = req.body;
+
+    // Save the formula to a file
+    const formulaPath = path.join(__dirname, "data", "nexusscore-formula.json");
+
+    // Create the data directory if it doesn't exist
+    if (!fs.existsSync(path.join(__dirname, "data"))) {
+      fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
+    }
+
+    // Write the formula to the file
+    fs.writeFileSync(formulaPath, JSON.stringify(formulaData, null, 2));
+
+    res.json({ success: true, message: "Formula saved successfully" });
+  } catch (error) {
+    console.error("Error saving NexusScore formula:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
