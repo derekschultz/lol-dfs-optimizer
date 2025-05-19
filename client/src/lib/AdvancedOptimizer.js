@@ -46,6 +46,7 @@ class AdvancedOptimizer {
     this.generatedLineups = [];
     this.playerPerfMap = new Map();
     this.optimizerReady = false;
+    this.teamMatchups = new Map(); // Map to store team -> opponent relationships
 
     // Initialize exposure tracking
     this.playerExposures = [];
@@ -149,6 +150,9 @@ class AdvancedOptimizer {
       this.teams = this._extractTeams(processedPlayerPool);
       this.debugLog(`Extracted ${this.teams.length} teams from player data`);
 
+      // Extract matchups from player data
+      this._extractTeamMatchups();
+
       // Calculate team and player correlations
       this.correlationMatrix = this._buildCorrelationMatrix();
       this.debugLog(`Built correlation matrix with ${this.correlationMatrix.size} entries`);
@@ -170,6 +174,84 @@ class AdvancedOptimizer {
       this.optimizerReady = false;
       return false;
     }
+  }
+
+  /**
+   * Extract team matchups from player data
+   * This matches teams against each other based on available data
+   */
+  _extractTeamMatchups() {
+    this.debugLog("Extracting team matchups...");
+
+    // First check if players already have opponent information
+    const hasOpponentData = this.playerPool.some(player =>
+      player.opponent || player.opp || player.matchup || player.vs
+    );
+
+    if (hasOpponentData) {
+      // Extract matchups from existing data
+      this.debugLog("Found opponent data in player pool, extracting matchups");
+
+      // Create a map of team -> opponent
+      this.playerPool.forEach(player => {
+        if (!player.team) return;
+
+        // Get opponent from any available field
+        const opponent = player.opponent || player.opp || player.matchup || player.vs;
+
+        if (opponent) {
+          // Clean up opponent name (remove "vs" or "at" if present)
+          let cleanOpponent = opponent;
+          if (typeof cleanOpponent === 'string') {
+            if (cleanOpponent.startsWith('vs ')) {
+              cleanOpponent = cleanOpponent.substring(3);
+            } else if (cleanOpponent.startsWith('at ')) {
+              cleanOpponent = cleanOpponent.substring(3);
+            }
+          }
+
+          this.teamMatchups.set(player.team, cleanOpponent);
+        }
+      });
+    } else {
+      // No opponent data in player pool, create artificial matchups
+      this.debugLog("No opponent data found, creating artificial matchups");
+
+      // Get unique teams
+      const teams = [...new Set(this.playerPool
+        .filter(p => p.team)
+        .map(p => p.team))];
+
+      // Create matchups (match teams in pairs)
+      for (let i = 0; i < teams.length; i += 2) {
+        if (i + 1 < teams.length) {
+          // Match teams in pairs
+          this.teamMatchups.set(teams[i], teams[i + 1]);
+          this.teamMatchups.set(teams[i + 1], teams[i]);
+        } else if (i < teams.length) {
+          // If we have an odd number of teams, the last one plays against first one
+          this.teamMatchups.set(teams[i], teams[0]);
+          this.teamMatchups.set(teams[0], teams[i]);
+        }
+      }
+    }
+
+    // Log the matchups for debugging
+    this.debugLog("Team matchups extracted:",
+      Array.from(this.teamMatchups.entries()).map(([team, opp]) => `${team} vs ${opp}`)
+    );
+
+    return this.teamMatchups;
+  }
+
+  /**
+   * Get the opponent for a team
+   * @param {string} team - Team name
+   * @returns {string} - Opponent team name or empty string if not found
+   */
+  _getTeamOpponent(team) {
+    if (!team) return '';
+    return this.teamMatchups.get(team) || '';
   }
 
   /**
@@ -1179,6 +1261,7 @@ class AdvancedOptimizer {
               name: selectedTeamPlayer.name,
               position: 'TEAM',
               team: selectedTeamPlayer.team,
+              opponent: this._getTeamOpponent(selectedTeamPlayer.team),
               salary: this._safeParseFloat(selectedTeamPlayer.salary, 0)
             };
 
@@ -1355,6 +1438,7 @@ class AdvancedOptimizer {
         name: selectedPlayer.name,
         position: 'CPT',
         team: selectedPlayer.team,
+        opponent: this._getTeamOpponent(selectedPlayer.team),
         salary: Math.round(this._safeParseFloat(selectedPlayer.salary, 0) * 1.5)
       };
     }
@@ -1385,6 +1469,7 @@ class AdvancedOptimizer {
       name: selectedPlayer.name,
       position: 'CPT',
       team: selectedPlayer.team,
+      opponent: this._getTeamOpponent(selectedPlayer.team),
       salary: Math.round(this._safeParseFloat(selectedPlayer.salary, 0) * 1.5)
     };
   }
@@ -1432,6 +1517,7 @@ class AdvancedOptimizer {
         name: selectedPlayer.name,
         position: 'TEAM',
         team: selectedPlayer.team,
+        opponent: this._getTeamOpponent(selectedPlayer.team),
         salary: this._safeParseFloat(selectedPlayer.salary, 0)
       };
     }
@@ -1547,6 +1633,7 @@ class AdvancedOptimizer {
         name: selectedPlayer.name,
         position: selectedPlayer.position,
         team: selectedPlayer.team,
+        opponent: this._getTeamOpponent(selectedPlayer.team),
         salary: this._safeParseFloat(selectedPlayer.salary, 0)
       };
     }
@@ -1588,6 +1675,7 @@ class AdvancedOptimizer {
       name: selectedPlayer.name,
       position: selectedPlayer.position,
       team: selectedPlayer.team,
+      opponent: this._getTeamOpponent(selectedPlayer.team),
       salary: this._safeParseFloat(selectedPlayer.salary, 0)
     };
   }

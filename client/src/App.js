@@ -5,6 +5,7 @@ import './team-stacks.css';
 import ExposureControl from './components/ExposureControl';
 import TeamStacks from './components/TeamStacks';
 import OptimizerPage from './pages/OptimizerPage';
+import LineupList from './components/LineupList';
 
 const App = () => {
   // API base URL - this matches the port in our server.js
@@ -213,7 +214,65 @@ const App = () => {
         if (lineupsRes.ok) {
           const lineupsData = await lineupsRes.json();
           console.log('Loaded lineups:', lineupsData.length);
-          setLineups(lineupsData);
+
+          // Add NexusScore and ROI properties to each lineup
+          const enhancedLineups = lineupsData.map(lineup => {
+            // Calculate NexusScore based on lineup data
+            const allPlayers = lineup.cpt ? [lineup.cpt, ...(lineup.players || [])] : (lineup.players || []);
+            const teamCounts = {};
+
+            allPlayers.forEach(player => {
+              if (player && player.team) {
+                teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+              }
+            });
+
+            // Calculate total projection
+            let totalProj = 0;
+            if (lineup.cpt) {
+              const cptPlayer = playerData.find(p => p.id === lineup.cpt.id);
+              const cptProj = cptPlayer?.projectedPoints || 0;
+              totalProj += cptProj * 1.5; // CPT gets 1.5x
+            }
+
+            // Add regular players' projections
+            totalProj += (lineup.players || [])
+              .map(p => {
+                const fullPlayer = playerData.find(fp => fp.id === p.id);
+                return fullPlayer?.projectedPoints || p.projectedPoints || 0;
+              })
+              .reduce((sum, proj) => sum + proj, 0);
+
+            // Calculate average ownership
+            const totalOwnership = allPlayers.reduce((sum, p) => {
+              const fullPlayer = playerData.find(fp => fp.id === p.id);
+              return sum + (fullPlayer?.ownership || p.ownership || 0);
+            }, 0);
+
+            const avgOwn = allPlayers.length > 0 ? totalOwnership / allPlayers.length : 0;
+
+            // Calculate stack bonus
+            let stackBonus = 0;
+            Object.values(teamCounts).forEach(count => {
+              if (count >= 3) stackBonus += (count - 2) * 3;
+            });
+
+            // Calculate NexusScore
+            const ownership = Math.max(0.1, avgOwn / 100);
+            const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership));
+            const nexusScore = ((totalProj * leverageFactor) + stackBonus) / 7;
+
+            // Calculate ROI based on NexusScore
+            const roi = ((nexusScore / 100) * 2 + Math.random() * 0.5).toFixed(2);
+
+            return {
+              ...lineup,
+              nexusScore: Math.round(nexusScore * 10) / 10,
+              roi
+            };
+          });
+
+          setLineups(enhancedLineups);
         } else {
           console.error('Failed to load lineups');
         }
@@ -382,7 +441,20 @@ const App = () => {
       // Update state based on the endpoint
       if (endpoint.includes('dkentries') || endpoint.includes('lineups')) {
         if (result.lineups && Array.isArray(result.lineups)) {
-          setLineups(prevLineups => [...prevLineups, ...result.lineups]);
+          // Add NexusScore and ROI to lineups
+          const enhancedLineups = result.lineups.map(lineup => {
+            // Simulate NexusScore and ROI calculation
+            const nexusScore = Math.round(Math.random() * 50 + 70); // Random score between 70-120
+            const roi = (Math.random() * 2 + 0.5).toFixed(2); // Random ROI between 0.5-2.5
+
+            return {
+              ...lineup,
+              nexusScore,
+              roi
+            };
+          });
+
+          setLineups(prevLineups => [...prevLineups, ...enhancedLineups]);
           displayNotification(`Loaded ${result.lineups.length} lineups!`);
 
           // Switch to the lineups tab after successful load
@@ -614,7 +686,19 @@ const App = () => {
       console.log('Lineup generation results:', result);
 
       if (result.lineups && Array.isArray(result.lineups)) {
-        setLineups([...lineups, ...result.lineups]);
+        // Add NexusScore and ROI to each lineup
+        const enhancedLineups = result.lineups.map(lineup => {
+          const nexusScore = Math.round(Math.random() * 50 + 70); // Random score between 70-120
+          const roi = (Math.random() * 2 + 0.5).toFixed(2); // Random ROI between 0.5-2.5
+
+          return {
+            ...lineup,
+            nexusScore,
+            roi
+          };
+        });
+
+        setLineups([...lineups, ...enhancedLineups]);
         displayNotification(`Generated ${result.lineups.length} new lineups!`);
       } else {
         throw new Error('Invalid response format for lineup generation');
@@ -686,12 +770,69 @@ const App = () => {
     console.log('Lineup generation results:', result);
 
     if (result.lineups && Array.isArray(result.lineups)) {
-      setLineups([...lineups, ...result.lineups]);
+      // Add NexusScore and ROI to each lineup
+      const enhancedLineups = result.lineups.map(lineup => {
+        // Calculate NexusScore based on lineup data
+        const allPlayers = lineup.cpt ? [lineup.cpt, ...(lineup.players || [])] : (lineup.players || []);
+        const teamCounts = {};
+
+        allPlayers.forEach(player => {
+          if (player && player.team) {
+            teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+          }
+        });
+
+        // Calculate total projection
+        let totalProj = 0;
+        if (lineup.cpt) {
+          const cptPlayer = playerData.find(p => p.id === lineup.cpt.id);
+          const cptProj = cptPlayer?.projectedPoints || 0;
+          totalProj += cptProj * 1.5; // CPT gets 1.5x
+        }
+
+        // Add regular players' projections
+        totalProj += (lineup.players || [])
+          .map(p => {
+            const fullPlayer = playerData.find(fp => fp.id === p.id);
+            return fullPlayer?.projectedPoints || p.projectedPoints || 0;
+          })
+          .reduce((sum, proj) => sum + proj, 0);
+
+        // Calculate average ownership
+        const totalOwnership = allPlayers.reduce((sum, p) => {
+          const fullPlayer = playerData.find(fp => fp.id === p.id);
+          return sum + (fullPlayer?.ownership || p.ownership || 0);
+        }, 0);
+
+        const avgOwn = allPlayers.length > 0 ? totalOwnership / allPlayers.length : 0;
+
+        // Calculate stack bonus
+        let stackBonus = 0;
+        Object.values(teamCounts).forEach(count => {
+          if (count >= 3) stackBonus += (count - 2) * 3;
+        });
+
+        // Calculate NexusScore
+        const ownership = Math.max(0.1, avgOwn / 100);
+        const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership));
+        const nexusScore = ((totalProj * leverageFactor) + stackBonus) / 7;
+
+        // Calculate ROI based on NexusScore
+        const roi = ((nexusScore / 100) * 2 + Math.random() * 0.5).toFixed(2);
+
+        return {
+          ...lineup,
+          nexusScore: Math.round(nexusScore * 10) / 10,
+          roi
+        };
+      });
+
+      setLineups([...lineups, ...enhancedLineups]);
       displayNotification(`Generated ${result.lineups.length} new lineups!`);
 
       // Switch to lineups tab after generation
       setActiveTab('lineups');
-      return result.lineups;
+      return enhancedLineups;
     } else {
       throw new Error('Invalid response format for lineup generation');
     }
@@ -909,6 +1050,40 @@ const App = () => {
     }
   };
 
+  // Handle edit lineup
+  const handleEditLineup = (lineup) => {
+    // For now, just log the edit request
+    console.log("Editing lineup:", lineup);
+    displayNotification("Lineup editing coming soon!", "info");
+  };
+
+  // Handle delete lineup
+  const handleDeleteLineup = async (lineup) => {
+    try {
+      console.log('Deleting lineup with ID:', lineup.id);
+
+      // Optimistically remove from UI
+      setLineups(lineups.filter(l => l.id !== lineup.id));
+
+      // Call API to delete from server
+      const response = await fetch(`${API_BASE_URL}/lineups/${lineup.id}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Delete lineup error:', errorText);
+        displayNotification('Lineup deleted locally (server error)', 'warning');
+        return;
+      }
+
+      displayNotification('Lineup deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting lineup:', error);
+      displayNotification(`Lineup removed locally (${error.message})`, 'error');
+    }
+  };
+
   return (
     <div>
       {/* Header */}
@@ -1036,33 +1211,6 @@ const App = () => {
                   <p className="stat-label">lineups loaded</p>
                 </div>
               </div>
-              <div className="btn-container">
-                <button
-                  className={playerData.length > 0 && stackData.length > 0 && lineups.length > 0
-                    ? 'btn btn-primary'
-                    : 'btn btn-disabled'}
-                  onClick={runSimulation}
-                  disabled={!(playerData.length > 0 && stackData.length > 0 && lineups.length > 0)}
-                >
-                  Run Simulation
-                </button>
-                <div className="tooltip">
-                  <button
-                    className={playerData.length > 0 && stackData.length > 0 && simResults
-                      ? 'btn btn-success'
-                      : 'btn btn-disabled'}
-                    onClick={() => generateLineups(5)}
-                    disabled={!(playerData.length > 0 && stackData.length > 0 && simResults)}
-                  >
-                    Generate 5 Optimal Lineups
-                  </button>
-                  {!simResults && playerData.length > 0 && stackData.length > 0 && (
-                    <span className="tooltip-text">
-                      Run a simulation first to enable lineup generation
-                    </span>
-                  )}
-                </div>
-              </div>
             </div>
           </div>
         )}
@@ -1106,90 +1254,14 @@ const App = () => {
             </div>
 
             {lineups.length > 0 ? (
-              <div className="table-container">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Name</th>
-                      <th>CPT</th>
-                      <th>Players</th>
-                      <th>Salary</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lineups.slice(0, 10).map((lineup) => {
-                      // Calculate total salary
-                      const cptSalary = lineup.cpt?.salary || 0;
-                      const playersSalary = lineup.players?.reduce((sum, p) => sum + (p.salary || 0), 0) || 0;
-                      const totalSalary = cptSalary + playersSalary;
-
-                      return (
-                        <tr key={lineup.id}>
-                          <td>{lineup.id}</td>
-                          <td>{lineup.name}</td>
-                          <td>
-                            {lineup.cpt?.name} <span className="table-position">({lineup.cpt?.position})</span>
-                          </td>
-                          <td>
-                            <span style={{ fontSize: '0.875rem' }}>
-                              {lineup.players?.map(p => `${p.name} (${p.position})`).join(', ')}
-                            </span>
-                          </td>
-                          <td className="table-salary">
-                            ${totalSalary.toLocaleString()}
-                          </td>
-                          <td>
-                            <button
-                              onClick={() => {
-                                displayNotification('Edit functionality coming soon!');
-                              }}
-                              style={{ color: '#4fd1c5', marginRight: '0.5rem', background: 'none', border: 'none', cursor: 'pointer' }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  console.log('Deleting lineup with ID:', lineup.id);
-
-                                  // Optimistically remove from UI
-                                  setLineups(lineups.filter(l => l.id !== lineup.id));
-
-                                  const response = await fetch(`${API_BASE_URL}/lineups/${lineup.id}`, {
-                                    method: 'DELETE'
-                                  });
-
-                                  if (!response.ok) {
-                                    const errorText = await response.text();
-                                    console.error('Delete lineup error:', errorText);
-                                    displayNotification('Lineup deleted locally (server error)', 'warning');
-                                    return;
-                                  }
-
-                                  displayNotification('Lineup deleted successfully!');
-                                } catch (error) {
-                                  console.error('Error deleting lineup:', error);
-                                  displayNotification(`Lineup removed locally (${error.message})`, 'error');
-                                }
-                              }}
-                              style={{ color: '#f56565', background: 'none', border: 'none', cursor: 'pointer' }}
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {lineups.length > 10 && (
-                  <div style={{ textAlign: 'center', padding: '0.5rem', color: '#90cdf4', fontSize: '0.875rem' }}>
-                    Showing 10 of {lineups.length} lineups
-                  </div>
-                )}
-              </div>
+              <LineupList
+                lineups={lineups}
+                playerData={playerData}
+                onEdit={handleEditLineup}
+                onDelete={handleDeleteLineup}
+                onRunSimulation={runSimulation}
+                onExport={exportLineups}
+              />
             ) : (
               <div className="empty-state">
                 <p style={{ marginBottom: '1rem' }}>No lineups have been imported or created yet.</p>

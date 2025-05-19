@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import LineupList from '../components/LineupList';
 import AdvancedOptimizerUI from '../components/AdvancedOptimizerUI';
-import TeamStacks from '../components/TeamStacks';
-import ExposureControl from '../components/ExposureControl';
 
 /**
  * This page integrates all optimization features into one coherent interface
@@ -22,6 +21,7 @@ const OptimizerPage = ({
   const [optimizerSubSection, setOptimizerSubSection] = useState('settings');
 
   const [dataReady, setDataReady] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false); // NEW: Track save success
 
   // Check if data is ready for optimization
   useEffect(() => {
@@ -38,6 +38,16 @@ const OptimizerPage = ({
       console.warn("OptimizerPage: Waiting for player data");
     }
   }, [playerData, lineups, exposureSettings]);
+
+  // Reset save success message after 3 seconds
+  useEffect(() => {
+    if (saveSuccess) {
+      const timer = setTimeout(() => {
+        setSaveSuccess(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [saveSuccess]);
 
   // Handle generating lineups from the optimizer
   const handleGenerateLineups = async (count, options) => {
@@ -64,6 +74,9 @@ const OptimizerPage = ({
     if (onImportLineups) {
       try {
         await onImportLineups(optimizedLineups);
+        setSaveSuccess(true);
+        // Automatically switch to the lineups view
+        setActiveSection('lineups');
         return true;
       } catch (error) {
         console.error('Error importing lineups:', error);
@@ -92,43 +105,41 @@ const OptimizerPage = ({
             </li>
             <li style={{ marginRight: '0.5rem' }}>
               <button
-                className={`tab ${activeSection === 'team-stacks' ? 'active' : ''}`}
-                onClick={() => setActiveSection('team-stacks')}
+                className={`tab ${activeSection === 'lineups' ? 'active' : ''}`}
+                onClick={() => setActiveSection('lineups')}
               >
-                Team Stacks
-              </button>
-            </li>
-            <li style={{ marginRight: '0.5rem' }}>
-              <button
-                className={`tab ${activeSection === 'exposure' ? 'active' : ''}`}
-                onClick={() => setActiveSection('exposure')}
-              >
-                Exposure Control
-              </button>
-            </li>
-            <li style={{ marginRight: '0.5rem' }}>
-              <button
-                className={`tab ${activeSection === 'insights' ? 'active' : ''}`}
-                onClick={() => setActiveSection('insights')}
-              >
-                Slate Insights
+                Generated Lineups
               </button>
             </li>
           </ul>
         </div>
+
+        {/* NEW: Save success message */}
+        {saveSuccess && (
+          <div style={{
+            padding: '0.75rem',
+            backgroundColor: 'rgba(56, 161, 105, 0.2)',
+            borderRadius: '0.25rem',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#38a169',
+            border: '1px solid #38a169'
+          }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '0.5rem'}}>
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <span>Lineups saved successfully! View them in the Lineups tab.</span>
+          </div>
+        )}
 
         {/* Show data required warning if necessary */}
         {!dataReady && (
           <div className="card" style={{ border: '1px solid #f56565', padding: '1rem', marginBottom: '1rem' }}>
             <h3 style={{ color: '#f56565', marginBottom: '0.5rem' }}>Data Required</h3>
             <p>Please upload player projections data before using the optimizer. Go to the Upload tab to import your data.</p>
-            <button
-              className="btn btn-primary"
-              style={{ marginTop: '0.5rem' }}
-              onClick={() => window.dispatchEvent(new CustomEvent('navigateToTab', { detail: 'upload' }))}
-            >
-              Go to Upload Tab
-            </button>
           </div>
         )}
 
@@ -188,59 +199,59 @@ const OptimizerPage = ({
           </div>
         )}
 
-        {/* Team Stacks Section */}
-      {activeSection === 'team-stacks' && (
-        <div className="team-stacks-container">
-          {dataReady ? (
-            <TeamStacks
-              API_BASE_URL={API_BASE_URL}
-              teamData={[]}
-              lineups={lineups} // Added this line to pass lineups data
-              exposureSettings={exposureSettings}
-              onUpdateExposures={onUpdateExposures}
-              onGenerateLineups={handleGenerateLineups}
-            />
-          ) : (
-            <p>Please upload player projection data to use team stacks.</p>
-          )}
-        </div>
-      )}
-
-        {/* Exposure Control Section */}
-        {activeSection === 'exposure' && (
-          <div className="exposure-container">
+        {/* Generated Lineups Section */}
+        {activeSection === 'lineups' && (
+          <div className="lineups-container">
             {dataReady ? (
-              <ExposureControl
-                API_BASE_URL={API_BASE_URL}
-                playerData={playerData}
-                lineups={lineups}
-                exposureSettings={exposureSettings}
-                onUpdateExposures={onUpdateExposures}
-                onGenerateLineups={handleGenerateLineups}
-              />
-            ) : (
-              <p>Please upload player projection data to manage exposure settings.</p>
-            )}
-          </div>
-        )}
+              <>
+                {/* Optimize button */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ color: '#4fd1c5', margin: 0 }}>Optimized Lineups</h3>
 
-        {/* Slate Insights Section */}
-        {activeSection === 'insights' && (
-          <div className="insights-container">
-            <div className="card" style={{ border: '1px solid #4fd1c5' }}>
-              <h3 style={{ color: '#4fd1c5', marginBottom: '1rem' }}>Slate Insights Coming Soon</h3>
-              <p style={{ color: '#90cdf4' }}>
-                This section will include detailed LoL slate analysis including:
-              </p>
-              <ul style={{ color: '#90cdf4', marginTop: '0.5rem', marginLeft: '1.5rem' }}>
-                <li>Team-by-team matchup analysis</li>
-                <li>Lane matchup advantage stats</li>
-                <li>Player performance trends</li>
-                <li>Team scoring correlations</li>
-                <li>Vegas lines and implied team totals</li>
-                <li>Ownership projections and leverage opportunities</li>
-              </ul>
-            </div>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => setActiveSection('optimizer')}
+                  >
+                    Return to Optimizer
+                  </button>
+                </div>
+
+                {/* Display lineups with NexusScore */}
+                {lineups.length > 0 ? (
+                  <LineupList
+                    lineups={lineups}
+                    playerData={playerData}
+                    onEdit={(lineup) => {
+                      console.log("Edit lineup:", lineup);
+                    }}
+                    onDelete={(lineup) => {
+                      console.log("Delete lineup:", lineup);
+                      // Here you would handle deleting the lineup
+                    }}
+                    onRunSimulation={() => {
+                      console.log("Run simulation for lineups");
+                      // Here you would handle running a simulation
+                    }}
+                    onExport={(format) => {
+                      console.log(`Export lineups as ${format}`);
+                      // Here you would handle exporting lineups
+                    }}
+                  />
+                ) : (
+                  <div className="empty-state">
+                    <p>No optimized lineups have been generated yet.</p>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => setActiveSection('optimizer')}
+                    >
+                      Go to Optimizer
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p>Please upload player projection data to generate lineups.</p>
+            )}
           </div>
         )}
       </div>
