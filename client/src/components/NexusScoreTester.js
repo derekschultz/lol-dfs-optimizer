@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   BarChart,
   Bar,
@@ -61,10 +61,10 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
     },
   ]);
 
-  const [testResults, setTestResults] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [selectedLineup, setSelectedLineup] = useState(null);
   const [selectedFormula, setSelectedFormula] = useState(null);
+  const [testResults, setTestResults] = useState(null);
 
   // Run the A/B test when requested
   const runTest = useCallback(async () => {
@@ -344,14 +344,6 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
     );
   };
 
-  // View a specific lineup with all formula scores
-  const viewLineupComparison = (lineupId) => {
-    const lineup = lineups.find((l) => l.id === lineupId);
-    if (!lineup) return;
-
-    setSelectedLineup(lineup);
-  };
-
   // View a specific formula's details
   const viewFormulaDetails = (formulaId) => {
     const formula = formulas.find((f) => f.id === formulaId);
@@ -409,13 +401,8 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
   // Variant C: Weighted components
   function calculateWeightedNexusScore(lineup, playerPool) {
     return calculateNexusScoreBase(lineup, playerPool, (components) => {
-      const {
-        baseProjection,
-        leverageFactor,
-        stackBonus,
-        positionBonus,
-        avgOwnership,
-      } = components;
+      const { baseProjection, leverageFactor, stackBonus, positionBonus } =
+        components;
       const leverageValue = baseProjection * leverageFactor;
 
       // 60% projection, 20% leverage, 15% stacks, 5% position
@@ -454,8 +441,7 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
   // Variant E: Ownership dominant
   function calculateOwnershipNexusScore(lineup, playerPool) {
     return calculateNexusScoreBase(lineup, playerPool, (components) => {
-      const { baseProjection, leverageFactor, stackBonus, avgOwnership } =
-        components;
+      const { baseProjection, leverageFactor, stackBonus } = components;
 
       // Heavy weight on ownership leverage with non-linear scaling
       const leverageBonus =
@@ -677,11 +663,35 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
                     {formula.description}
                   </p>
 
-                  {formula.results && (
-                    <div style={{ fontSize: "0.875rem", color: "#e2e8f0" }}>
-                      Calculated: {formula.results.length} lineups
-                    </div>
-                  )}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginTop: "0.75rem",
+                    }}
+                  >
+                    {formula.results && (
+                      <div style={{ fontSize: "0.875rem", color: "#e2e8f0" }}>
+                        Calculated: {formula.results.length} lineups
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => viewFormulaDetails(formula.id)}
+                      style={{
+                        backgroundColor: "transparent",
+                        border: "1px solid #4fd1c5",
+                        color: "#4fd1c5",
+                        padding: "0.25rem 0.5rem",
+                        fontSize: "0.75rem",
+                        borderRadius: "0.25rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      View Details
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -916,7 +926,6 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
             <h3 style={{ color: "#4fd1c5", marginBottom: "1rem" }}>
               Lineup Comparison
             </h3>
-            {/* Lineup comparison UI would go here */}
             <button
               className="btn"
               style={{
@@ -932,22 +941,661 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
         )}
 
         {selectedFormula && (
-          <div className="formula-detail-card" style={{ marginTop: "1.5rem" }}>
-            <h3 style={{ color: "#4fd1c5", marginBottom: "1rem" }}>
-              Formula Details: {selectedFormula.name}
-            </h3>
-            {/* Formula detail UI would go here */}
-            <button
-              className="btn"
+          <div
+            className="formula-detail-card"
+            style={{
+              marginTop: "1.5rem",
+              backgroundColor: "#0d1829",
+              borderRadius: "0.5rem",
+              border: "1px solid #2d3748",
+              padding: "1.5rem",
+              boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+            }}
+          >
+            <div
               style={{
-                backgroundColor: "transparent",
-                border: "1px solid #90cdf4",
-                color: "#90cdf4",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
               }}
-              onClick={() => setSelectedFormula(null)}
             >
-              Close
-            </button>
+              <h3 style={{ color: "#4fd1c5", marginBottom: "1rem" }}>
+                Formula Details: {selectedFormula.name}
+              </h3>
+              <button
+                className="btn"
+                style={{
+                  backgroundColor: "transparent",
+                  border: "1px solid #90cdf4",
+                  color: "#90cdf4",
+                  borderRadius: "0.25rem",
+                  padding: "0.25rem 0.5rem",
+                }}
+                onClick={() => setSelectedFormula(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div style={{ marginBottom: "1.5rem" }}>
+              <h4 style={{ color: "#8b5cf6", marginBottom: "0.5rem" }}>
+                Description
+              </h4>
+              <p style={{ color: "#e2e8f0", fontSize: "0.95rem" }}>
+                {selectedFormula.description}
+              </p>
+            </div>
+
+            <div style={{ marginBottom: "1.5rem" }}>
+              <h4 style={{ color: "#8b5cf6", marginBottom: "0.5rem" }}>
+                Formula Visualization
+              </h4>
+              <div
+                style={{
+                  backgroundColor: "#1a202c",
+                  padding: "1rem",
+                  borderRadius: "0.25rem",
+                  border: "1px solid #2d3748",
+                  minHeight: "100px",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                {/* Visualization differs by formula type */}
+                {selectedFormula.id === "current" && (
+                  <div style={{ width: "100%", padding: "0.5rem" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        marginBottom: "1rem",
+                      }}
+                    >
+                      <div
+                        style={{
+                          backgroundColor: "#48bb78",
+                          height: "30px",
+                          borderRadius: "4px 0 0 4px",
+                          width: "60%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                          fontSize: "0.875rem",
+                        }}
+                      >
+                        Projection (60%)
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#4299e1",
+                          height: "30px",
+                          width: "20%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                          fontSize: "0.875rem",
+                        }}
+                      >
+                        Leverage (20%)
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#9f7aea",
+                          height: "30px",
+                          width: "15%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                          fontSize: "0.875rem",
+                        }}
+                      >
+                        Stacks (15%)
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#f687b3",
+                          height: "30px",
+                          borderRadius: "0 4px 4px 0",
+                          width: "5%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                          fontSize: "0.875rem",
+                        }}
+                      >
+                        Pos (5%)
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "center",
+                        color: "#a0aec0",
+                        fontSize: "0.875rem",
+                      }}
+                    >
+                      NexusScore = (Base × Leverage + Stack + Position) ÷ 7
+                    </div>
+                  </div>
+                )}
+
+                {selectedFormula.id === "multiplicative" && (
+                  <div style={{ width: "100%", padding: "0.5rem" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        marginBottom: "1rem",
+                      }}
+                    >
+                      <div
+                        style={{
+                          textAlign: "center",
+                          flex: 1,
+                          padding: "0.5rem",
+                          backgroundColor: "#48bb78",
+                          borderRadius: "0.25rem",
+                          margin: "0 0.25rem",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Projection
+                      </div>
+                      <div style={{ color: "#e2e8f0", padding: "0 0.5rem" }}>
+                        ×
+                      </div>
+                      <div
+                        style={{
+                          textAlign: "center",
+                          flex: 1,
+                          padding: "0.5rem",
+                          backgroundColor: "#4299e1",
+                          borderRadius: "0.25rem",
+                          margin: "0 0.25rem",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Leverage Factor
+                      </div>
+                      <div style={{ color: "#e2e8f0", padding: "0 0.5rem" }}>
+                        ×
+                      </div>
+                      <div
+                        style={{
+                          textAlign: "center",
+                          flex: 1,
+                          padding: "0.5rem",
+                          backgroundColor: "#9f7aea",
+                          borderRadius: "0.25rem",
+                          margin: "0 0.25rem",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Stack Multiplier
+                      </div>
+                      <div style={{ color: "#e2e8f0", padding: "0 0.5rem" }}>
+                        ×
+                      </div>
+                      <div
+                        style={{
+                          textAlign: "center",
+                          flex: 1,
+                          padding: "0.5rem",
+                          backgroundColor: "#f687b3",
+                          borderRadius: "0.25rem",
+                          margin: "0 0.25rem",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Position Multiplier
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "center",
+                        color: "#a0aec0",
+                        fontSize: "0.875rem",
+                      }}
+                    >
+                      NexusScore = (Base × Leverage × Stack × Position) ÷ 5
+                    </div>
+                  </div>
+                )}
+
+                {selectedFormula.id === "weighted" && (
+                  <div style={{ width: "100%", padding: "0.5rem" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        marginBottom: "1rem",
+                      }}
+                    >
+                      <div
+                        style={{
+                          backgroundColor: "#48bb78",
+                          height: "30px",
+                          borderRadius: "4px 0 0 4px",
+                          width: "60%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                          fontSize: "0.875rem",
+                        }}
+                      >
+                        Projection (60%)
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#4299e1",
+                          height: "30px",
+                          width: "20%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                          fontSize: "0.875rem",
+                        }}
+                      >
+                        Leverage (20%)
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#9f7aea",
+                          height: "30px",
+                          width: "15%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                          fontSize: "0.875rem",
+                        }}
+                      >
+                        Stacks (15%)
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#f687b3",
+                          height: "30px",
+                          borderRadius: "0 4px 4px 0",
+                          width: "5%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                          fontSize: "0.875rem",
+                        }}
+                      >
+                        Pos (5%)
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "center",
+                        color: "#a0aec0",
+                        fontSize: "0.875rem",
+                      }}
+                    >
+                      NexusScore = 0.6×Base + 0.2×Leverage + 0.15×Stack +
+                      0.05×Position
+                    </div>
+                  </div>
+                )}
+
+                {selectedFormula.id === "ceiling" && (
+                  <div style={{ width: "100%", padding: "0.5rem" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        marginBottom: "1rem",
+                        justifyContent: "space-between",
+                        alignItems: "flex-end",
+                      }}
+                    >
+                      <div
+                        style={{
+                          backgroundColor: "#48bb78",
+                          height: "60px",
+                          width: "20%",
+                          borderRadius: "0.25rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Projection
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#4299e1",
+                          height: "45px",
+                          width: "20%",
+                          borderRadius: "0.25rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Leverage
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#9f7aea",
+                          height: "80px",
+                          width: "20%",
+                          borderRadius: "0.25rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Stack¹·⁵
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#f687b3",
+                          height: "70px",
+                          width: "20%",
+                          borderRadius: "0.25rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Position×1.5
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#fc8181",
+                          height: "30px",
+                          width: "15%",
+                          borderRadius: "0.25rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        -Consistency
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "center",
+                        color: "#a0aec0",
+                        fontSize: "0.875rem",
+                      }}
+                    >
+                      NexusScore = (Base×Leverage + Stack¹·⁵ + Position×1.5 -
+                      Consistency×0.2) ÷ 6
+                    </div>
+                  </div>
+                )}
+
+                {selectedFormula.id === "ownership" && (
+                  <div style={{ width: "100%", padding: "0.5rem" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        marginBottom: "1rem",
+                        justifyContent: "space-between",
+                        alignItems: "flex-end",
+                      }}
+                    >
+                      <div
+                        style={{
+                          backgroundColor: "#48bb78",
+                          height: "50px",
+                          width: "30%",
+                          borderRadius: "0.25rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Base Projection
+                      </div>
+                      <div style={{ color: "#e2e8f0", padding: "0 0.5rem" }}>
+                        +
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#4299e1",
+                          height: "90px",
+                          width: "45%",
+                          borderRadius: "0.25rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Projection × (Leverage-1)¹·⁵ × 3
+                      </div>
+                      <div style={{ color: "#e2e8f0", padding: "0 0.5rem" }}>
+                        +
+                      </div>
+                      <div
+                        style={{
+                          backgroundColor: "#9f7aea",
+                          height: "35px",
+                          width: "20%",
+                          borderRadius: "0.25rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#e2e8f0",
+                        }}
+                      >
+                        Stack × 0.5
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "center",
+                        color: "#a0aec0",
+                        fontSize: "0.875rem",
+                      }}
+                    >
+                      NexusScore = (Base + LeverageBonus + Stack×0.5) ÷ 6
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "1.5rem" }}>
+              <h4 style={{ color: "#8b5cf6", marginBottom: "0.5rem" }}>
+                Formula Components
+              </h4>
+              <div
+                style={{
+                  backgroundColor: "#1a202c",
+                  padding: "1rem",
+                  borderRadius: "0.25rem",
+                  border: "1px solid #2d3748",
+                  overflowX: "auto",
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: "monospace",
+                    color: "#e2e8f0",
+                    fontSize: "0.875rem",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {selectedFormula.id === "current" &&
+                    `
+// Current NexusScore Formula
+const score = (baseProjection * leverageFactor + stackBonus + positionBonus) / 7;
+
+Where:
+- baseProjection: Sum of all players' projected points (CPT = 1.5x)
+- leverageFactor: Calculated based on lineup ownership vs field avg
+- stackBonus: Extra points for team stacking (3+ players)
+- positionBonus: Weighting based on position impact
+                  `}
+
+                  {selectedFormula.id === "multiplicative" &&
+                    `
+// Multiplicative NexusScore Formula
+const score = (baseProjection * leverageFactor * stackMultiplier * positionMultiplier) / 5;
+
+Where:
+- baseProjection: Sum of all players' projected points (CPT = 1.5x)
+- leverageFactor: Calculated based on lineup ownership vs field avg
+- stackMultiplier: 1 + (stackBonus / 100)
+- positionMultiplier: 1 + (positionBonus / 100)
+                  `}
+
+                  {selectedFormula.id === "weighted" &&
+                    `
+// Weighted Components NexusScore Formula
+const score = 0.6 * baseProjection +
+             0.2 * (baseProjection * (leverageFactor - 1)) +
+             0.15 * stackBonus +
+             0.05 * positionBonus;
+
+Where:
+- 60% weight on raw projection
+- 20% weight on ownership leverage
+- 15% weight on team stacking
+- 5% weight on position impact
+                  `}
+
+                  {selectedFormula.id === "ceiling" &&
+                    `
+// Ceiling-Focused NexusScore Formula
+const score = (baseProjection * leverageFactor +
+              Math.pow(stackBonus, 1.5) +
+              positionBonus * 1.5 -
+              consistencyFactor * 0.2) / 6;
+
+Where:
+- Enhanced stackBonus with exponential scaling
+- Boosted position impact by 1.5x
+- Small penalty for excessive consistency
+                  `}
+
+                  {selectedFormula.id === "ownership" &&
+                    `
+// Ownership-Dominant NexusScore Formula
+const leverageBonus = baseProjection * Math.pow(Math.max(0, leverageFactor - 1), 1.5) * 3;
+const score = (baseProjection + leverageBonus + stackBonus * 0.5) / 6;
+
+Where:
+- Heavy emphasis on ownership leverage with non-linear scaling
+- Reduced weight on stack bonus
+- Power function amplifies leverage advantage
+                  `}
+                </div>
+              </div>
+            </div>
+
+            {selectedFormula.results && selectedFormula.results.length > 0 && (
+              <div style={{ marginBottom: "1.5rem" }}>
+                <h4 style={{ color: "#8b5cf6", marginBottom: "0.5rem" }}>
+                  Performance Statistics
+                </h4>
+                <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      flex: "1 1 150px",
+                      backgroundColor: "#1a202c",
+                      padding: "1rem",
+                      borderRadius: "0.25rem",
+                      border: "1px solid #2d3748",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: "#90cdf4",
+                        fontSize: "0.875rem",
+                        marginBottom: "0.25rem",
+                      }}
+                    >
+                      Average Score
+                    </div>
+                    <div
+                      style={{
+                        color: "#4fd1c5",
+                        fontSize: "1.25rem",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {selectedFormula.results.reduce(
+                        (sum, r) => sum + r.score,
+                        0
+                      ) / selectedFormula.results.length || 0}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      flex: "1 1 150px",
+                      backgroundColor: "#1a202c",
+                      padding: "1rem",
+                      borderRadius: "0.25rem",
+                      border: "1px solid #2d3748",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: "#90cdf4",
+                        fontSize: "0.875rem",
+                        marginBottom: "0.25rem",
+                      }}
+                    >
+                      Score Range
+                    </div>
+                    <div
+                      style={{
+                        color: "#4fd1c5",
+                        fontSize: "1.25rem",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {Math.min(
+                        ...selectedFormula.results.map((r) => r.score)
+                      ) || 0}{" "}
+                      -{" "}
+                      {Math.max(
+                        ...selectedFormula.results.map((r) => r.score)
+                      ) || 0}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: "1.5rem" }}>
+              <button
+                onClick={() => saveAsDefault(selectedFormula.id)}
+                style={{
+                  backgroundColor: "#4fd1c5",
+                  color: "#1a202c",
+                  border: "none",
+                  borderRadius: "0.25rem",
+                  padding: "0.5rem 1rem",
+                  fontWeight: "500",
+                  cursor: "pointer",
+                }}
+              >
+                Set as Default Formula
+              </button>
+            </div>
           </div>
         )}
       </div>

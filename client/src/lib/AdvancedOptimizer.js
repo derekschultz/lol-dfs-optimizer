@@ -29,7 +29,7 @@ class AdvancedOptimizer {
         SUP: 1,
         TEAM: 1,
       },
-      maxPlayersPerTeam: 4, // Added max players per team constraint (adjust as needed)
+      maxPlayersPerTeam: 4, // Added max players per team constraint
       iterations: 10000, // Monte Carlo iterations
       randomness: 0.3, // 0-1 scale of how much to randomize projections
       targetTop: 0.2, // Target top % of simulations
@@ -40,6 +40,7 @@ class AdvancedOptimizer {
         sameTeamSamePosition: 0.2, // Additional correlation for same position on same team
         captain: 0.8, // Correlation between CPT and their base projection
       },
+      fieldSize: 1000, // Default field size for tournaments
       debugMode: false, // Enable extra logging for debugging
       ...config,
     };
@@ -65,7 +66,7 @@ class AdvancedOptimizer {
       positions: new Map(),
     };
 
-    // NEW: Add progress callback properties
+    // Add progress callback properties
     this.onProgress = null; // Callback for progress updates
     this.onStatusUpdate = null; // Callback for status text updates
     this.isCancelled = false; // Flag to allow cancellation
@@ -93,23 +94,21 @@ class AdvancedOptimizer {
   }
 
   /**
-   * NEW: Set progress callback function
-   * @param {Function} callback - Function to call with progress percentage (0-100)
+   * Set progress callback function
    */
   setProgressCallback(callback) {
     this.onProgress = callback;
   }
 
   /**
-   * NEW: Set status update callback function
-   * @param {Function} callback - Function to call with status text
+   * Set status update callback function
    */
   setStatusCallback(callback) {
     this.onStatusUpdate = callback;
   }
 
   /**
-   * NEW: Cancel current operations
+   * Cancel current operations
    */
   cancel() {
     this.isCancelled = true;
@@ -117,16 +116,14 @@ class AdvancedOptimizer {
   }
 
   /**
-   * NEW: Reset cancelled state
+   * Reset cancelled state
    */
   resetCancel() {
     this.isCancelled = false;
   }
 
   /**
-   * NEW: Report progress to UI
-   * @param {number} percent - Progress percentage (0-100)
-   * @param {string} stage - Current processing stage
+   * Report progress to UI
    */
   updateProgress(percent, stage = "") {
     if (this.onProgress && typeof this.onProgress === "function") {
@@ -141,8 +138,7 @@ class AdvancedOptimizer {
   }
 
   /**
-   * NEW: Update status text
-   * @param {string} status - Status message
+   * Update status text
    */
   updateStatus(status) {
     if (this.onStatusUpdate && typeof this.onStatusUpdate === "function") {
@@ -155,8 +151,7 @@ class AdvancedOptimizer {
   }
 
   /**
-   * NEW: Helper to yield to UI thread
-   * @returns {Promise} - Resolves after yielding to UI thread
+   * Helper to yield to UI thread
    */
   async yieldToUI() {
     return new Promise((resolve) => setTimeout(resolve, 0));
@@ -164,7 +159,6 @@ class AdvancedOptimizer {
 
   /**
    * Check if optimizer is ready and log status
-   * @returns {boolean} - true if the optimizer is ready
    */
   isReady() {
     const status = {
@@ -182,12 +176,6 @@ class AdvancedOptimizer {
 
   /**
    * Initialize the optimizer with player pool and exposure settings
-   * Enhanced to handle all types of exposure constraints
-   *
-   * @param {Array} playerPool - Array of player objects
-   * @param {Object} exposureSettings - Exposure constraints
-   * @param {Array} existingLineups - Any existing lineups to consider
-   * @returns {Promise<boolean>} - True if initialization successful
    */
   async initialize(playerPool, exposureSettings = {}, existingLineups = []) {
     this.debugLog("Initializing advanced optimizer...");
@@ -219,7 +207,6 @@ class AdvancedOptimizer {
           ownership: playerPool[0].ownership,
         });
 
-        // Debug log to check for NaN values
         this.debugLog("Sample projectedPoints:", {
           raw: playerPool[0].projectedPoints,
           type: typeof playerPool[0].projectedPoints,
@@ -310,7 +297,6 @@ class AdvancedOptimizer {
 
   /**
    * Extract team matchups from player data
-   * This matches teams against each other based on available data
    */
   _extractTeamMatchups() {
     this.debugLog("Extracting team matchups...");
@@ -382,8 +368,6 @@ class AdvancedOptimizer {
 
   /**
    * Get the opponent for a team
-   * @param {string} team - Team name
-   * @returns {string} - Opponent team name or empty string if not found
    */
   _getTeamOpponent(team) {
     if (!team) return "";
@@ -583,9 +567,6 @@ class AdvancedOptimizer {
 
   /**
    * Safe parsing of float values with fallback and NaN handling
-   * @param {any} value - The value to parse
-   * @param {number} fallback - Fallback value if parsing fails (default: 0)
-   * @returns {number} - The parsed number or fallback
    */
   _safeParseFloat(value, fallback = 0) {
     // Handle null/undefined
@@ -606,8 +587,6 @@ class AdvancedOptimizer {
 
   /**
    * Preprocess player pool to add required optimizer properties
-   * Modified to pass the original player pool to the target exposure calculation
-   * and use safe number parsing
    */
   _preprocessPlayerPool(playerPool) {
     return playerPool.map((player) => {
@@ -636,7 +615,7 @@ class AdvancedOptimizer {
         stdDev: this._calculateStdDev({
           ...player,
           projectedPoints: projPoints,
-        }), // Calculate with fixed value
+        }),
         minExposure: this._getPlayerMinExposure(player),
         maxExposure: this._getPlayerMaxExposure(player),
         targetExposure: this._getPlayerTargetExposure(
@@ -768,7 +747,6 @@ class AdvancedOptimizer {
 
   /**
    * Get player target exposure based on settings
-   * Modified to pass player pool to _getProjectionPercentile
    */
   _getPlayerTargetExposure(player, playerPool = null) {
     // Find player-specific setting
@@ -823,7 +801,6 @@ class AdvancedOptimizer {
 
   /**
    * Build correlation matrix for all players
-   * This creates a map of player correlations based on team relationships
    */
   _buildCorrelationMatrix() {
     const matrix = new Map();
@@ -881,7 +858,6 @@ class AdvancedOptimizer {
 
   /**
    * Calculate player projection percentile among players in same position
-   * Modified to handle possible undefined playerPool
    */
   _getProjectionPercentile(player, customPlayerPool = null) {
     // Use provided player pool or instance's player pool
@@ -925,7 +901,6 @@ class AdvancedOptimizer {
 
   /**
    * Initialize player performance map with simulated performances
-   * OPTIMIZED: Uses TypedArrays and parallel processing for much better performance
    */
   async _initializePlayerPerformanceMap() {
     this.playerPerfMap.clear();
@@ -942,7 +917,7 @@ class AdvancedOptimizer {
     });
 
     // Increase batch size significantly for better performance
-    const batchSize = 2000; // Increased from 500
+    const batchSize = 2000;
     const batches = Math.ceil(iterations / batchSize);
 
     // Use SharedArrayBuffer if available for parallel processing
@@ -1075,7 +1050,6 @@ class AdvancedOptimizer {
 
   /**
    * Run a full Monte Carlo simulation on lineups
-   * COMPLETELY REWRITTEN: Batched processing to keep UI responsive
    */
   async runSimulation(count = 100) {
     if (!this.optimizerReady) {
@@ -1142,7 +1116,7 @@ class AdvancedOptimizer {
           }, 0);
         });
 
-        // Yield to UI between batches
+        // Yield to UI thread between batches
         await this.yieldToUI();
 
         // Progress update for batch
@@ -1157,11 +1131,11 @@ class AdvancedOptimizer {
       this.updateProgress(80, "analyzing_results");
       await this.yieldToUI();
 
-      // NEW: Create arrays to store all simulation results
+      // Create arrays to store all simulation results
       const allPerformances = [];
       const lineupIndexMap = [];
 
-      // NEW: Store all simulated performances with lineup references
+      // Store all simulated performances with lineup references
       this.simulationResults.forEach((lineup, lineupIndex) => {
         lineup.performances.forEach((perf) => {
           allPerformances.push(perf);
@@ -1169,18 +1143,35 @@ class AdvancedOptimizer {
         });
       });
 
-      // NEW: Sort performances to find contest thresholds
+      // Sort performances to find contest thresholds
       allPerformances.sort((a, b) => b - a); // Sort descending
 
-      // NEW: Determine global thresholds
+      // Determine global thresholds
       const totalSims = allPerformances.length;
-      const firstPlaceThreshold = allPerformances[Math.floor(totalSims * 0.01)]; // Top 1%
-      const top10Threshold = allPerformances[Math.floor(totalSims * 0.1)]; // Top 10%
-      const cashThreshold = allPerformances[Math.floor(totalSims * 0.2)]; // Top 20%
+
+      // Use field size to determine thresholds
+      const fieldSize = this.config.fieldSize || 1000; // Default field size if not specified
+
+      // Calculate thresholds based on field size
+      // Calculate how many entries make it to first place (usually top 0.1% of field)
+      const firstPlaceCount = Math.max(1, Math.ceil(fieldSize * 0.001));
+      const firstPlaceThreshold =
+        allPerformances[Math.min(firstPlaceCount - 1, totalSims - 1)];
+
+      // Calculate how many entries make top 10 (usually top ~1% of field)
+      const top10Count = Math.max(10, Math.ceil(fieldSize * 0.01));
+      const top10Threshold =
+        allPerformances[Math.min(top10Count - 1, totalSims - 1)];
+
+      // Calculate how many entries cash (usually top ~20% of field)
+      const cashCount = Math.max(20, Math.ceil(fieldSize * 0.2));
+      const cashThreshold =
+        allPerformances[Math.min(cashCount - 1, totalSims - 1)];
 
       this.debugLog(
-        `Global thresholds: 1st=${firstPlaceThreshold}, Top10=${top10Threshold}, Cash=${cashThreshold}`
+        `Global thresholds: Field size=${fieldSize}, 1st=${firstPlaceThreshold} (top ${firstPlaceCount}), Top10=${top10Threshold} (top ${top10Count}), Cash=${cashThreshold} (top ${cashCount})`
       );
+
       this.updateProgress(85, "calculating_thresholds");
       await this.yieldToUI();
 
@@ -1220,15 +1211,15 @@ class AdvancedOptimizer {
               lineup.top10 = (top10Count / iterations) * 100;
               lineup.cashRate = (cashCount / iterations) * 100;
 
-              // Calculate ROI as a percentage based on realistic tournament payouts
-              lineup.roi =
-                (firstPlaceCount / iterations) * 2000 + // 2000x for first place
-                (top10Count / iterations) * 200 + // 200x for top 10
-                (cashCount / iterations) * 20 - // 20x for min cash
-                100;
-              console.log(
-                `Lineup ${i} performance: 1st=${firstPlaceCount}/${iterations} (${lineup.firstPlace}%), top10=${top10Count}/${iterations} (${lineup.top10}%), cash=${cashCount}/${iterations} (${lineup.cashRate}%), ROI=${lineup.roi}%`
-              );
+              // Calculate ROI based on NexusScore instead
+              // This provides more stable and interpretable results
+              if (lineup.nexusScore) {
+                lineup.roi = (lineup.nexusScore / 100) * 200 - 50;
+              } else {
+                // If NexusScore not calculated yet, use a temporary placeholder
+                // that will be replaced after NexusScore calculation
+                lineup.roi = 0;
+              }
             }
             resolve();
           }, 0);
@@ -1269,6 +1260,9 @@ class AdvancedOptimizer {
               const nexusResult = this._calculateNexusScore(lineup);
               lineup.nexusScore = nexusResult.score;
               lineup.scoreComponents = nexusResult.components;
+
+              // Update ROI calculation after NexusScore is calculated
+              lineup.roi = (lineup.nexusScore / 100) * 200 - 50;
             }
             resolve();
           }, 0);
@@ -1462,7 +1456,6 @@ class AdvancedOptimizer {
 
   /**
    * Generate optimized lineups with constraints
-   * COMPLETELY REWRITTEN: Uses batched processing for better UI updates
    */
   async _generateLineups(count) {
     this.debugLog(`Generating ${count} optimized lineups...`);
@@ -1624,8 +1617,6 @@ class AdvancedOptimizer {
 
   /**
    * Build a single lineup using a smart algorithm
-   * Enhanced to consider all exposure constraints and ensure TEAM position
-   * MODIFIED - Fixed ID generation to ensure uniqueness
    */
   async _buildLineup(existingLineups = []) {
     // Increment global counter to ensure unique IDs
@@ -1813,7 +1804,6 @@ class AdvancedOptimizer {
 
   /**
    * Select a team to stack
-   * Enhanced to consider stack-specific exposures
    */
   _selectStackTeam() {
     // First check for teams with specific stack requirements
@@ -1896,7 +1886,6 @@ class AdvancedOptimizer {
 
   /**
    * Select a captain for the lineup
-   * Enhanced to consider exposure and stack size requirements
    */
   _selectCaptain(stackTeam, usedPlayers, targetStackSize = null) {
     // Get potential captain candidates
@@ -2006,7 +1995,6 @@ class AdvancedOptimizer {
 
   /**
    * Select a player for a position
-   * Enhanced to consider exposure, stack size requirements, and team limits
    */
   async _selectPositionPlayer(
     position,
@@ -2319,7 +2307,6 @@ class AdvancedOptimizer {
 
   /**
    * Check if a lineup is valid based on all constraints
-   * Modified to check team limit
    */
   _isValidLineup(lineup, existingLineups) {
     // Check salary cap
@@ -2401,7 +2388,6 @@ class AdvancedOptimizer {
 
   /**
    * Simulate a lineup across all iterations
-   * MODIFIED: Process in batches to keep UI responsive
    */
   async _simulateLineup(lineup) {
     // Get all player IDs in the lineup
@@ -2508,8 +2494,6 @@ class AdvancedOptimizer {
 
   /**
    * Calculate metrics for a lineup based on simulated performances
-   * MODIFIED: Return performance data but don't calculate ROI/percentile metrics
-   * (These will be calculated globally in the runSimulation method)
    */
   _calculateLineupMetrics(lineup, performances) {
     // Sort performances for percentiles

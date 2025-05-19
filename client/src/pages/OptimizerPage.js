@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import LineupList from '../components/LineupList';
-import AdvancedOptimizerUI from '../components/AdvancedOptimizerUI';
+import React, { useState, useEffect } from "react";
+import LineupList from "../components/LineupList";
+import AdvancedOptimizerUI from "../components/AdvancedOptimizerUI";
 
 /**
  * This page integrates all optimization features into one coherent interface
@@ -12,16 +12,16 @@ const OptimizerPage = ({
   exposureSettings,
   onUpdateExposures,
   onGenerateLineups,
-  onImportLineups
+  onImportLineups,
 }) => {
   // Main section tracks which part of the optimization process you're viewing
-  const [activeSection, setActiveSection] = useState('optimizer');
+  const [activeSection, setActiveSection] = useState("optimizer");
 
   // Sub-section for advanced optimizer content
-  const [optimizerSubSection, setOptimizerSubSection] = useState('settings');
+  const [optimizerSubSection, setOptimizerSubSection] = useState("settings");
 
   const [dataReady, setDataReady] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false); // NEW: Track save success
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Check if data is ready for optimization
   useEffect(() => {
@@ -32,7 +32,7 @@ const OptimizerPage = ({
       console.log("OptimizerPage: Player data is ready", {
         playerCount: playerData.length,
         lineupsCount: lineups.length,
-        hasExposureSettings: !!exposureSettings
+        hasExposureSettings: !!exposureSettings,
       });
     } else {
       console.warn("OptimizerPage: Waiting for player data");
@@ -61,7 +61,7 @@ const OptimizerPage = ({
         await onGenerateLineups(count, options);
         return true;
       } catch (error) {
-        console.error('Error generating lineups:', error);
+        console.error("Error generating lineups:", error);
         alert(`Error generating lineups: ${error.message}`);
         return false;
       }
@@ -76,10 +76,10 @@ const OptimizerPage = ({
         await onImportLineups(optimizedLineups);
         setSaveSuccess(true);
         // Automatically switch to the lineups view
-        setActiveSection('lineups');
+        setActiveSection("lineups");
         return true;
       } catch (error) {
-        console.error('Error importing lineups:', error);
+        console.error("Error importing lineups:", error);
         alert(`Error importing lineups: ${error.message}`);
         return false;
       }
@@ -94,19 +94,21 @@ const OptimizerPage = ({
 
         {/* Main Section Navigation */}
         <div className="tabs-container">
-          <ul style={{ listStyle: 'none', display: 'flex' }}>
-            <li style={{ marginRight: '0.5rem' }}>
+          <ul style={{ listStyle: "none", display: "flex" }}>
+            <li style={{ marginRight: "0.5rem" }}>
               <button
-                className={`tab ${activeSection === 'optimizer' ? 'active' : ''}`}
-                onClick={() => setActiveSection('optimizer')}
+                className={`tab ${
+                  activeSection === "optimizer" ? "active" : ""
+                }`}
+                onClick={() => setActiveSection("optimizer")}
               >
                 Optimizer
               </button>
             </li>
-            <li style={{ marginRight: '0.5rem' }}>
+            <li style={{ marginRight: "0.5rem" }}>
               <button
-                className={`tab ${activeSection === 'lineups' ? 'active' : ''}`}
-                onClick={() => setActiveSection('lineups')}
+                className={`tab ${activeSection === "lineups" ? "active" : ""}`}
+                onClick={() => setActiveSection("lineups")}
               >
                 Generated Lineups
               </button>
@@ -114,66 +116,111 @@ const OptimizerPage = ({
           </ul>
         </div>
 
-        {/* NEW: Save success message */}
+        {/* Save success message */}
         {saveSuccess && (
-          <div style={{
-            padding: '0.75rem',
-            backgroundColor: 'rgba(56, 161, 105, 0.2)',
-            borderRadius: '0.25rem',
-            marginBottom: '1rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#38a169',
-            border: '1px solid #38a169'
-          }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '0.5rem'}}>
+          <div
+            style={{
+              padding: "0.75rem",
+              backgroundColor: "rgba(56, 161, 105, 0.2)",
+              borderRadius: "0.25rem",
+              marginBottom: "1rem",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#38a169",
+              border: "1px solid #38a169",
+            }}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ marginRight: "0.5rem" }}
+            >
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
               <polyline points="22 4 12 14.01 9 11.01"></polyline>
             </svg>
-            <span>Lineups saved successfully! View them in the Lineups tab.</span>
+            <span>
+              Lineups saved successfully! View them in the Lineups tab.
+            </span>
           </div>
         )}
 
         {/* Show data required warning if necessary */}
         {!dataReady && (
-          <div className="card" style={{ border: '1px solid #f56565', padding: '1rem', marginBottom: '1rem' }}>
-            <h3 style={{ color: '#f56565', marginBottom: '0.5rem' }}>Data Required</h3>
-            <p>Please upload player projections data before using the optimizer. Go to the Upload tab to import your data.</p>
+          <div
+            className="card"
+            style={{
+              border: "1px solid #f56565",
+              padding: "1rem",
+              marginBottom: "1rem",
+            }}
+          >
+            <h3 style={{ color: "#f56565", marginBottom: "0.5rem" }}>
+              Data Required
+            </h3>
+            <p>
+              Please upload player projections data before using the optimizer.
+              Go to the Upload tab to import your data.
+            </p>
           </div>
         )}
 
         {/* Advanced Optimizer Section */}
-        {activeSection === 'optimizer' && (
+        {activeSection === "optimizer" && (
           <div className="optimizer-container">
             {dataReady ? (
               <>
                 {/* Sub-section tabs for the optimizer */}
-                <div className="sub-tabs-container" style={{ marginBottom: '1rem' }}>
-                  <ul style={{ listStyle: 'none', display: 'flex', borderBottom: '1px solid #2d3748', padding: '0' }}>
+                <div
+                  className="sub-tabs-container"
+                  style={{ marginBottom: "1rem" }}
+                >
+                  <ul
+                    style={{
+                      listStyle: "none",
+                      display: "flex",
+                      borderBottom: "1px solid #2d3748",
+                      padding: "0",
+                    }}
+                  >
                     <li>
                       <button
-                        className={`tab ${optimizerSubSection === 'settings' ? 'active' : ''}`}
-                        onClick={() => setOptimizerSubSection('settings')}
-                        style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}
+                        className={`tab ${
+                          optimizerSubSection === "settings" ? "active" : ""
+                        }`}
+                        onClick={() => setOptimizerSubSection("settings")}
+                        style={{ fontSize: "0.9rem", padding: "0.5rem 1rem" }}
                       >
                         Settings
                       </button>
                     </li>
                     <li>
                       <button
-                        className={`tab ${optimizerSubSection === 'results' ? 'active' : ''}`}
-                        onClick={() => setOptimizerSubSection('results')}
-                        style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}
+                        className={`tab ${
+                          optimizerSubSection === "results" ? "active" : ""
+                        }`}
+                        onClick={() => setOptimizerSubSection("results")}
+                        style={{ fontSize: "0.9rem", padding: "0.5rem 1rem" }}
                       >
                         Results
                       </button>
                     </li>
                     <li>
                       <button
-                        className={`tab ${optimizerSubSection === 'lineup-details' ? 'active' : ''}`}
-                        onClick={() => setOptimizerSubSection('lineup-details')}
-                        style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}
+                        className={`tab ${
+                          optimizerSubSection === "lineup-details"
+                            ? "active"
+                            : ""
+                        }`}
+                        onClick={() => setOptimizerSubSection("lineup-details")}
+                        style={{ fontSize: "0.9rem", padding: "0.5rem 1rem" }}
                       >
                         Lineup Details
                       </button>
@@ -200,17 +247,26 @@ const OptimizerPage = ({
         )}
 
         {/* Generated Lineups Section */}
-        {activeSection === 'lineups' && (
+        {activeSection === "lineups" && (
           <div className="lineups-container">
             {dataReady ? (
               <>
                 {/* Optimize button */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                  <h3 style={{ color: '#4fd1c5', margin: 0 }}>Optimized Lineups</h3>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "1rem",
+                  }}
+                >
+                  <h3 style={{ color: "#4fd1c5", margin: 0 }}>
+                    Optimized Lineups
+                  </h3>
 
                   <button
                     className="btn btn-primary"
-                    onClick={() => setActiveSection('optimizer')}
+                    onClick={() => setActiveSection("optimizer")}
                   >
                     Return to Optimizer
                   </button>
@@ -226,15 +282,12 @@ const OptimizerPage = ({
                     }}
                     onDelete={(lineup) => {
                       console.log("Delete lineup:", lineup);
-                      // Here you would handle deleting the lineup
                     }}
                     onRunSimulation={() => {
                       console.log("Run simulation for lineups");
-                      // Here you would handle running a simulation
                     }}
                     onExport={(format) => {
                       console.log(`Export lineups as ${format}`);
-                      // Here you would handle exporting lineups
                     }}
                   />
                 ) : (
@@ -242,7 +295,7 @@ const OptimizerPage = ({
                     <p>No optimized lineups have been generated yet.</p>
                     <button
                       className="btn btn-primary"
-                      onClick={() => setActiveSection('optimizer')}
+                      onClick={() => setActiveSection("optimizer")}
                     >
                       Go to Optimizer
                     </button>

@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -11,18 +9,17 @@ import {
   LineChart,
   Line,
 } from "recharts";
-import NexusScoreLineup from "./NexusScoreLineup"; // Import our new NexusScore component
+import NexusScoreLineup from "./NexusScoreLineup";
 import AdvancedOptimizer from "../lib/AdvancedOptimizer";
 
-// Helper function to safely format numeric values that might be strings
+// Helper function to safely format numeric values
 const formatNumber = (value, decimals = 2) => {
   // If it's already a string, try to parse it
   if (typeof value === "string") {
-    // Try to parse and format, but fall back to the original string if it fails
     try {
       return parseFloat(value).toFixed(decimals);
     } catch (e) {
-      return value; // Return original string if parsing fails
+      return value;
     }
   }
 
@@ -35,9 +32,7 @@ const formatNumber = (value, decimals = 2) => {
   return (0).toFixed(decimals);
 };
 
-/**
- * NexusScoreCard component to display and explain the NexusScore
- */
+// eslint-disable-next-line no-unused-vars
 const NexusScoreCard = ({ score, components }) => {
   // Default values if components aren't available
   const {
@@ -222,9 +217,6 @@ const NexusScoreCard = ({ score, components }) => {
   );
 };
 
-/**
- * NexusScoreExplainer component - educational modal about the NexusScore system
- */
 const NexusScoreExplainer = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
@@ -587,10 +579,6 @@ const NexusScoreExplainer = ({ isOpen, onClose }) => {
   );
 };
 
-/**
- * AdvancedOptimizerUI component implements a NexusSim-like interface
- * for the League of Legends DFS optimizer
- */
 const AdvancedOptimizerUI = ({
   API_BASE_URL,
   playerData,
@@ -602,41 +590,38 @@ const AdvancedOptimizerUI = ({
   activeTab,
   onChangeTab,
 }) => {
-  // State variables
   const [isLoading, setIsLoading] = useState(false);
   const [optimizerReady, setOptimizerReady] = useState(false);
   const [optimizerSettings, setOptimizerSettings] = useState({
     iterations: 10000,
-    randomness: 0.15, // Reduced from 0.3 to favor projections more
+    randomness: 0.15,
     targetTop: 0.2,
-    leverageMultiplier: 0.7, // Reduced from 1.0 to reduce ownership leverage
+    leverageMultiplier: 0.7,
     simCount: 10,
+    fieldSize: 1000,
   });
   const [optimizationResults, setOptimizationResults] = useState(null);
   const [activeTabInternal, setActiveTabInternal] = useState(
     activeTab || "settings"
   );
   const [simulationProgress, setSimulationProgress] = useState(0);
-  const [simulationStage, setSimulationStage] = useState(""); // NEW: Track the current stage
-  const [simulationStatus, setSimulationStatus] = useState(""); // NEW: Track status text
+  // eslint-disable-next-line no-unused-vars
+  const [simulationStage, setSimulationStage] = useState("");
+  const [simulationStatus, setSimulationStatus] = useState("");
   const [optimizerInstance, setOptimizerInstance] = useState(null);
-  const [saveSuccess, setSaveSuccess] = useState(false); // Track save success
-  const [isCancelling, setIsCancelling] = useState(false); // NEW: Track cancellation
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  // eslint-disable-next-line no-unused-vars
+  const [selectedLineup, setSelectedLineup] = useState(null);
 
-  // Add ref to track internal tab changes to break circular loop
   const isInternalTabChange = useRef(false);
-
-  // Add state for NexusScore features
   const [showNexusExplainer, setShowNexusExplainer] = useState(false);
-  const [sortBy, setSortBy] = useState("roi"); // Default sort by ROI
-  const [selectedLineup, setSelectedLineup] = useState(null); // Track selected lineup
-  const [selectedLineups, setSelectedLineups] = useState({}); // Track multiple selected lineups
-  const [savedLineups, setSavedLineups] = useState([]); // Track saved lineups
+  const [sortBy, setSortBy] = useState("roi");
+  const [selectedLineups, setSelectedLineups] = useState({});
+  const [savedLineups, setSavedLineups] = useState([]);
+  const hasInitialized = useRef(false);
 
-  // FIXED: Tab management to prevent infinite loop
   useEffect(() => {
-    // Only update internal state if external prop changes
-    // and this change didn't originate from this component
     if (
       activeTab &&
       activeTab !== activeTabInternal &&
@@ -646,27 +631,16 @@ const AdvancedOptimizerUI = ({
     }
   }, [activeTab, activeTabInternal]);
 
-  // Tab click handler to use the flag
   const handleTabChange = (tabName) => {
-    // Set the flag to indicate this change is internal
     isInternalTabChange.current = true;
-
-    // Update local state
     setActiveTabInternal(tabName);
-
-    // Call parent handler if provided
     if (onChangeTab) {
       onChangeTab(tabName);
     }
-
-    // Reset flag after a short delay
     setTimeout(() => {
       isInternalTabChange.current = false;
     }, 0);
   };
-
-  // Fixed: Added initialization flag to prevent infinite loop
-  const hasInitialized = useRef(false);
 
   const [slateInfo, setSlateInfo] = useState({
     title: "Current LoL Slate",
@@ -688,12 +662,92 @@ const AdvancedOptimizerUI = ({
     topTeams: [],
   });
 
-  // Create a ref for the optimizer
   const optimizerRef = useRef(null);
 
-  // Initialize the optimizer when component mounts
+  // Define initializeOptimizer using useCallback before it's used
+  const initializeOptimizer = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setSimulationProgress(0);
+      setSimulationStage("initialization");
+      setSimulationStatus("Initializing optimizer...");
+
+      console.log("Creating new optimizer instance...");
+      optimizerRef.current = null;
+
+      const optimizer = new AdvancedOptimizer({
+        iterations: optimizerSettings.iterations,
+        randomness: optimizerSettings.randomness,
+        targetTop: optimizerSettings.targetTop,
+        leverageMultiplier: optimizerSettings.leverageMultiplier,
+        fieldSize: optimizerSettings.fieldSize,
+        correlation: {
+          sameTeam: 0.7,
+          opposingTeam: -0.15,
+          sameTeamSamePosition: 0.2,
+          captain: 0.9,
+        },
+      });
+
+      optimizer.setProgressCallback((percent, stage) => {
+        setSimulationProgress(percent);
+        if (stage) setSimulationStage(stage);
+      });
+
+      optimizer.setStatusCallback((status) => {
+        setSimulationStatus(status);
+      });
+
+      optimizerRef.current = optimizer;
+      setOptimizerInstance(optimizer);
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      console.log("Initializing optimizer with:", {
+        playerCount: playerData.length,
+        lineupsCount: lineups.length,
+        hasExposureSettings: !!exposureSettings,
+      });
+
+      if (!playerData || playerData.length === 0) {
+        throw new Error(
+          "No player data available. Please upload player projections first."
+        );
+      }
+
+      if (playerData.length > 0) {
+        console.log("Sample player data:", {
+          name: playerData[0].name,
+          position: playerData[0].position,
+          points: playerData[0].projectedPoints,
+        });
+      }
+
+      const initResult = await optimizer.initialize(
+        playerData,
+        exposureSettings,
+        lineups
+      );
+
+      if (!initResult) {
+        throw new Error(
+          "Optimizer initialization failed. Please check console for details."
+        );
+      }
+
+      setOptimizerReady(true);
+      setSimulationStatus("Optimizer ready");
+    } catch (error) {
+      console.error("Error initializing optimizer:", error);
+      setSimulationStatus(`Error: ${error.message}`);
+      alert("Error initializing optimizer: " + error.message);
+      setOptimizerReady(false);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [playerData, optimizerSettings, exposureSettings, lineups]); // All dependencies
+
   useEffect(() => {
-    // Fixed: Check if already initialized to prevent infinite loops
     if (
       playerData.length > 0 &&
       !optimizerInstance &&
@@ -702,28 +756,34 @@ const AdvancedOptimizerUI = ({
       hasInitialized.current = true;
       initializeOptimizer();
     }
-  }, [playerData, optimizerInstance]);
+  }, [playerData, optimizerInstance, initializeOptimizer]);
 
-  // Calculate slate info when player data changes
   useEffect(() => {
     if (playerData.length > 0) {
-      // Calculate top teams by projected points
       const teams = {};
       playerData.forEach((player) => {
-        if (player.team) {
-          if (!teams[player.team]) {
-            teams[player.team] = {
-              name: player.team,
-              totalProjection: 0,
-              count: 0,
-            };
-          }
-          teams[player.team].totalProjection += player.projectedPoints || 0;
-          teams[player.team].count++;
+        if (!player.team) return;
+
+        if (!teams[player.team]) {
+          teams[player.team] = {
+            name: player.team,
+            totalProjection: 0,
+            count: 0,
+          };
         }
+
+        const projPoints =
+          player.projectedPoints !== undefined &&
+          player.projectedPoints !== null
+            ? Number(player.projectedPoints)
+            : player.Median !== undefined && player.Median !== null
+            ? Number(player.Median)
+            : 0;
+
+        teams[player.team].totalProjection += projPoints;
+        teams[player.team].count++;
       });
 
-      // Convert to array and sort by projection
       const topTeams = Object.values(teams)
         .map((team) => ({
           ...team,
@@ -732,7 +792,6 @@ const AdvancedOptimizerUI = ({
         .sort((a, b) => b.totalProjection - a.totalProjection)
         .slice(0, 5);
 
-      // Fixed: Use functional setState to avoid dependence on previous state
       setSlateInfo({
         title: "Current LoL Slate",
         totalPlayers: playerData.length,
@@ -749,7 +808,6 @@ const AdvancedOptimizerUI = ({
     }
   }, [playerData]);
 
-  // Reset save success message after 3 seconds
   useEffect(() => {
     if (saveSuccess) {
       const timer = setTimeout(() => {
@@ -759,17 +817,13 @@ const AdvancedOptimizerUI = ({
     }
   }, [saveSuccess]);
 
-  /**
-   * Helper function to get a sorted version of the lineups
-   */
   const getSortedLineups = useCallback(() => {
     if (!optimizationResults || !optimizationResults.lineups) {
       return [];
     }
 
-    const lineups = [...optimizationResults.lineups]; // Create a copy to avoid mutation
+    const lineups = [...optimizationResults.lineups];
 
-    // Sort by the selected criteria
     if (sortBy === "nexusScore") {
       return lineups.sort((a, b) => (b.nexusScore || 0) - (a.nexusScore || 0));
     } else if (sortBy === "roi") {
@@ -788,11 +842,9 @@ const AdvancedOptimizerUI = ({
       );
     }
 
-    // Default to ROI sort
     return lineups.sort((a, b) => parseFloat(b.roi) - parseFloat(a.roi));
   }, [optimizationResults, sortBy]);
 
-  // Set the first lineup as selected when results change
   useEffect(() => {
     if (
       optimizationResults &&
@@ -804,113 +856,26 @@ const AdvancedOptimizerUI = ({
     }
   }, [optimizationResults, getSortedLineups]);
 
-  // Function to update sort criteria
   const handleSortChange = (criteria) => {
     setSortBy(criteria);
   };
 
-  /**
-   * Initialize the optimizer with better error handling
-   */
-  const initializeOptimizer = async () => {
-    try {
-      setIsLoading(true);
-      setSimulationProgress(0);
-      setSimulationStage("initialization");
-      setSimulationStatus("Initializing optimizer...");
-
-      console.log("Creating new optimizer instance...");
-      // Make sure we clear any previous instance first
-      optimizerRef.current = null;
-
-      // Updated optimizer settings to favor higher projections
-      const optimizer = new AdvancedOptimizer({
-        iterations: optimizerSettings.iterations,
-        randomness: optimizerSettings.randomness, // 0.15 now
-        targetTop: optimizerSettings.targetTop,
-        leverageMultiplier: optimizerSettings.leverageMultiplier, // 0.7 now
-        // Add custom correlation settings to improve lineup quality
-        correlation: {
-          sameTeam: 0.7, // Increased correlation for same team
-          opposingTeam: -0.15, // Same negative correlation
-          sameTeamSamePosition: 0.2, // Same as before
-          captain: 0.9, // Increased captain correlation
-        },
-      });
-
-      // NEW: Set up progress and status callbacks
-      optimizer.setProgressCallback((percent, stage) => {
-        setSimulationProgress(percent);
-        if (stage) setSimulationStage(stage);
-      });
-
-      optimizer.setStatusCallback((status) => {
-        setSimulationStatus(status);
-      });
-
-      // Store in ref for persistence
-      optimizerRef.current = optimizer;
-      setOptimizerInstance(optimizer);
-
-      // Add delay to ensure the optimizer instance is set
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      console.log("Initializing optimizer with:", {
-        playerCount: playerData.length,
-        lineupsCount: lineups.length,
-        hasExposureSettings: !!exposureSettings,
-      });
-
-      if (!playerData || playerData.length === 0) {
-        throw new Error(
-          "No player data available. Please upload player projections first."
-        );
-      }
-
-      // Log first player for debugging
-      if (playerData.length > 0) {
-        console.log("Sample player data:", {
-          name: playerData[0].name,
-          position: playerData[0].position,
-          points: playerData[0].projectedPoints,
-        });
-      }
-
-      const initResult = await optimizer.initialize(
-        playerData,
-        exposureSettings,
-        lineups
-      );
-
-      // Check if initialization was successful
-      if (!initResult) {
-        throw new Error(
-          "Optimizer initialization failed. Please check console for details."
-        );
-      }
-
-      setOptimizerReady(true);
-      setSimulationStatus("Optimizer ready");
-    } catch (error) {
-      console.error("Error initializing optimizer:", error);
-      setSimulationStatus(`Error: ${error.message}`);
-      alert("Error initializing optimizer: " + error.message);
-      setOptimizerReady(false);
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (
+      playerData.length > 0 &&
+      !optimizerInstance &&
+      !hasInitialized.current
+    ) {
+      hasInitialized.current = true;
+      initializeOptimizer();
     }
-  };
+  }, [playerData, optimizerInstance, initializeOptimizer]);
 
-  /**
-   * NEW: Cancel current operation
-   */
   const cancelOperation = () => {
     if (optimizerRef.current) {
       setIsCancelling(true);
-      // Call the cancel method on the optimizer
       optimizerRef.current.cancel();
 
-      // Add slight delay to allow cleanup
       setTimeout(() => {
         setIsLoading(false);
         setIsCancelling(false);
@@ -920,9 +885,6 @@ const AdvancedOptimizerUI = ({
     }
   };
 
-  /**
-   * Run the optimizer with better error handling and initialization checks
-   */
   const runOptimizer = async () => {
     console.log(
       "Running optimizer, ready state:",
@@ -931,18 +893,15 @@ const AdvancedOptimizerUI = ({
       optimizerRef.current ? "exists" : "missing"
     );
 
-    // Show immediate feedback when button is clicked
     setIsLoading(true);
-    setSimulationProgress(0); // Start from 0%
+    setSimulationProgress(0);
     setSimulationStage("starting");
     setSimulationStatus("Starting optimization...");
 
-    // If we have player data but optimizer isn't ready, try initializing again
     if (!optimizerReady && playerData.length > 0) {
       console.log("Optimizer not ready, attempting initialization...");
       await initializeOptimizer();
 
-      // Check if initialization succeeded
       if (!optimizerReady) {
         alert(
           "Optimizer could not be initialized. Please check the console for errors."
@@ -963,13 +922,11 @@ const AdvancedOptimizerUI = ({
     }
 
     try {
-      // Check explicitly if the optimizer is ready
       if (!optimizerRef.current.optimizerReady) {
         console.log(
           "Optimizer exists but not ready, attempting to reinitialize..."
         );
 
-        // Try reinitializing directly on the instance
         const initResult = await optimizerRef.current.initialize(
           playerData,
           exposureSettings,
@@ -983,25 +940,20 @@ const AdvancedOptimizerUI = ({
         }
       }
 
-      // Run simulation - progress updates will happen via the callback we set up
+      optimizerRef.current.config.fieldSize = optimizerSettings.fieldSize;
       const results = await optimizerRef.current.runSimulation(
         optimizerSettings.simCount
       );
 
-      // Set progress to 100% at completion
       setSimulationProgress(100);
       setSimulationStatus("Simulation completed");
 
-      // Process and store results
       setOptimizationResults(results);
 
-      // Switch to results tab
       handleTabChange("results");
 
-      // Reset selected lineups when new results come in
       setSelectedLineups({});
 
-      // Delay to show 100% progress
       setTimeout(() => {
         setIsLoading(false);
         setSimulationProgress(0);
@@ -1015,9 +967,6 @@ const AdvancedOptimizerUI = ({
     }
   };
 
-  /**
-   * Toggle selection of a lineup for saving
-   */
   const toggleLineupSelection = (lineup) => {
     setSelectedLineups((prev) => {
       const newSelections = { ...prev };
@@ -1030,9 +979,6 @@ const AdvancedOptimizerUI = ({
     });
   };
 
-  /**
-   * Save multiple selected lineups
-   */
   const saveSelectedLineups = async () => {
     const selectedLineupsList = Object.values(selectedLineups);
 
@@ -1044,7 +990,6 @@ const AdvancedOptimizerUI = ({
     try {
       setIsLoading(true);
 
-      // Format lineups for saving
       const formattedLineups = selectedLineupsList.map((lineup) => ({
         id: lineup.id,
         name: `${sortBy === "nexusScore" ? "NexusScore" : "Optimized"} ${
@@ -1061,22 +1006,18 @@ const AdvancedOptimizerUI = ({
         top10: lineup.top10 ? Number(lineup.top10) : 0,
       }));
 
-      // Call the parent's function to save lineups
       if (onGenerateLineups) {
         await onGenerateLineups(formattedLineups.length, {
           lineups: formattedLineups,
         });
 
-        // Record which lineups were saved
         setSavedLineups((prev) => [
           ...prev,
           ...selectedLineupsList.map((l) => l.id),
         ]);
 
-        // Show success message
         setSaveSuccess(true);
 
-        // Clear selections after saving
         setSelectedLineups({});
       } else {
         alert("Lineup save function not available");
@@ -1089,9 +1030,6 @@ const AdvancedOptimizerUI = ({
     }
   };
 
-  /**
-   * Generate lineups from optimization results
-   */
   const generateLineupsFromResults = async () => {
     if (!optimizationResults) {
       alert(
@@ -1103,12 +1041,9 @@ const AdvancedOptimizerUI = ({
     try {
       setIsLoading(true);
 
-      // Call the parent's function to generate lineups
       if (onImportLineups) {
-        // Get sorted lineups based on current sort criteria
         const sortedLineups = getSortedLineups();
 
-        // Format lineups for the parent component
         const formattedLineups = sortedLineups.map((lineup) => ({
           id: lineup.id,
           name: `${sortBy === "nexusScore" ? "NexusScore" : "Optimized"} ${
@@ -1125,16 +1060,13 @@ const AdvancedOptimizerUI = ({
           top10: lineup.top10 ? Number(lineup.top10) : 0,
         }));
 
-        // Call the parent function
         await onImportLineups(formattedLineups);
 
-        // Record as saved
         setSavedLineups((prev) => [
           ...prev,
           ...formattedLineups.map((l) => l.id),
         ]);
 
-        // Show success message
         setSaveSuccess(true);
       } else {
         alert("Lineup generation function not available");
@@ -1147,9 +1079,6 @@ const AdvancedOptimizerUI = ({
     }
   };
 
-  /**
-   * Update optimizer settings
-   */
   const updateOptimizerSettings = (key, value) => {
     setOptimizerSettings((prev) => ({
       ...prev,
@@ -1157,7 +1086,6 @@ const AdvancedOptimizerUI = ({
     }));
   };
 
-  // Helper function to calculate global lineup statistics
   const calculateGlobalStats = () => {
     if (
       !optimizationResults ||
@@ -1174,12 +1102,10 @@ const AdvancedOptimizerUI = ({
 
     const lineups = optimizationResults.lineups;
 
-    // Calculate average projection
     const avgProjection =
       lineups.reduce((sum, l) => sum + (l.projectedPoints || 0), 0) /
       lineups.length;
 
-    // Calculate average ownership
     let totalOwnership = 0;
     let playerCount = 0;
 
@@ -1190,7 +1116,6 @@ const AdvancedOptimizerUI = ({
       playerCount += allPlayers.length;
 
       allPlayers.forEach((player) => {
-        // Find player in playerData to get ownership
         const playerInfo = playerData.find((p) => p.id === player.id);
         const ownership =
           player.ownership || (playerInfo ? playerInfo.ownership : 0) || 0;
@@ -1200,7 +1125,6 @@ const AdvancedOptimizerUI = ({
 
     const avgOwnership = playerCount > 0 ? totalOwnership / playerCount : 0;
 
-    // Calculate average salary
     let totalSalary = 0;
 
     lineups.forEach((lineup) => {
@@ -1215,7 +1139,6 @@ const AdvancedOptimizerUI = ({
 
     const avgSalary = lineups.length > 0 ? totalSalary / lineups.length : 0;
 
-    // Calculate average NexusScore
     const avgNexusScore =
       lineups.reduce((sum, l) => sum + (l.nexusScore || 0), 0) / lineups.length;
 
@@ -1227,16 +1150,11 @@ const AdvancedOptimizerUI = ({
     };
   };
 
-  /**
-   * Helper function to get a descriptive status message based on progress and stage
-   */
   const getProgressStatusMessage = () => {
-    // If we have a specific status message from the optimizer, use that
     if (simulationStatus) {
       return simulationStatus;
     }
 
-    // Otherwise, generate based on progress and stage
     if (simulationProgress < 5) {
       return "Initializing...";
     } else if (simulationProgress < 40) {
@@ -1252,7 +1170,6 @@ const AdvancedOptimizerUI = ({
 
   return (
     <div className="advanced-optimizer">
-      {/* Header */}
       <div className="card" style={{ marginBottom: "1.5rem" }}>
         <div
           style={{
@@ -1301,7 +1218,6 @@ const AdvancedOptimizerUI = ({
         </div>
       </div>
 
-      {/* Tabs - UPDATED WITH NEW HANDLER */}
       <div className="tabs-container">
         <ul style={{ listStyle: "none", display: "flex" }}>
           {["settings", "results", "lineup-details"].map((tab) => (
@@ -1321,10 +1237,8 @@ const AdvancedOptimizerUI = ({
         </ul>
       </div>
 
-      {/* Settings Tab */}
       {activeTabInternal === "settings" && (
         <div className="grid grid-cols-2" style={{ gap: "1.5rem" }}>
-          {/* Settings Card */}
           <div className="card">
             <h3 style={{ color: "#4fd1c5", marginBottom: "1rem" }}>
               Simulation Settings
@@ -1352,7 +1266,27 @@ const AdvancedOptimizerUI = ({
                 </p>
               </div>
 
-              {/* NEW REDESIGNED SLIDER */}
+              <div>
+                <label className="form-label">Field Size</label>
+                <input
+                  type="number"
+                  min="10"
+                  max="100000"
+                  step="100"
+                  value={optimizerSettings.fieldSize}
+                  onChange={(e) =>
+                    updateOptimizerSettings(
+                      "fieldSize",
+                      parseInt(e.target.value)
+                    )
+                  }
+                />
+                <p style={{ color: "#90cdf4", fontSize: "0.875rem" }}>
+                  Number of competitors in the tournament. Affects ROI
+                  calculation.
+                </p>
+              </div>
+
               <div className="slider-container">
                 <div className="slider-header">
                   <label className="slider-label">Randomness Factor</label>
@@ -1388,7 +1322,6 @@ const AdvancedOptimizerUI = ({
                 </div>
               </div>
 
-              {/* NEW REDESIGNED SLIDER */}
               <div className="slider-container">
                 <div className="slider-header">
                   <label className="slider-label">Leverage Multiplier</label>
@@ -1428,7 +1361,6 @@ const AdvancedOptimizerUI = ({
                 </div>
               </div>
 
-              {/* NEW REDESIGNED SLIDER */}
               <div className="slider-container">
                 <div className="slider-header">
                   <label className="slider-label">Target Top Percentile</label>
@@ -1499,7 +1431,6 @@ const AdvancedOptimizerUI = ({
             </div>
           </div>
 
-          {/* Slate Info Card */}
           <div className="card">
             <h3 style={{ color: "#4fd1c5", marginBottom: "1rem" }}>
               {slateInfo.title}
@@ -1576,7 +1507,6 @@ const AdvancedOptimizerUI = ({
         </div>
       )}
 
-      {/* Results Tab - MODIFIED WITH MULTI-SELECT AND SAVE FUNCTIONALITY */}
       {activeTabInternal === "results" && optimizationResults && (
         <div className="card">
           <div
@@ -1587,7 +1517,6 @@ const AdvancedOptimizerUI = ({
               marginBottom: "1rem",
             }}
           >
-            {/* Sort controls */}
             <div
               style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
             >
@@ -1684,7 +1613,6 @@ const AdvancedOptimizerUI = ({
               </div>
             </div>
 
-            {/* NEW: Selected count and save button */}
             <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
               <span style={{ color: "#90cdf4", fontSize: "0.875rem" }}>
                 {Object.keys(selectedLineups).length} lineups selected
@@ -1709,7 +1637,6 @@ const AdvancedOptimizerUI = ({
             </div>
           </div>
 
-          {/* Save success message */}
           {saveSuccess && (
             <div
               style={{
@@ -1745,7 +1672,6 @@ const AdvancedOptimizerUI = ({
             </div>
           )}
 
-          {/* GLOBAL STATS PANEL - Added here */}
           <div
             style={{
               marginBottom: "1.5rem",
@@ -1783,7 +1709,6 @@ const AdvancedOptimizerUI = ({
                 fontSize: "0.875rem",
               }}
             >
-              {/* Average Projection */}
               <div
                 style={{ flex: 1, display: "flex", flexDirection: "column" }}
               >
@@ -1801,7 +1726,6 @@ const AdvancedOptimizerUI = ({
                 </span>
               </div>
 
-              {/* Average Ownership */}
               <div
                 style={{ flex: 1, display: "flex", flexDirection: "column" }}
               >
@@ -1819,7 +1743,6 @@ const AdvancedOptimizerUI = ({
                 </span>
               </div>
 
-              {/* Average Salary */}
               <div
                 style={{ flex: 1, display: "flex", flexDirection: "column" }}
               >
@@ -1840,7 +1763,6 @@ const AdvancedOptimizerUI = ({
                 </span>
               </div>
 
-              {/* Average NexusScore */}
               <div
                 style={{ flex: 1, display: "flex", flexDirection: "column" }}
               >
@@ -1874,7 +1796,6 @@ const AdvancedOptimizerUI = ({
                   alignItems: "center",
                 }}
               >
-                {/* NEW: Checkbox for lineup selection */}
                 <div style={{ marginRight: "0.5rem" }}>
                   <input
                     type="checkbox"
@@ -1889,7 +1810,6 @@ const AdvancedOptimizerUI = ({
                   />
                 </div>
 
-                {/* Lineup display with isStarred based on selection */}
                 <div style={{ flex: 1 }}>
                   <NexusScoreLineup
                     lineup={{
@@ -1922,7 +1842,6 @@ const AdvancedOptimizerUI = ({
                 className="btn"
                 style={{ backgroundColor: "#805ad5", color: "white" }}
                 onClick={() => {
-                  // Clear all selections
                   setSelectedLineups({});
                 }}
                 disabled={Object.keys(selectedLineups).length === 0}
@@ -1946,10 +1865,8 @@ const AdvancedOptimizerUI = ({
         </div>
       )}
 
-      {/* Lineup Details Tab */}
       {activeTabInternal === "lineup-details" && optimizationResults && (
         <div className="grid grid-cols-1" style={{ gap: "1.5rem" }}>
-          {/* Score Distribution Chart */}
           <div className="card">
             <h3 style={{ color: "#4fd1c5", marginBottom: "1rem" }}>
               Score Distributions
@@ -2018,7 +1935,6 @@ const AdvancedOptimizerUI = ({
             </div>
           </div>
 
-          {/* Player Exposures */}
           <div className="card">
             <h3 style={{ color: "#4fd1c5", marginBottom: "1rem" }}>
               Player Exposures in Optimized Lineups
@@ -2061,13 +1977,11 @@ const AdvancedOptimizerUI = ({
         </div>
       )}
 
-      {/* Loading overlay with IMPROVED progress reporting */}
       {isLoading && (
         <div className="loading-overlay">
           <div className="loading-card">
             <h3 className="loading-title">Running Advanced Simulation</h3>
 
-            {/* Progress bar */}
             <div className="loading-progress">
               <div
                 className="loading-bar"
@@ -2075,14 +1989,12 @@ const AdvancedOptimizerUI = ({
               ></div>
             </div>
 
-            {/* Status message that shows the current operation */}
             <p className="loading-text">
               {isCancelling
                 ? "Cancelling operation..."
                 : getProgressStatusMessage()}
             </p>
 
-            {/* NEW: Add cancel button */}
             {!isCancelling && (
               <button
                 onClick={cancelOperation}
@@ -2104,7 +2016,6 @@ const AdvancedOptimizerUI = ({
         </div>
       )}
 
-      {/* NexusScore Explainer Modal */}
       <NexusScoreExplainer
         isOpen={showNexusExplainer}
         onClose={() => setShowNexusExplainer(false)}

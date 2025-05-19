@@ -25,8 +25,6 @@ const LineupList = ({
 
   // Calculate and process lineup metrics
   const lineupsWithMetrics = useMemo(() => {
-    console.log("Recalculating lineup metrics");
-
     if (!lineups || lineups.length === 0) {
       return [];
     }
@@ -146,7 +144,6 @@ const LineupList = ({
 
   // Update global stats whenever lineupsWithMetrics changes
   useEffect(() => {
-    console.log("Updating global stats");
     if (lineupsWithMetrics.length > 0) {
       const avgProj =
         lineupsWithMetrics.reduce(
@@ -164,13 +161,6 @@ const LineupList = ({
           (sum, l) => sum + (l.metrics.geomean || 0),
           0
         ) / lineupsWithMetrics.length;
-
-      console.log("Global stats calculated:", {
-        avgProj,
-        avgOwn,
-        avgSal,
-        avgGeo,
-      });
 
       setGlobalStats({
         avgProjection: avgProj,
@@ -446,7 +436,7 @@ const LineupList = ({
         </div>
       </div>
 
-      {/* GLOBAL Stats Overview - Using state variable */}
+      {/* Global Stats Overview */}
       <div
         id="global-stats-panel"
         style={{
@@ -456,8 +446,8 @@ const LineupList = ({
           borderRadius: "0.5rem",
           border: "1px solid #2d3748",
           boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
-          position: "relative", // Added to debug
-          zIndex: 10, // Added to debug
+          position: "relative",
+          zIndex: 10,
         }}
       >
         <div

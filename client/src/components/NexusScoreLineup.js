@@ -25,8 +25,11 @@ const NexusScoreLineup = ({
 
     // If value is already a string, try to parse it
     if (typeof value === "string") {
-      const parsed = parseFloat(value);
-      return isNaN(parsed) ? "0.00" : parsed.toFixed(decimals);
+      try {
+        return parseFloat(value).toFixed(decimals);
+      } catch (e) {
+        return value;
+      }
     }
 
     // If value is a number, use toFixed directly
@@ -110,7 +113,7 @@ const NexusScoreLineup = ({
       .sort((a, b) => b - a)
       .join("|");
 
-    // Calculate NexusScore (equivalent to SaberScore in the concept)
+    // Calculate NexusScore
     const ownership = Math.max(0.1, avgOwnership / 100); // Convert to decimal with min value
     const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership)); // More points for less owned lineups
 
@@ -629,7 +632,7 @@ const NexusScoreLineup = ({
   );
 };
 
-// Helper functions remain the same...
+// Helper function for position colors
 const getPositionColor = (position) => {
   const colors = {
     TOP: "#4fd1c5",
@@ -643,10 +646,10 @@ const getPositionColor = (position) => {
   return colors[position] || "#4fd1c5";
 };
 
+// Helper function for team colors
 const getTeamColor = (team) => {
-  // Map of teams to colors - expanded with more teams
+  // Map of teams to colors - shortened for brevity
   const teamColors = {
-    // LPL teams
     TES: "#4fd1c5",
     JDG: "#68d391",
     EDG: "#63b3ed",
@@ -662,9 +665,6 @@ const getTeamColor = (team) => {
     RA: "#805ad5",
     AL: "#dd6b20",
     UP: "#667eea",
-
-    // Other teams...
-    // (shortened for brevity)
   };
 
   return teamColors[team] || "#4fd1c5"; // Default teal color if team not found
