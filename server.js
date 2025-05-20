@@ -9,6 +9,10 @@ const csv = require("csv-parser");
 // Import the AdvancedOptimizer class
 const AdvancedOptimizer = require("./client/src/lib/AdvancedOptimizer");
 
+const initializeUploadCleanup = require("./uploadCleanup");
+// Initialize cleanup utility
+const cleanup = initializeUploadCleanup();
+
 // Create Express app
 const app = express();
 const PORT = 3001;
@@ -36,7 +40,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// In-memory data stores (to be populated from actual file uploads)
+// In-memory data stores
 let playerProjections = [];
 let teamStacks = [];
 let lineups = [];
@@ -46,26 +50,6 @@ let settings = {
   entryFee: 5,
   outputDir: "./output",
   maxWorkers: 4,
-};
-
-// Add exposure settings variable
-let exposureSettings = {
-  global: {
-    globalMinExposure: 0,
-    globalMaxExposure: 60,
-    applyToNewLineups: true,
-    prioritizeProjections: true,
-  },
-  players: [],
-  teams: [],
-  positions: {
-    TOP: { min: 0, max: 100, target: null },
-    JNG: { min: 0, max: 100, target: null },
-    MID: { min: 0, max: 100, target: null },
-    ADC: { min: 0, max: 100, target: null },
-    SUP: { min: 0, max: 100, target: null },
-    CPT: { min: 0, max: 100, target: null },
-  },
 };
 
 // Helper functions
@@ -144,7 +128,6 @@ const simulateLineups = (lineupIds, simSettings) => {
     });
 
     // Add some variance to the projection
-    const variance = 0.2; // 20% variance
     const minCashPct = 20 + Math.random() * 15;
     const top10Pct = 5 + Math.random() * 10;
     const firstPlacePct = Math.random() * 3;
@@ -199,11 +182,6 @@ const simulateLineups = (lineupIds, simSettings) => {
 
 // Generate optimized lineups using the AdvancedOptimizer
 const generateOptimalLineups = async (count, options = {}) => {
-  console.log(
-    "Generating lineups with options:",
-    JSON.stringify(options, null, 2)
-  );
-
   if (playerProjections.length === 0) {
     return { error: "No player projections available" };
   }
@@ -232,72 +210,10 @@ const generateOptimalLineups = async (count, options = {}) => {
       debugMode: true, // Enable for detailed logging
     });
 
-    console.log("Using Advanced Optimizer for lineup generation");
-
-    // Process exposure settings including stack-specific constraints
-    const mergedExposureSettings = options.exposureSettings || exposureSettings;
-
-    // If a specific stack size is targeted in the options, add stack-specific constraints
-    if (options.activeStackSize) {
-      console.log(
-        `Adding stack-specific constraints for ${options.activeStackSize}-stacks`
-      );
-
-      // Add stack-specific constraints for any teams being filtered
-      if (options.preferredTeams && Array.isArray(options.preferredTeams)) {
-        // Convert simple team names to objects with stack size if needed
-        const processedTeams = options.preferredTeams.map((item) => {
-          // If it's already an object with team and stackSize
-          if (typeof item === "object" && item.team) {
-            return item;
-          }
-          // If it's just a team name string
-          return {
-            team: typeof item === "string" ? item : item.team || item.name,
-            stackSize: options.activeStackSize,
-          };
-        });
-
-        // Update the exposure settings with stack-specific constraints
-        if (!mergedExposureSettings.teams) {
-          mergedExposureSettings.teams = [];
-        }
-
-        // Add or update stack-specific constraints
-        processedTeams.forEach((team) => {
-          // Find if we already have a constraint for this team+stackSize
-          const existingIndex = mergedExposureSettings.teams.findIndex(
-            (t) => t.team === team.team && t.stackSize === team.stackSize
-          );
-
-          if (existingIndex >= 0) {
-            // Update existing constraint
-            mergedExposureSettings.teams[existingIndex] = {
-              ...mergedExposureSettings.teams[existingIndex],
-              stackSize: team.stackSize,
-              // If min exposure is set in the team object, use it, otherwise keep existing
-              min:
-                team.min !== undefined
-                  ? team.min
-                  : mergedExposureSettings.teams[existingIndex].min,
-            };
-          } else {
-            // Add new constraint
-            mergedExposureSettings.teams.push({
-              team: team.team,
-              stackSize: team.stackSize,
-              min: team.min || 25, // Default to 25% min exposure if not specified
-              max: team.max || 100,
-            });
-          }
-        });
-      }
-    }
-
-    // Initialize the optimizer with our enhanced exposure settings
+    // Initialize the optimizer with player data
     const initSuccess = await optimizer.initialize(
       playerProjections,
-      mergedExposureSettings,
+      {},
       lineups // Existing lineups to consider
     );
 
@@ -307,7 +223,6 @@ const generateOptimalLineups = async (count, options = {}) => {
 
     // Generate optimized lineups
     const result = await optimizer.runSimulation(count);
-    console.log(`Generated ${result.lineups.length} optimized lineups`);
 
     // Format lineups to match our expected structure
     const formattedLineups = result.lineups.map((lineup) => {
@@ -338,317 +253,6 @@ const generateOptimalLineups = async (count, options = {}) => {
   }
 };
 
-// Original implementation as a fallback
-const fallbackGenerateLineups = (count, options = {}) => {
-  console.log("Using fallback lineup generator with options:", options);
-
-  const newLineups = [];
-  const exposureSettings = options.exposureSettings || {};
-  const teamExposures = exposureSettings.teams || [];
-  const activeStackSize = options.activeStackSize || null;
-
-  // Track exposures for stack-specific requirements
-  const teamExposureCounts = {};
-
-  // Initialize exposure tracking for all teams
-  teamExposures.forEach((team) => {
-    // Create a unique key for each team+stackSize combination
-    const key = team.stackSize ? `${team.team}_${team.stackSize}` : team.team;
-
-    teamExposureCounts[key] = {
-      team: team.team,
-      stackSize: team.stackSize,
-      count: 0,
-      min: team.min || 0,
-      max: team.max || 100,
-      target: team.target || null,
-      required: team.min > 0,
-      // Track if this is a stack-specific exposure
-      isStackSpecific: team.stackSize !== null && team.stackSize !== undefined,
-    };
-  });
-
-  console.log("Team exposure requirements:", teamExposureCounts);
-
-  // Get appropriate stacks based on active stack size
-  const getFilteredStacks = (stackSize = null) => {
-    if (!stackSize) return teamStacks;
-
-    return teamStacks.filter((stack) => {
-      if (!stack.stack) return false;
-      if (Array.isArray(stack.stack)) {
-        return stack.stack.length === stackSize;
-      }
-      if (typeof stack.stack === "string") {
-        return stack.stack.split(",").filter(Boolean).length === stackSize;
-      }
-      return false;
-    });
-  };
-
-  // Get list of stacks to use
-  let availableStacks = getFilteredStacks(activeStackSize);
-
-  // If no stacks of the specific size, fall back to all stacks
-  if (availableStacks.length === 0) {
-    console.log(`No ${activeStackSize}-stacks found, using all stacks`);
-    availableStacks = teamStacks;
-  }
-
-  console.log(
-    `Using ${availableStacks.length} available stacks for lineup generation`
-  );
-
-  for (let i = 0; i < count; i++) {
-    // Calculate current exposure percentages
-    const currentExposures = {};
-    Object.entries(teamExposureCounts).forEach(([key, data]) => {
-      const currentPercentage = i > 0 ? (data.count / i) * 100 : 0;
-      currentExposures[key] = {
-        ...data,
-        currentPercentage,
-        // Check if this team needs more exposure
-        needsExposure: data.required && currentPercentage < data.min,
-      };
-    });
-
-    // Find teams that haven't met their min exposure
-    const unmetTeams = Object.entries(currentExposures)
-      .filter(([key, data]) => data.needsExposure)
-      .map(([key, data]) => ({
-        key,
-        team: data.team,
-        stackSize: data.stackSize,
-        currentPercentage: data.currentPercentage,
-        target: data.min,
-      }));
-
-    console.log(
-      `Lineup ${i + 1}: Teams needing more exposure:`,
-      unmetTeams.length > 0 ? unmetTeams : "None"
-    );
-
-    // Choose a team stack
-    let randomStack;
-
-    if (unmetTeams.length > 0) {
-      // Prioritize a team that needs more exposure
-      const teamToUse =
-        unmetTeams[Math.floor(Math.random() * unmetTeams.length)];
-
-      // Check if this team needs a specific stack size
-      if (teamToUse.stackSize) {
-        // Find stacks of the specific size for this team
-        const sizeSpecificStacks = availableStacks.filter(
-          (stack) =>
-            stack.team === teamToUse.team &&
-            ((Array.isArray(stack.stack) &&
-              stack.stack.length === teamToUse.stackSize) ||
-              (typeof stack.stack === "string" &&
-                stack.stack.split(",").filter(Boolean).length ===
-                  teamToUse.stackSize))
-        );
-
-        if (sizeSpecificStacks.length > 0) {
-          randomStack =
-            sizeSpecificStacks[
-              Math.floor(Math.random() * sizeSpecificStacks.length)
-            ];
-          console.log(
-            `Using ${teamToUse.stackSize}-stack for team ${teamToUse.team}`
-          );
-        } else {
-          // Fallback to any stack for this team if no specific size found
-          const anyTeamStacks = availableStacks.filter(
-            (stack) => stack.team === teamToUse.team
-          );
-          if (anyTeamStacks.length > 0) {
-            randomStack =
-              anyTeamStacks[Math.floor(Math.random() * anyTeamStacks.length)];
-            console.log(
-              `No ${teamToUse.stackSize}-stack found for ${teamToUse.team}, using available stack`
-            );
-          } else {
-            // If no stacks for this team, pick a random stack
-            randomStack =
-              availableStacks[
-                Math.floor(Math.random() * availableStacks.length)
-              ];
-            console.log(
-              `No stacks found for team ${teamToUse.team}, using random stack`
-            );
-          }
-        }
-      } else {
-        // Just find any stack for this team
-        const teamStacks = availableStacks.filter(
-          (stack) => stack.team === teamToUse.team
-        );
-        if (teamStacks.length > 0) {
-          randomStack =
-            teamStacks[Math.floor(Math.random() * teamStacks.length)];
-          console.log(`Using any stack for team ${teamToUse.team}`);
-        } else {
-          randomStack =
-            availableStacks[Math.floor(Math.random() * availableStacks.length)];
-          console.log(
-            `No stacks found for team ${teamToUse.team}, using random stack`
-          );
-        }
-      }
-    } else {
-      // Just pick a random stack
-      randomStack =
-        availableStacks[Math.floor(Math.random() * availableStacks.length)];
-      console.log(`Using random stack for lineup ${i + 1}`);
-    }
-
-    const stackTeam = randomStack.team;
-    const stackSize = Array.isArray(randomStack.stack)
-      ? randomStack.stack.length
-      : typeof randomStack.stack === "string"
-      ? randomStack.stack.split(",").filter(Boolean).length
-      : null;
-
-    console.log(
-      `Using ${stackSize}-stack for team ${stackTeam} in lineup ${i + 1}`
-    );
-
-    // Update exposure counts for this team
-    // Check both standard team exposure and stack-specific exposure
-    const teamKey = stackTeam;
-    const stackSpecificKey = `${stackTeam}_${stackSize}`;
-
-    if (teamExposureCounts[teamKey]) {
-      teamExposureCounts[teamKey].count++;
-    }
-
-    if (teamExposureCounts[stackSpecificKey]) {
-      teamExposureCounts[stackSpecificKey].count++;
-    }
-
-    // Filter players from the stack team and by positions in the stack
-    const stackPlayers = playerProjections.filter(
-      (player) =>
-        player.team === stackTeam && randomStack.stack.includes(player.position)
-    );
-
-    // Other players not from stack team
-    const otherPlayers = playerProjections.filter(
-      (player) =>
-        player.team !== stackTeam ||
-        !randomStack.stack.includes(player.position)
-    );
-
-    // Create lineup
-    const id = generateRandomId();
-    const name = `Generated Lineup ${id}`;
-
-    // Choose captain (highest projected points from stack)
-    const sortedStackPlayers = [...stackPlayers].sort(
-      (a, b) => b.projectedPoints - a.projectedPoints
-    );
-    const captain =
-      sortedStackPlayers.length > 0
-        ? sortedStackPlayers[0]
-        : playerProjections[0];
-
-    // Add CPT with 1.5x salary
-    const cpt = {
-      id: captain.id || generateRandomId(),
-      name: captain.name,
-      position: "CPT",
-      team: captain.team,
-      salary: Math.round(captain.salary * 1.5),
-    };
-
-    // Choose 5 players from stack and other players
-    const selectedPlayers = [];
-    const usedPlayerIds = new Set([captain.id]);
-
-    // First add 2-3 players from the stack
-    const stackCount = Math.min(
-      stackPlayers.length,
-      2 + Math.floor(Math.random() * 2)
-    );
-    for (let j = 0; j < stackCount; j++) {
-      if (j < stackPlayers.length && !usedPlayerIds.has(stackPlayers[j].id)) {
-        const player = stackPlayers[j];
-        selectedPlayers.push({
-          id: player.id || generateRandomId(),
-          name: player.name,
-          position: player.position,
-          team: player.team,
-          salary: player.salary,
-        });
-        usedPlayerIds.add(player.id);
-      }
-    }
-
-    // Fill remaining slots with other players
-    while (selectedPlayers.length < 5) {
-      const randomIndex = Math.floor(Math.random() * otherPlayers.length);
-      const player = otherPlayers[randomIndex];
-
-      // Check if player is already selected or is the captain
-      if (!usedPlayerIds.has(player.id)) {
-        selectedPlayers.push({
-          id: player.id || generateRandomId(),
-          name: player.name,
-          position: player.position,
-          team: player.team,
-          salary: player.salary,
-        });
-        usedPlayerIds.add(player.id);
-      }
-    }
-
-    // Create the lineup
-    const newLineup = {
-      id,
-      name,
-      cpt,
-      players: selectedPlayers,
-    };
-
-    newLineups.push(newLineup);
-
-    // Log the current exposure status
-    if ((i + 1) % 5 === 0 || i === count - 1) {
-      const exposureStatus = {};
-      Object.entries(teamExposureCounts).forEach(([key, data]) => {
-        const currentPercentage = ((data.count / (i + 1)) * 100).toFixed(1);
-        exposureStatus[key] = {
-          count: data.count,
-          percentage: `${currentPercentage}%`,
-          min: `${data.min}%`,
-          required: data.required,
-        };
-      });
-
-      console.log(`Exposure status after ${i + 1} lineups:`, exposureStatus);
-    }
-  }
-
-  // Final exposure report
-  const finalExposures = {};
-  Object.entries(teamExposureCounts).forEach(([key, data]) => {
-    const pct = ((data.count / count) * 100).toFixed(1);
-    finalExposures[key] = {
-      team: data.team,
-      stackSize: data.stackSize,
-      exposurePercentage: `${pct}%`,
-      count: data.count,
-      minRequired: `${data.min}%`,
-      met: parseFloat(pct) >= data.min,
-    };
-  });
-
-  console.log("Final lineup generation exposures:", finalExposures);
-
-  return newLineups;
-};
-
 // Parse players CSV
 const parsePlayersCSV = (filePath) => {
   return new Promise((resolve, reject) => {
@@ -657,10 +261,6 @@ const parsePlayersCSV = (filePath) => {
     fs.createReadStream(filePath)
       .pipe(csv())
       .on("data", (data) => {
-        // Process CSV data
-        // Try to find column names in the file
-        console.log("CSV row data:", data);
-
         // Extract data with flexible column naming
         const player = {
           id: data.id || data.ID || data.Id || generateRandomId(),
@@ -690,9 +290,6 @@ const parsePlayersCSV = (filePath) => {
           salary: parseInt(data.salary || data.Salary || data.SALARY || 0) || 0,
           value: 0, // Calculate value
         };
-
-        // Log each row if it's causing issues
-        console.log("Parsed player:", player);
 
         // Only add valid players with a name and projectedPoints > 0
         if (player.name && player.projectedPoints > 0) {
@@ -725,12 +322,6 @@ const parseStacksCSV = (filePath) => {
         return;
       }
 
-      // Log a preview of the file content
-      console.log(
-        "CSV file content preview (first 500 chars):",
-        fileContent.substring(0, 500)
-      );
-
       // Check for common CSV issues
       if (fileContent.length === 0) {
         console.error("CSV file is empty");
@@ -738,338 +329,61 @@ const parseStacksCSV = (filePath) => {
         return;
       }
 
-      // Count the number of comma-separated values in the first line
-      const firstLineEnd = fileContent.indexOf("\n");
-      const firstLine = fileContent.substring(
-        0,
-        firstLineEnd > 0 ? firstLineEnd : fileContent.length
-      );
-      const commaCount = (firstLine.match(/,/g) || []).length;
-      console.log(`First line has ${commaCount + 1} potential columns`);
-
-      // Log first few lines for debugging
-      const lines = fileContent.split("\n").slice(0, 3);
-      console.log("First few lines of CSV:");
-      lines.forEach((line, i) => console.log(`Line ${i}: ${line}`));
-
       // Begin the actual parsing
       const results = [];
-      const rawRowsForDebug = [];
 
       fs.createReadStream(filePath)
         .pipe(
           csv({
-            // Force lowercase property names and preserve original keys
-            mapHeaders: ({ header }) => {
-              console.log(`Processing header: "${header}"`);
-              return header; // Return just the original header string
-            },
-            // Add these options to make parsing more flexible
-            skipLines: 0, // Don't skip any lines (starts at line 0)
-            strict: false, // Don't be strict about column count
-            trim: true, // Trim whitespace from values
-            skipEmptyLines: true, // Skip empty lines
+            skipLines: 0,
+            strict: false,
+            trim: true,
+            skipEmptyLines: true,
           })
         )
-        .on("headers", (headers) => {
-          // Log all headers to help debugging
-          console.log("CSV HEADERS DETECTED:", headers);
-
-          // Specifically look for team and stack-related columns
-          const teamColumn = headers.find(
-            (h) =>
-              h.toLowerCase() === "team" ||
-              h.toLowerCase() === "teams" ||
-              h.toLowerCase() === "teamname"
-          );
-
-          const stackColumns = headers.filter(
-            (h) =>
-              h.toLowerCase().includes("stack") ||
-              h.toLowerCase().includes("stk") ||
-              h.toLowerCase().includes("value") ||
-              h.toLowerCase().includes("fan")
-          );
-
-          console.log("Team column found:", teamColumn || "NOT FOUND");
-          console.log(
-            "Stack-related columns found:",
-            stackColumns.length ? stackColumns : "NONE FOUND"
-          );
-        })
         .on("data", (data) => {
-          // Save a copy of the raw data for debugging
-          rawRowsForDebug.push({ ...data });
-
-          // Debug the actual object keys we've received for the first row
-          if (rawRowsForDebug.length === 1) {
-            console.log("First row keys:", Object.keys(data));
-            console.log("First row raw data:", data);
-
-            // Print all columns in the CSV
-            console.log("All CSV columns:", Object.keys(data).join(", "));
-
-            // Enhanced debug for Stack+ fields
-            const stackRelatedKeys = Object.keys(data).filter(
-              (key) =>
-                key.toLowerCase().includes("stack") ||
-                key.toLowerCase().includes("stk") ||
-                key.toLowerCase().includes("value") ||
-                key.toLowerCase().includes("fan")
-            );
-
-            if (stackRelatedKeys.length > 0) {
-              console.log("Stack-related columns found:", stackRelatedKeys);
-              stackRelatedKeys.forEach((key) => {
-                console.log(`Column "${key}" value:`, data[key]);
-              });
-            }
-          }
-
-          // Try to be flexible with column naming
+          // We know the exact column names: Team and Stack+
           const stack = {
             id: generateRandomId(),
-            team: null, // Will be filled below
+            team: data.Team || "",
             stack: [], // Will be populated below
-            originalRow: { ...data }, // Store all original data
+            stackPlus: parseFloat(data["Stack+"] || 0) || 0,
+            stackPlusValue: parseFloat(data["Stack+"] || 0) || 0,
           };
 
-          // First, find the team name in a flexible way
-          // Try common variations of team column names
-          const teamColumnNames = [
-            "team",
-            "Team",
-            "TEAM",
-            "teamName",
-            "TeamName",
-            "TEAMNAME",
-            "name",
-            "Name",
-            "NAME",
-          ];
-
-          for (const colName of teamColumnNames) {
-            if (data[colName] !== undefined && data[colName] !== "") {
-              stack.team = data[colName];
-              console.log(
-                `Found team name "${stack.team}" in column "${colName}"`
-              );
-              break;
-            }
-          }
-
-          // If no team name found, try to find it in any column
+          // If no team found, skip this row
           if (!stack.team) {
-            for (const key in data) {
-              const value = data[key];
-              if (
-                typeof value === "string" &&
-                value.length > 0 &&
-                !key.toLowerCase().includes("stack") &&
-                !key.toLowerCase().includes("pos")
-              ) {
-                stack.team = value;
-                console.log(
-                  `Extracted team name "${stack.team}" from column "${key}"`
-                );
-                break;
-              }
-            }
-          }
-
-          // If still no team name, skip this row
-          if (!stack.team) {
-            console.log("Skipping row with no team name:", data);
             return;
           }
-
-          // Extract all possible Stack+ values using various column names
-          const stackPlusVariations = [
-            data["Stack+"],
-            data["stack+"],
-            data.stackplus,
-            data.StackPlus,
-            data.stackPlus,
-            // Add more ROO-specific column variations
-            data["Stack_Plus"],
-            data.Stack_Plus,
-            data.stack_plus,
-            data["stack_plus"],
-            data["Stk+"],
-            data.Stk,
-            data.STK,
-            data.stk,
-            data.stk_plus,
-            data.value,
-            data.Value,
-            data.VALUE,
-            data["Stack Value"],
-            data["stack value"],
-            // More variations
-            data.STACK,
-            data.Stack,
-            data.stack,
-            // Raw number column possibilities
-            data["1"],
-            data["2"],
-            data["3"],
-            // Generic value columns
-            data.val,
-            data.Val,
-            data.VAL,
-            // Check Fantasy column which was in the error message
-            data.Fantasy,
-            data.fantasy,
-            data.FANTASY,
-          ];
-
-          // Log all potential values for debugging
-          console.log(
-            `Team ${stack.team} potential Stack+ values:`,
-            stackPlusVariations
-              .filter((v) => v !== undefined)
-              .map((v) => (typeof v === "string" ? v.trim() : v))
-          );
-
-          // Find first non-undefined, non-empty value
-          const validStackPlus = stackPlusVariations.find(
-            (v) => v !== undefined && v !== "" && !isNaN(parseFloat(v))
-          );
-
-          stack.stackPlus =
-            validStackPlus !== undefined ? parseFloat(validStackPlus) : 0;
-          console.log(`Team ${stack.team} stackPlus value:`, stack.stackPlus);
-
-          // Ensure Stack+ is available with both camelCase and original format
-          stack["Stack+"] = stack.stackPlus;
-
-          // Also set stackPlusValue for the frontend
-          stack.stackPlusValue = stack.stackPlus;
 
           // Extract positions for stacks
           const positions = ["TOP", "JNG", "MID", "ADC", "SUP"];
           const stackPositions = [];
 
-          // Method 1: Check if positions are column names with boolean/numeric values
+          // Check if positions are directly present in the row
           positions.forEach((pos) => {
-            // Check various formats (e.g., "TOP", "top", "Top")
-            const variations = [
-              pos,
-              pos.toLowerCase(),
-              pos.charAt(0) + pos.slice(1).toLowerCase(),
-            ];
-
-            for (const variant of variations) {
-              if (data[variant] !== undefined) {
-                const value = data[variant];
-                // Accept various "true" values: "true", "1", "yes", etc.
-                if (
-                  value === true ||
-                  value === 1 ||
-                  value === "1" ||
-                  value === "true" ||
-                  value === "yes" ||
-                  value === "y" ||
-                  value === "TRUE" ||
-                  value === "YES" ||
-                  value === "Y"
-                ) {
-                  stackPositions.push(pos);
-                  console.log(`Position ${pos} found in column ${variant}`);
-                  break;
-                }
-              }
+            if (
+              data[pos] &&
+              (data[pos] === "1" || data[pos] === "true" || data[pos] === "yes")
+            ) {
+              stackPositions.push(pos);
             }
           });
-
-          // Method 2: Try to find positions in specific position columns
-          for (let i = 1; i <= 5; i++) {
-            const posKeys = [
-              `pos${i}`,
-              `Pos${i}`,
-              `POS${i}`,
-              `position${i}`,
-              `Position${i}`,
-            ];
-
-            for (const key of posKeys) {
-              if (data[key]) {
-                const posValue = String(data[key]).trim().toUpperCase();
-                // Map position abbreviations
-                let mappedPos = posValue;
-
-                if (posValue === "JUNGLE" || posValue === "JG")
-                  mappedPos = "JNG";
-                else if (posValue === "MIDDLE") mappedPos = "MID";
-                else if (
-                  posValue === "BOT" ||
-                  posValue === "BOTTOM" ||
-                  posValue === "CARRY"
-                )
-                  mappedPos = "ADC";
-                else if (posValue === "SUPPORT") mappedPos = "SUP";
-
-                if (positions.includes(mappedPos)) {
-                  stackPositions.push(mappedPos);
-                  console.log(`Found position ${mappedPos} in column ${key}`);
-                }
-              }
-            }
-          }
 
           // Default to 3-stack if no positions found
           if (stackPositions.length === 0) {
             stack.stack = ["MID", "JNG", "TOP"]; // Default 3-stack
-            console.log(
-              `No positions found for team ${stack.team}, using default: MID,JNG,TOP`
-            );
           } else {
             stack.stack = stackPositions;
-            console.log(
-              `Team ${stack.team} stack positions: ${stackPositions.join(",")}`
-            );
           }
 
           // Only add valid stacks with a team
           if (stack.team && stack.stack.length > 0) {
-            console.log(`Adding valid stack for team ${stack.team}`);
             results.push(stack);
-          } else {
-            console.log(
-              `Skipping invalid stack for team ${stack.team || "unknown"}`
-            );
           }
         })
         .on("end", () => {
           console.log(`Parsed ${results.length} team stacks from CSV`);
-
-          // Log the first few results for debugging
-          if (results.length > 0) {
-            console.log("First 3 parsed stacks with Stack+ values:");
-            results.slice(0, 3).forEach((stack, i) => {
-              console.log(
-                `Stack ${i + 1} - Team: ${stack.team} | Stack+: ${
-                  stack.stackPlus
-                } | Display: ${stack.stackPlusValue}`
-              );
-              console.log("Original data for this stack:", stack.originalRow);
-            });
-          } else {
-            console.log("*** NO STACKS WERE PARSED FROM THE CSV FILE ***");
-
-            // Debug raw rows to understand why no stacks were parsed
-            if (rawRowsForDebug.length > 0) {
-              console.log(
-                `The CSV had ${rawRowsForDebug.length} rows, but none were parsed as valid stacks.`
-              );
-              console.log("First row raw data:", rawRowsForDebug[0]);
-            } else {
-              console.log(
-                "The CSV parser did not read any rows from the file at all."
-              );
-            }
-          }
-
           resolve(results);
         })
         .on("error", (error) => {
@@ -1081,12 +395,10 @@ const parseStacksCSV = (filePath) => {
 };
 
 // Process CSV data from DraftKings entries
-// Replace the existing processDraftKingsFile function with this LoL-specific version
 const processDraftKingsFile = (filePath) => {
   return new Promise((resolve, reject) => {
     // Read the file content first to check format
     const fileContent = fs.readFileSync(filePath, "utf-8");
-    console.log("File content preview:", fileContent.substring(0, 500) + "...");
 
     // Check if it's a League of Legends format file
     const hasLolPositions =
@@ -1097,7 +409,6 @@ const processDraftKingsFile = (filePath) => {
       fileContent.includes("SUP");
 
     if (!hasLolPositions) {
-      console.warn("File does not appear to be in LoL format");
       return reject(
         new Error(
           "The file does not appear to be a League of Legends DraftKings file. Expected positions (TOP, JNG, MID, ADC, SUP) were not found."
@@ -1105,16 +416,11 @@ const processDraftKingsFile = (filePath) => {
       );
     }
 
-    console.log("Detected League of Legends DraftKings format");
-
     const results = [];
 
     // Now parse the file properly
     fs.createReadStream(filePath)
       .pipe(csv())
-      .on("headers", (headers) => {
-        console.log("CSV Headers:", headers);
-      })
       .on("data", (row) => {
         results.push(row);
       })
@@ -1134,7 +440,6 @@ const processDraftKingsFile = (filePath) => {
               !row["Entry ID"] ||
               isNaN(row["Entry ID"])
             ) {
-              console.log("Skipping header or invalid row:", row);
               continue;
             }
 
@@ -1157,7 +462,6 @@ const processDraftKingsFile = (filePath) => {
 
             // Skip if no captain
             if (!cpt) {
-              console.warn(`No CPT found in row ${i}: ${JSON.stringify(row)}`);
               continue;
             }
 
@@ -1227,7 +531,6 @@ const processDraftKingsFile = (filePath) => {
             // Only create valid lineups with at least CPT and 2 players
             if (cpt && players.length >= 2) {
               // Try to fill in team info from player projections
-              // (This is optional but helps with better data representation)
               if (playerProjections.length > 0) {
                 // Match captain
                 const cptProj = playerProjections.find(
@@ -1256,10 +559,6 @@ const processDraftKingsFile = (filePath) => {
                 cpt,
                 players,
               });
-            } else {
-              console.warn(
-                `Skipping incomplete lineup in row ${i}: missing CPT or not enough players`
-              );
             }
           } catch (error) {
             console.error(`Error processing row ${i}:`, error);
@@ -1270,13 +569,6 @@ const processDraftKingsFile = (filePath) => {
         console.log(
           `Successfully extracted ${extractedLineups.length} lineups`
         );
-        if (extractedLineups.length > 0) {
-          console.log(
-            "First lineup:",
-            JSON.stringify(extractedLineups[0], null, 2)
-          );
-        }
-
         resolve(extractedLineups);
       })
       .on("error", (error) => {
@@ -1312,15 +604,8 @@ app.get("/players/projections", (req, res) => {
 
 // Get team stacks
 app.get("/teams/stacks", (req, res) => {
-  console.log(
-    "GET /teams/stacks called, returning",
-    teamStacks.length,
-    "stacks"
-  );
-
   // If we have player data, enhance the stack data with projections
   if (playerProjections.length > 0 && teamStacks.length > 0) {
-    console.log("Enhancing stacks with player projection data");
     const enhancedStacks = teamStacks.map((stack) => {
       // Get all players for this team
       const teamPlayers = playerProjections.filter(
@@ -1377,13 +662,10 @@ app.get("/teams/stacks", (req, res) => {
 
     // Sort by total projection
     enhancedStacks.sort((a, b) => b.totalProjection - a.totalProjection);
-
-    console.log(`Returning ${enhancedStacks.length} enhanced stacks`);
     return res.json(enhancedStacks);
   }
 
   // Fall back to returning raw stacks
-  console.log(`Returning ${teamStacks.length} raw stacks`);
   res.json(teamStacks);
 });
 
@@ -1401,45 +683,6 @@ app.get("/settings", (req, res) => {
 app.post("/settings", (req, res) => {
   settings = req.body;
   res.json({ success: true, message: "Settings saved successfully" });
-});
-
-// Add the GET endpoint for exposure settings
-app.get("/settings/exposure", (req, res) => {
-  res.json(exposureSettings);
-});
-
-// Add the missing POST endpoint for exposure settings
-app.post("/settings/exposure", (req, res) => {
-  try {
-    // Validate required fields
-    const newSettings = req.body;
-    if (!newSettings || !newSettings.global) {
-      return res.status(400).json({
-        message: "Invalid exposure settings data structure",
-      });
-    }
-
-    // Log statistics for debugging
-    console.log(
-      `Processing ${newSettings.players?.length || 0} player settings and ${
-        newSettings.teams?.length || 0
-      } team settings`
-    );
-
-    // Save the settings
-    exposureSettings = newSettings;
-
-    console.log("Exposure settings saved successfully");
-    res.json({
-      success: true,
-      message: "Exposure settings saved successfully",
-    });
-  } catch (error) {
-    console.error("Error handling exposure settings:", error);
-    res.status(500).json({
-      message: `Error saving exposure settings: ${error.message}`,
-    });
-  }
 });
 
 // Upload player projections
@@ -1480,7 +723,7 @@ app.post(
   }
 );
 
-// Team stacks upload endpoint with the original parsing logic but without default stack generation
+// Team stacks upload endpoint
 app.post("/teams/stacks/upload", upload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
@@ -1488,15 +731,6 @@ app.post("/teams/stacks/upload", upload.single("file"), async (req, res) => {
 
   try {
     console.log(`Processing team stacks from: ${req.file.path}`);
-
-    // Check file size - but don't fail on it
-    const stats = fs.statSync(req.file.path);
-    console.log(`File size: ${stats.size} bytes`);
-
-    // Preview file contents
-    const fileContent = fs.readFileSync(req.file.path, "utf8").slice(0, 500);
-    console.log("File content preview:", fileContent);
-
     const parsedStacks = await parseStacksCSV(req.file.path);
     console.log(`Parsed ${parsedStacks.length} stacks from CSV`);
 
@@ -1521,7 +755,6 @@ app.post("/teams/stacks/upload", upload.single("file"), async (req, res) => {
           teamGroups[player.team] = {
             players: [],
             totalProjection: 0,
-            avgOwnership: 0,
           };
         }
 
@@ -1681,11 +914,7 @@ app.post("/lineups/import", upload.single("file"), (req, res) => {
 
 // Generate lineups
 app.post("/lineups/generate", async (req, res) => {
-  const {
-    count = 5,
-    settings: reqSettings = {},
-    exposureSettings: reqExposureSettings = {},
-  } = req.body;
+  const { count = 5, settings: reqSettings = {} } = req.body;
 
   // Check if we have necessary data
   if (playerProjections.length === 0) {
@@ -1714,9 +943,6 @@ app.post("/lineups/generate", async (req, res) => {
         ...settings,
         ...reqSettings,
       },
-      exposureSettings: reqExposureSettings.teams
-        ? reqExposureSettings
-        : exposureSettings,
     };
 
     // Generate lineups using the Advanced Optimizer
@@ -1898,6 +1124,7 @@ app.get("/teams/stats", (req, res) => {
   }
 });
 
+// NexusScore formula endpoints
 app.post("/nexusscore/formula", async (req, res) => {
   try {
     const formulaData = req.body;
