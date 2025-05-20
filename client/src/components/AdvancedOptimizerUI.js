@@ -1102,19 +1102,20 @@ const AdvancedOptimizerUI = ({
 
     const lineups = optimizationResults.lineups;
 
+    // Calculate average projection
     const avgProjection =
       lineups.reduce((sum, l) => sum + (l.projectedPoints || 0), 0) /
       lineups.length;
 
+    // Calculate average total ownership - summing all ownership values in each lineup
     let totalOwnership = 0;
-    let playerCount = 0;
 
     lineups.forEach((lineup) => {
       const allPlayers = lineup.cpt
         ? [lineup.cpt, ...(lineup.players || [])]
         : lineup.players || [];
-      playerCount += allPlayers.length;
 
+      // Sum ownership for all players in this lineup
       allPlayers.forEach((player) => {
         const playerInfo = playerData.find((p) => p.id === player.id);
         const ownership =
@@ -1123,8 +1124,11 @@ const AdvancedOptimizerUI = ({
       });
     });
 
-    const avgOwnership = playerCount > 0 ? totalOwnership / playerCount : 0;
+    // Divide by number of lineups to get average total ownership per lineup
+    const avgOwnership =
+      lineups.length > 0 ? totalOwnership / lineups.length : 0;
 
+    // Calculate average salary
     let totalSalary = 0;
 
     lineups.forEach((lineup) => {
@@ -1139,6 +1143,7 @@ const AdvancedOptimizerUI = ({
 
     const avgSalary = lineups.length > 0 ? totalSalary / lineups.length : 0;
 
+    // Calculate average NexusScore
     const avgNexusScore =
       lineups.reduce((sum, l) => sum + (l.nexusScore || 0), 0) / lineups.length;
 

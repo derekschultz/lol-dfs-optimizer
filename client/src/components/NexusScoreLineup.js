@@ -583,7 +583,7 @@ const NexusScoreLineup = ({
               </tr>
             ))}
 
-          {/* Stack info row */}
+          {/* Stack info row - FIXED OWNERSHIP CALCULATION HERE */}
           <tr
             style={{
               backgroundColor: "#0c111b",
@@ -621,9 +621,25 @@ const NexusScoreLineup = ({
                 color: "#f56565",
               }}
             >
-              {`${Math.round(
-                metrics.ownership * (lineup.players?.length || 0)
-              )}%`}
+              {(() => {
+                // Get all players including captain
+                const allPlayers = lineup.cpt
+                  ? [lineup.cpt, ...(lineup.players || [])]
+                  : lineup.players || [];
+
+                // Calculate total ownership directly
+                let totalOwnership = 0;
+                allPlayers.forEach((player) => {
+                  const playerInfo = playerData.find((p) => p.id === player.id);
+                  const ownership =
+                    player.ownership ||
+                    (playerInfo ? playerInfo.ownership : 0) ||
+                    0;
+                  totalOwnership += ownership;
+                });
+
+                return `${Math.round(totalOwnership)}%`;
+              })()}
             </td>
           </tr>
         </tbody>
