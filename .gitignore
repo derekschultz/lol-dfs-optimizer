@@ -57,6 +57,7 @@ Thumbs.db
 data/
 temp/
 /client/.eslintcache
+CLAUDE.md
 
 # Optional: package locks (comment out if you want to commit these)
 # package-lock.json

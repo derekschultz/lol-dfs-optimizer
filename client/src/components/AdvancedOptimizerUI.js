@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import {
   XAxis,
   YAxis,
@@ -8,9 +14,12 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
+  BarChart,
+  Bar,
 } from "recharts";
 import NexusScoreLineup from "./NexusScoreLineup";
 import AdvancedOptimizer from "../lib/AdvancedOptimizer";
+import optimizerWorkerService from "../lib/OptimizerWorkerService";
 
 // Helper function to safely format numeric values
 const formatNumber = (value, decimals = 2) => {
@@ -579,6 +588,316 @@ const NexusScoreExplainer = ({ isOpen, onClose }) => {
   );
 };
 
+// Add the ResultsPaginationControls component for pagination
+const ResultsPaginationControls = ({
+  sortedLineups,
+  selectedLineups,
+  savedLineups,
+  toggleLineupSelection,
+  playerData,
+}) => {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
+
+  // Calculate total pages
+  const totalPages = Math.max(
+    1,
+    Math.ceil(sortedLineups.length / itemsPerPage)
+  );
+
+  // Get current page of lineups
+  const currentLineups = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return sortedLineups.slice(startIndex, endIndex);
+  }, [sortedLineups, currentPage, itemsPerPage, totalPages]);
+
+  // Reset to page 1 when sorted lineups change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [sortedLineups.length]);
+
+  // Handle page change
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  return (
+    <>
+      {/* Pagination controls - Top */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "1rem",
+          padding: "0.5rem",
+          backgroundColor: "#0d1829",
+          borderRadius: "0.25rem",
+          border: "1px solid #2d3748",
+        }}
+      >
+        <div>
+          <button
+            onClick={() => goToPage(1)}
+            disabled={currentPage === 1}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor: currentPage === 1 ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              marginRight: "0.25rem",
+              color: currentPage === 1 ? "#718096" : "#e2e8f0",
+              cursor: currentPage === 1 ? "default" : "pointer",
+            }}
+          >
+            ⟪
+          </button>
+          <button
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 1}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor: currentPage === 1 ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              color: currentPage === 1 ? "#718096" : "#e2e8f0",
+              cursor: currentPage === 1 ? "default" : "pointer",
+            }}
+          >
+            ⟨
+          </button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <div style={{ color: "#e2e8f0", fontSize: "0.875rem" }}>
+            Page {currentPage} of {totalPages} ({sortedLineups.length} lineups)
+          </div>
+
+          <select
+            value={itemsPerPage}
+            onChange={(e) => setItemsPerPage(parseInt(e.target.value))}
+            style={{
+              backgroundColor: "#1a202c",
+              color: "#e2e8f0",
+              border: "1px solid #2d3748",
+              borderRadius: "0.25rem",
+              padding: "0.25rem 0.5rem",
+              fontSize: "0.875rem",
+            }}
+          >
+            <option value="25">25 per page</option>
+            <option value="50">50 per page</option>
+            <option value="100">100 per page</option>
+            <option value="250">250 per page</option>
+          </select>
+        </div>
+
+        <div>
+          <button
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor:
+                currentPage === totalPages ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              marginRight: "0.25rem",
+              color: currentPage === totalPages ? "#718096" : "#e2e8f0",
+              cursor: currentPage === totalPages ? "default" : "pointer",
+            }}
+          >
+            ⟩
+          </button>
+          <button
+            onClick={() => goToPage(totalPages)}
+            disabled={currentPage === totalPages}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor:
+                currentPage === totalPages ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              color: currentPage === totalPages ? "#718096" : "#e2e8f0",
+              cursor: currentPage === totalPages ? "default" : "pointer",
+            }}
+          >
+            ⟫
+          </button>
+        </div>
+      </div>
+
+      {/* Lineup list */}
+      <div style={{ marginBottom: "1rem" }}>
+        {currentLineups.map((lineup, index) => (
+          <div
+            key={`${lineup.id}_${index}`}
+            style={{
+              marginBottom: "0.5rem",
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ marginRight: "0.5rem" }}>
+              <input
+                type="checkbox"
+                checked={Boolean(selectedLineups[lineup.id])}
+                onChange={() => toggleLineupSelection(lineup)}
+                style={{
+                  width: "1.2rem",
+                  height: "1.2rem",
+                  cursor: "pointer",
+                  accentColor: "#38b2ac",
+                }}
+              />
+            </div>
+
+            <div style={{ flex: 1 }}>
+              <NexusScoreLineup
+                lineup={{
+                  ...lineup,
+                  nexusScore: lineup.nexusScore,
+                  roi: lineup.roi,
+                }}
+                playerData={playerData}
+                index={(currentPage - 1) * itemsPerPage + index + 1}
+                isStarred={
+                  Boolean(selectedLineups[lineup.id]) ||
+                  savedLineups.includes(lineup.id)
+                }
+                onStar={() => toggleLineupSelection(lineup)}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Pagination controls - Bottom */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginTop: "1rem",
+          padding: "0.5rem",
+          backgroundColor: "#0d1829",
+          borderRadius: "0.25rem",
+          border: "1px solid #2d3748",
+        }}
+      >
+        <div>
+          <button
+            onClick={() => goToPage(1)}
+            disabled={currentPage === 1}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor: currentPage === 1 ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              marginRight: "0.25rem",
+              color: currentPage === 1 ? "#718096" : "#e2e8f0",
+              cursor: currentPage === 1 ? "default" : "pointer",
+            }}
+          >
+            ⟪
+          </button>
+          <button
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 1}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor: currentPage === 1 ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              color: currentPage === 1 ? "#718096" : "#e2e8f0",
+              cursor: currentPage === 1 ? "default" : "pointer",
+            }}
+          >
+            ⟨
+          </button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <span
+            style={{
+              color: "#90cdf4",
+              marginRight: "0.5rem",
+              fontSize: "0.875rem",
+            }}
+          >
+            Go to page:
+          </span>
+          <input
+            type="number"
+            min="1"
+            max={totalPages}
+            value={currentPage}
+            onChange={(e) => {
+              const page = parseInt(e.target.value);
+              if (!isNaN(page) && page >= 1 && page <= totalPages) {
+                goToPage(page);
+              }
+            }}
+            style={{
+              width: "50px",
+              padding: "0.25rem 0.5rem",
+              backgroundColor: "#1a202c",
+              border: "1px solid #2d3748",
+              borderRadius: "0.25rem",
+              color: "white",
+              textAlign: "center",
+            }}
+          />
+          <span
+            style={{
+              color: "#e2e8f0",
+              margin: "0 0.5rem",
+              fontSize: "0.875rem",
+            }}
+          >
+            of {totalPages}
+          </span>
+        </div>
+
+        <div>
+          <button
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor:
+                currentPage === totalPages ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              marginRight: "0.25rem",
+              color: currentPage === totalPages ? "#718096" : "#e2e8f0",
+              cursor: currentPage === totalPages ? "default" : "pointer",
+            }}
+          >
+            ⟩
+          </button>
+          <button
+            onClick={() => goToPage(totalPages)}
+            disabled={currentPage === totalPages}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor:
+                currentPage === totalPages ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              color: currentPage === totalPages ? "#718096" : "#e2e8f0",
+              cursor: currentPage === totalPages ? "default" : "pointer",
+            }}
+          >
+            ⟫
+          </button>
+        </div>
+      </div>
+    </>
+  );
+};
+
 const AdvancedOptimizerUI = ({
   API_BASE_URL,
   playerData,
@@ -667,41 +986,41 @@ const AdvancedOptimizerUI = ({
   // Define initializeOptimizer using useCallback before it's used
   const initializeOptimizer = useCallback(async () => {
     try {
+      // Always set loading state when initializing
       setIsLoading(true);
       setSimulationProgress(0);
       setSimulationStage("initialization");
       setSimulationStatus("Initializing optimizer...");
 
-      console.log("Creating new optimizer instance...");
-      optimizerRef.current = null;
+      console.log("Initializing optimizer in worker...");
 
-      const optimizer = new AdvancedOptimizer({
-        iterations: optimizerSettings.iterations,
-        randomness: optimizerSettings.randomness,
-        targetTop: optimizerSettings.targetTop,
-        leverageMultiplier: optimizerSettings.leverageMultiplier,
-        fieldSize: optimizerSettings.fieldSize,
-        correlation: {
-          sameTeam: 0.7,
-          opposingTeam: -0.15,
-          sameTeamSamePosition: 0.2,
-          captain: 0.9,
+      // Initialize worker if not already done
+      if (!optimizerWorkerService.worker) {
+        optimizerWorkerService.init();
+      }
+
+      // Set up callbacks for the worker service
+      optimizerWorkerService.setCallbacks({
+        onProgress: (percent, stage) => {
+          setSimulationProgress(percent);
+          if (stage) setSimulationStage(stage);
+        },
+        onStatus: (status) => {
+          setSimulationStatus(status);
+        },
+        onInitialized: () => {
+          setOptimizerReady(true);
+          setSimulationStatus("Optimizer ready");
+          setIsLoading(false);
+        },
+        onError: (error) => {
+          console.error("Optimizer error:", error);
+          setSimulationStatus(`Error: ${error.message}`);
+          alert(`Error initializing optimizer: ${error.message}`);
+          setOptimizerReady(false);
+          setIsLoading(false);
         },
       });
-
-      optimizer.setProgressCallback((percent, stage) => {
-        setSimulationProgress(percent);
-        if (stage) setSimulationStage(stage);
-      });
-
-      optimizer.setStatusCallback((status) => {
-        setSimulationStatus(status);
-      });
-
-      optimizerRef.current = optimizer;
-      setOptimizerInstance(optimizer);
-
-      await new Promise((resolve) => setTimeout(resolve, 100));
 
       console.log("Initializing optimizer with:", {
         playerCount: playerData.length,
@@ -715,38 +1034,41 @@ const AdvancedOptimizerUI = ({
         );
       }
 
-      if (playerData.length > 0) {
-        console.log("Sample player data:", {
-          name: playerData[0].name,
-          position: playerData[0].position,
-          points: playerData[0].projectedPoints,
-        });
-      }
+      // Configuration for the optimizer
+      const config = {
+        iterations: optimizerSettings.iterations,
+        randomness: optimizerSettings.randomness,
+        targetTop: optimizerSettings.targetTop,
+        leverageMultiplier: optimizerSettings.leverageMultiplier,
+        fieldSize: optimizerSettings.fieldSize,
+        correlation: {
+          sameTeam: 0.7,
+          opposingTeam: -0.15,
+          sameTeamSamePosition: 0.2,
+          captain: 0.9,
+        },
+      };
 
-      const initResult = await optimizer.initialize(
+      // Initialize the optimizer in the worker
+      optimizerWorkerService.initializeOptimizer(
         playerData,
         exposureSettings,
-        lineups
+        lineups,
+        config
       );
 
-      if (!initResult) {
-        throw new Error(
-          "Optimizer initialization failed. Please check console for details."
-        );
-      }
-
-      setOptimizerReady(true);
-      setSimulationStatus("Optimizer ready");
+      // Store reference for direct access if needed
+      optimizerRef.current = optimizerWorkerService;
     } catch (error) {
       console.error("Error initializing optimizer:", error);
       setSimulationStatus(`Error: ${error.message}`);
       alert("Error initializing optimizer: " + error.message);
       setOptimizerReady(false);
-    } finally {
       setIsLoading(false);
     }
   }, [playerData, optimizerSettings, exposureSettings, lineups]); // All dependencies
 
+  // Modified automatic initialization to NOT run initializeOptimizer directly
   useEffect(() => {
     if (
       playerData.length > 0 &&
@@ -754,9 +1076,10 @@ const AdvancedOptimizerUI = ({
       !hasInitialized.current
     ) {
       hasInitialized.current = true;
-      initializeOptimizer();
+      // We're deliberately NOT calling initializeOptimizer() here
+      // It will be called only when user clicks the Run Optimizer button
     }
-  }, [playerData, optimizerInstance, initializeOptimizer]);
+  }, [playerData, optimizerInstance]);
 
   useEffect(() => {
     if (playerData.length > 0) {
@@ -817,6 +1140,7 @@ const AdvancedOptimizerUI = ({
     }
   }, [saveSuccess]);
 
+  // Get sorted lineups based on current sort criteria
   const getSortedLineups = useCallback(() => {
     if (!optimizationResults || !optimizationResults.lineups) {
       return [];
@@ -860,104 +1184,120 @@ const AdvancedOptimizerUI = ({
     setSortBy(criteria);
   };
 
+  // Add cleanup effect to terminate worker on component unmount
   useEffect(() => {
-    if (
-      playerData.length > 0 &&
-      !optimizerInstance &&
-      !hasInitialized.current
-    ) {
-      hasInitialized.current = true;
-      initializeOptimizer();
-    }
-  }, [playerData, optimizerInstance, initializeOptimizer]);
+    return () => {
+      if (optimizerWorkerService) {
+        console.log("Terminating optimizer worker on component unmount");
+        optimizerWorkerService.terminate();
+      }
+    };
+  }, []);
 
   const cancelOperation = () => {
     if (optimizerRef.current) {
       setIsCancelling(true);
-      optimizerRef.current.cancel();
 
-      setTimeout(() => {
-        setIsLoading(false);
-        setIsCancelling(false);
-        setSimulationProgress(0);
-        setSimulationStatus("Operation cancelled");
-      }, 500);
+      // Add callback for when cancellation is complete
+      optimizerWorkerService.setCallbacks({
+        ...optimizerWorkerService.callbacks,
+        onCancelled: () => {
+          setIsLoading(false);
+          setIsCancelling(false);
+          setSimulationProgress(0);
+          setSimulationStatus("Operation cancelled");
+        },
+      });
+
+      // Cancel the optimization in the worker
+      optimizerWorkerService.cancelOptimization();
     }
   };
 
   const runOptimizer = async () => {
-    console.log(
-      "Running optimizer, ready state:",
-      optimizerReady,
-      "optimizer instance:",
-      optimizerRef.current ? "exists" : "missing"
-    );
+    console.log("Starting optimizer process...");
+
+    if (!playerData || playerData.length === 0) {
+      alert(
+        "No player data available. Please upload player projections first."
+      );
+      return;
+    }
 
     setIsLoading(true);
     setSimulationProgress(0);
     setSimulationStage("starting");
     setSimulationStatus("Starting optimization...");
 
-    if (!optimizerReady && playerData.length > 0) {
-      console.log("Optimizer not ready, attempting initialization...");
-      await initializeOptimizer();
-
-      if (!optimizerReady) {
-        alert(
-          "Optimizer could not be initialized. Please check the console for errors."
-        );
-        setIsLoading(false);
-        setSimulationProgress(0);
-        return;
-      }
-    }
-
-    if (!optimizerRef.current) {
-      alert(
-        "Optimizer not initialized. Please initialize the optimizer first."
-      );
-      setIsLoading(false);
-      setSimulationProgress(0);
-      return;
-    }
-
     try {
-      if (!optimizerRef.current.optimizerReady) {
-        console.log(
-          "Optimizer exists but not ready, attempting to reinitialize..."
-        );
+      // Set up callback structure
+      optimizerWorkerService.setCallbacks({
+        onProgress: (percent, stage) => {
+          console.log(`Progress update: ${percent}%, stage: ${stage}`);
+          setSimulationProgress(percent);
+          if (stage) setSimulationStage(stage);
+        },
+        onStatus: (status) => {
+          console.log(`Status update: ${status}`);
+          setSimulationStatus(status);
+        },
+        onCompleted: (results) => {
+          console.log("Optimization completed with results:", results);
+          setSimulationProgress(100);
+          setSimulationStatus("Simulation completed");
+          setOptimizationResults(results);
+          handleTabChange("results");
+          setSelectedLineups({});
 
-        const initResult = await optimizerRef.current.initialize(
-          playerData,
-          exposureSettings,
-          lineups
-        );
+          setTimeout(() => {
+            setIsLoading(false);
+            setSimulationProgress(0);
+          }, 500);
+        },
+        onCancelled: () => {
+          console.log("Optimization cancelled");
+          setIsLoading(false);
+          setSimulationProgress(0);
+          setSimulationStatus("Operation cancelled");
+        },
+        onError: (error) => {
+          console.error("Error during optimization process:", error);
+          setIsLoading(false);
+          setSimulationProgress(0);
+          setSimulationStatus(`Error: ${error.message}`);
+          alert("Error: " + error.message);
+        },
+      });
 
-        if (!initResult) {
-          throw new Error(
-            "Failed to initialize optimizer. Please try refreshing the page."
-          );
+      // Step 1: Initialize the optimizer with current settings
+      console.log("Initializing optimizer with current settings...");
+      await optimizerWorkerService.initializeOptimizer(
+        playerData,
+        exposureSettings,
+        lineups,
+        {
+          iterations: optimizerSettings.iterations,
+          randomness: optimizerSettings.randomness,
+          targetTop: optimizerSettings.targetTop,
+          leverageMultiplier: optimizerSettings.leverageMultiplier,
+          fieldSize: optimizerSettings.fieldSize,
+          correlation: {
+            sameTeam: 0.7,
+            opposingTeam: -0.15,
+            sameTeamSamePosition: 0.2,
+            captain: 0.9,
+          },
         }
-      }
+      );
 
-      optimizerRef.current.config.fieldSize = optimizerSettings.fieldSize;
-      const results = await optimizerRef.current.runSimulation(
+      setOptimizerReady(true);
+
+      // Step 2: After initialization, run the optimizer
+      console.log(
+        "Optimizer initialized, now running simulation with count:",
         optimizerSettings.simCount
       );
-
-      setSimulationProgress(100);
-      setSimulationStatus("Simulation completed");
-
-      setOptimizationResults(results);
-
-      handleTabChange("results");
-
-      setSelectedLineups({});
-
-      setTimeout(() => {
-        setIsLoading(false);
-        setSimulationProgress(0);
-      }, 500);
+      await optimizerWorkerService.runOptimizer(optimizerSettings.simCount);
     } catch (error) {
       console.error("Error running optimizer:", error);
       setIsLoading(false);
@@ -1175,73 +1515,6 @@ const AdvancedOptimizerUI = ({
 
   return (
     <div className="advanced-optimizer">
-      <div className="card" style={{ marginBottom: "1.5rem" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <h2 className="card-title" style={{ margin: 0 }}>
-            Advanced Monte Carlo Optimizer
-          </h2>
-
-          <div>
-            {optimizerReady ? (
-              <span
-                style={{
-                  color: "#10b981",
-                  fontWeight: "bold",
-                  marginRight: "1rem",
-                }}
-              >
-                Optimizer Ready
-              </span>
-            ) : (
-              <span
-                style={{
-                  color: "#f59e0b",
-                  fontWeight: "bold",
-                  marginRight: "1rem",
-                }}
-              >
-                Initializing...
-              </span>
-            )}
-
-            <button
-              className={`btn ${
-                optimizerReady ? "btn-primary" : "btn-disabled"
-              }`}
-              onClick={runOptimizer}
-              disabled={!optimizerReady || isLoading}
-            >
-              {isLoading ? "Running..." : "Run Optimizer"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="tabs-container">
-        <ul style={{ listStyle: "none", display: "flex" }}>
-          {["settings", "results", "lineup-details"].map((tab) => (
-            <li key={tab} style={{ marginRight: "0.5rem" }}>
-              <button
-                className={`tab ${activeTabInternal === tab ? "active" : ""}`}
-                onClick={() => handleTabChange(tab)}
-              >
-                {tab === "settings"
-                  ? "Optimizer Settings"
-                  : tab === "results"
-                  ? "Simulation Results"
-                  : "Lineup Details"}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-
       {activeTabInternal === "settings" && (
         <div className="grid grid-cols-2" style={{ gap: "1.5rem" }}>
           <div className="card">
@@ -1378,7 +1651,10 @@ const AdvancedOptimizerUI = ({
                   <div
                     className="slider-fill"
                     style={{
-                      width: `${(optimizerSettings.targetTop / 0.5) * 100}%`,
+                      width: `${
+                        ((optimizerSettings.targetTop - 0.01) / (0.5 - 0.01)) *
+                        100
+                      }%`,
                     }}
                   ></div>
                   <input
@@ -1422,15 +1698,18 @@ const AdvancedOptimizerUI = ({
                 </p>
               </div>
 
-              <div style={{ marginTop: "1rem" }}>
+              <div style={{ marginTop: "1rem", textAlign: "center" }}>
                 <button
                   className="btn btn-primary"
-                  onClick={initializeOptimizer}
+                  onClick={runOptimizer}
                   disabled={isLoading}
+                  style={{
+                    padding: "0.75rem 2rem",
+                    fontSize: "1rem",
+                    fontWeight: "bold",
+                  }}
                 >
-                  {optimizerReady
-                    ? "Reinitialize Optimizer"
-                    : "Initialize Optimizer"}
+                  {isLoading ? "Running..." : "Run Optimizer"}
                 </button>
               </div>
             </div>
@@ -1787,53 +2066,14 @@ const AdvancedOptimizerUI = ({
             </div>
           </div>
 
-          <h3 style={{ color: "#4fd1c5", marginBottom: "1rem" }}>
-            Optimized Lineups
-          </h3>
-
-          <div style={{ marginBottom: "1rem" }}>
-            {getSortedLineups().map((lineup, index) => (
-              <div
-                key={`${lineup.id}_${index}`}
-                style={{
-                  marginBottom: "0.5rem",
-                  display: "flex",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ marginRight: "0.5rem" }}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(selectedLineups[lineup.id])}
-                    onChange={() => toggleLineupSelection(lineup)}
-                    style={{
-                      width: "1.2rem",
-                      height: "1.2rem",
-                      cursor: "pointer",
-                      accentColor: "#38b2ac",
-                    }}
-                  />
-                </div>
-
-                <div style={{ flex: 1 }}>
-                  <NexusScoreLineup
-                    lineup={{
-                      ...lineup,
-                      nexusScore: lineup.nexusScore,
-                      roi: lineup.roi,
-                    }}
-                    playerData={playerData}
-                    index={index + 1}
-                    isStarred={
-                      Boolean(selectedLineups[lineup.id]) ||
-                      savedLineups.includes(lineup.id)
-                    }
-                    onStar={() => toggleLineupSelection(lineup)}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+          {/* Use the pagination component to render lineups */}
+          <ResultsPaginationControls
+            sortedLineups={getSortedLineups()}
+            selectedLineups={selectedLineups}
+            savedLineups={savedLineups}
+            toggleLineupSelection={toggleLineupSelection}
+            playerData={playerData}
+          />
 
           <div
             style={{

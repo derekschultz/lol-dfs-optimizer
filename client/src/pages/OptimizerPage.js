@@ -90,32 +90,6 @@ const OptimizerPage = ({
   return (
     <div>
       <div className="card">
-        <h2 className="card-title">Advanced Optimizer</h2>
-
-        {/* Main Section Navigation */}
-        <div className="tabs-container">
-          <ul style={{ listStyle: "none", display: "flex" }}>
-            <li style={{ marginRight: "0.5rem" }}>
-              <button
-                className={`tab ${
-                  activeSection === "optimizer" ? "active" : ""
-                }`}
-                onClick={() => setActiveSection("optimizer")}
-              >
-                Optimizer
-              </button>
-            </li>
-            <li style={{ marginRight: "0.5rem" }}>
-              <button
-                className={`tab ${activeSection === "lineups" ? "active" : ""}`}
-                onClick={() => setActiveSection("lineups")}
-              >
-                Generated Lineups
-              </button>
-            </li>
-          </ul>
-        </div>
-
         {/* Save success message */}
         {saveSuccess && (
           <div

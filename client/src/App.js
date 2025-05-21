@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import "./blue-theme.css";
-import "./team-stacks.css";
 import "./slider-styles.css";
 import OptimizerPage from "./pages/OptimizerPage";
 import LineupList from "./components/LineupList";
@@ -557,7 +556,6 @@ const App = () => {
       const results = await response.json();
 
       setSimResults(results);
-      setActiveTab("results");
       displayNotification("Simulation completed successfully!");
     } catch (error) {
       console.error("Simulation error:", error);
@@ -1070,22 +1068,20 @@ const App = () => {
         {/* Tabs */}
         <div className="tabs-container">
           <ul style={{ listStyle: "none" }}>
-            {["upload", "lineups", "optimizer", "results", "nexustest"].map(
-              (tab) => (
-                <li key={tab} style={{ display: "inline-block" }}>
-                  <button
-                    className={`tab ${activeTab === tab ? "active" : ""}`}
-                    onClick={() => setActiveTab(tab)}
-                  >
-                    {tab === "optimizer"
-                      ? "Advanced Optimizer"
-                      : tab === "nexustest"
-                      ? "NexusScore Test"
-                      : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </button>
-                </li>
-              )
-            )}
+            {["upload", "lineups", "optimizer", "nexustest"].map((tab) => (
+              <li key={tab} style={{ display: "inline-block" }}>
+                <button
+                  className={`tab ${activeTab === tab ? "active" : ""}`}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {tab === "optimizer"
+                    ? "Advanced Optimizer"
+                    : tab === "nexustest"
+                    ? "NexusScore Test"
+                    : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              </li>
+            ))}
           </ul>
         </div>
 
@@ -1230,15 +1226,6 @@ const App = () => {
                 >
                   Add Lineup
                 </button>
-                <button
-                  className={
-                    lineups.length > 0 ? "btn btn-primary" : "btn btn-disabled"
-                  }
-                  disabled={lineups.length === 0}
-                  onClick={runSimulation}
-                >
-                  Run Simulation
-                </button>
               </div>
             </div>
 
@@ -1248,7 +1235,6 @@ const App = () => {
                 playerData={playerData}
                 onEdit={handleEditLineup}
                 onDelete={handleDeleteLineup}
-                onRunSimulation={runSimulation}
                 onExport={exportLineups}
               />
             ) : (

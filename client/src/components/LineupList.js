@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import NexusScoreLineup from "./NexusScoreLineup";
 
 const LineupList = ({
@@ -6,14 +6,20 @@ const LineupList = ({
   playerData = [],
   onDelete,
   onEdit,
-  onRunSimulation,
   onExport,
 }) => {
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [totalPages, setTotalPages] = useState(1);
+
+  // Sorting and filtering state
   const [sortBy, setSortBy] = useState("nexusScore");
   const [sortDirection, setSortDirection] = useState("desc");
   const [starredLineups, setStarredLineups] = useState({});
   const [showStarredOnly, setShowStarredOnly] = useState(false);
   const [selectedRank, setSelectedRank] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
 
   // Global stats calculations
   const [globalStats, setGlobalStats] = useState({
@@ -23,121 +29,153 @@ const LineupList = ({
     avgGeomean: 0,
   });
 
+  // Calculate total pages whenever lineups, itemsPerPage, or filters change
+  useEffect(() => {
+    // If showing starred only, use filtered count
+    const filteredCount = showStarredOnly
+      ? Object.keys(starredLineups).filter((id) => starredLineups[id]).length
+      : lineups.length;
+
+    setTotalPages(Math.max(1, Math.ceil(filteredCount / itemsPerPage)));
+
+    // Reset to first page when filters change
+    if (currentPage > 1) {
+      setCurrentPage(1);
+    }
+  }, [lineups.length, itemsPerPage, showStarredOnly, starredLineups]);
+
   // Calculate and process lineup metrics
   const lineupsWithMetrics = useMemo(() => {
     if (!lineups || lineups.length === 0) {
       return [];
     }
 
-    const processedLineups = lineups.map((lineup) => {
-      // Get all players in the lineup including CPT
-      const allPlayers = lineup.cpt
-        ? [lineup.cpt, ...(lineup.players || [])]
-        : lineup.players || [];
+    // Process in small batches to avoid blocking the main thread
+    // This is crucial for large datasets
+    const processedLineups = [];
+    const batchSize = 100;
+    const totalBatches = Math.ceil(lineups.length / batchSize);
 
-      // Get complete player data with projections and ownership
-      const playersWithData = allPlayers.map((player) => {
-        const fullData =
-          playerData.find(
-            (p) => p.id === player.id || p.name === player.name
-          ) || {};
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const startIdx = batchIndex * batchSize;
+      const endIdx = Math.min(startIdx + batchSize, lineups.length);
+      const batchLineups = lineups.slice(startIdx, endIdx);
+
+      const processedBatch = batchLineups.map((lineup) => {
+        // Get all players in the lineup including CPT
+        const allPlayers = lineup.cpt
+          ? [lineup.cpt, ...(lineup.players || [])]
+          : lineup.players || [];
+
+        // Get complete player data with projections and ownership
+        const playersWithData = allPlayers.map((player) => {
+          const fullData =
+            playerData.find(
+              (p) => p.id === player.id || p.name === player.name
+            ) || {};
+          return {
+            ...player,
+            projectedPoints:
+              player.projectedPoints || fullData.projectedPoints || 0,
+            ownership: player.ownership || fullData.ownership || 0,
+          };
+        });
+
+        // Calculate total points (CPT gets 1.5x)
+        let totalProj = 0;
+        if (lineup.cpt) {
+          const cptProj =
+            playersWithData.find((p) => p.id === lineup.cpt.id)
+              ?.projectedPoints || 0;
+          totalProj += cptProj * 1.5; // CPT is 1.5x
+        }
+
+        // Add regular players' points
+        totalProj += playersWithData
+          .filter((p) => p.position !== "CPT") // Skip CPT as we already counted it
+          .reduce((sum, p) => sum + (p.projectedPoints || 0), 0);
+
+        // Calculate average ownership
+        const totalOwnership = playersWithData.reduce(
+          (sum, p) => sum + (p.ownership || 0),
+          0
+        );
+        const avgOwn =
+          playersWithData.length > 0
+            ? totalOwnership / playersWithData.length
+            : 0;
+
+        // Calculate total salary
+        const totalSalary = allPlayers.reduce(
+          (sum, p) => sum + (p.salary || 0),
+          0
+        );
+
+        // Calculate geomean (geometric mean of projections)
+        const validProjs = playersWithData
+          .map((p) => p.projectedPoints)
+          .filter((p) => p > 0);
+        const geomean =
+          validProjs.length > 0
+            ? Math.pow(
+                validProjs.reduce(
+                  (product, p) => product * Math.max(0.1, p),
+                  1
+                ),
+                1 / validProjs.length
+              )
+            : 0;
+
+        // Calculate stack info - count by team
+        const teamCounts = {};
+        allPlayers.forEach((player) => {
+          if (player.team) {
+            teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+          }
+        });
+
+        // Format stack info string (e.g. "4|2" for 4 players from one team, 2 from another)
+        const stackString = Object.values(teamCounts)
+          .filter((count) => count > 1)
+          .sort((a, b) => b - a)
+          .join("|");
+
+        // Calculate NexusScore (equivalent to SaberScore in the concept)
+        const ownership = Math.max(0.1, avgOwn / 100); // Convert to decimal with min value
+        const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership)); // More points for less owned lineups
+
+        // Calculate stack bonus
+        let stackBonus = 0;
+        Object.values(teamCounts).forEach((count) => {
+          if (count >= 3) stackBonus += (count - 2) * 3; // Bonus for 3+ stacks
+        });
+
+        // Calculate NexusScore
+        const nexusScore = (totalProj * leverageFactor + stackBonus) / 7;
+
+        // Calculate ROI - using formula or real data if available
+        const roi =
+          lineup.roi !== undefined
+            ? lineup.roi
+            : ((nexusScore / 100) * 2 - 1) * 100 + Math.random() * 50; // Modified to be percentage-based with potential negative values
+
         return {
-          ...player,
-          projectedPoints:
-            player.projectedPoints || fullData.projectedPoints || 0,
-          ownership: player.ownership || fullData.ownership || 0,
+          ...lineup,
+          metrics: {
+            projectedPoints: totalProj,
+            avgOwnership: avgOwn,
+            totalSalary,
+            geomean,
+            nexusScore,
+            stackInfo: stackString,
+            roi,
+            firstPlace: lineup.firstPlace || (nexusScore / 400).toFixed(2), // Derive from NexusScore if not available
+          },
         };
       });
 
-      // Calculate total points (CPT gets 1.5x)
-      let totalProj = 0;
-      if (lineup.cpt) {
-        const cptProj =
-          playersWithData.find((p) => p.id === lineup.cpt.id)
-            ?.projectedPoints || 0;
-        totalProj += cptProj * 1.5; // CPT is 1.5x
-      }
-
-      // Add regular players' points
-      totalProj += playersWithData
-        .filter((p) => p.position !== "CPT") // Skip CPT as we already counted it
-        .reduce((sum, p) => sum + (p.projectedPoints || 0), 0);
-
-      // Calculate average ownership
-      const totalOwnership = playersWithData.reduce(
-        (sum, p) => sum + (p.ownership || 0),
-        0
-      );
-      const avgOwn =
-        playersWithData.length > 0
-          ? totalOwnership / playersWithData.length
-          : 0;
-
-      // Calculate total salary
-      const totalSalary = allPlayers.reduce(
-        (sum, p) => sum + (p.salary || 0),
-        0
-      );
-
-      // Calculate geomean (geometric mean of projections)
-      const validProjs = playersWithData
-        .map((p) => p.projectedPoints)
-        .filter((p) => p > 0);
-      const geomean =
-        validProjs.length > 0
-          ? Math.pow(
-              validProjs.reduce((product, p) => product * Math.max(0.1, p), 1),
-              1 / validProjs.length
-            )
-          : 0;
-
-      // Calculate stack info - count by team
-      const teamCounts = {};
-      allPlayers.forEach((player) => {
-        if (player.team) {
-          teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
-        }
-      });
-
-      // Format stack info string (e.g. "4|2" for 4 players from one team, 2 from another)
-      const stackString = Object.values(teamCounts)
-        .filter((count) => count > 1)
-        .sort((a, b) => b - a)
-        .join("|");
-
-      // Calculate NexusScore (equivalent to SaberScore in the concept)
-      const ownership = Math.max(0.1, avgOwn / 100); // Convert to decimal with min value
-      const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership)); // More points for less owned lineups
-
-      // Calculate stack bonus
-      let stackBonus = 0;
-      Object.values(teamCounts).forEach((count) => {
-        if (count >= 3) stackBonus += (count - 2) * 3; // Bonus for 3+ stacks
-      });
-
-      // Calculate NexusScore
-      const nexusScore = (totalProj * leverageFactor + stackBonus) / 7;
-
-      // Calculate ROI - using formula or real data if available
-      const roi =
-        lineup.roi !== undefined
-          ? lineup.roi
-          : ((nexusScore / 100) * 2 - 1) * 100 + Math.random() * 50; // Modified to be percentage-based with potential negative values
-
-      return {
-        ...lineup,
-        metrics: {
-          projectedPoints: totalProj,
-          avgOwnership: avgOwn,
-          totalSalary,
-          geomean,
-          nexusScore,
-          stackInfo: stackString,
-          roi,
-          firstPlace: lineup.firstPlace || (nexusScore / 400).toFixed(2), // Derive from NexusScore if not available
-        },
-      };
-    });
+      processedLineups.push(...processedBatch);
+    }
 
     return processedLineups;
   }, [lineups, playerData]);
@@ -171,9 +209,36 @@ const LineupList = ({
     }
   }, [lineupsWithMetrics]);
 
-  // Sort lineups based on current sort criteria
-  const sortedLineups = useMemo(() => {
+  // Memoized filtered and sorted lineups
+  const filteredAndSortedLineups = useMemo(() => {
     let filtered = lineupsWithMetrics;
+
+    // Apply search filter if there's a search term
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter((lineup) => {
+        // Search in lineup name
+        if (lineup.name && lineup.name.toLowerCase().includes(searchLower))
+          return true;
+
+        // Search in player names
+        if (
+          lineup.cpt &&
+          lineup.cpt.name &&
+          lineup.cpt.name.toLowerCase().includes(searchLower)
+        )
+          return true;
+
+        const found =
+          lineup.players &&
+          lineup.players.some(
+            (player) =>
+              player.name && player.name.toLowerCase().includes(searchLower)
+          );
+
+        return found;
+      });
+    }
 
     // Apply starred filter if enabled
     if (showStarredOnly) {
@@ -224,7 +289,15 @@ const LineupList = ({
     sortDirection,
     starredLineups,
     showStarredOnly,
+    searchTerm,
   ]);
+
+  // Get current page of lineups
+  const currentLineups = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredAndSortedLineups.slice(startIndex, endIndex);
+  }, [filteredAndSortedLineups, currentPage, itemsPerPage]);
 
   // Toggle star status for a lineup
   const handleToggleStar = (lineup) => {
@@ -232,6 +305,20 @@ const LineupList = ({
       ...prev,
       [lineup.id]: !prev[lineup.id],
     }));
+  };
+
+  // Reset filters
+  const resetFilters = () => {
+    setSearchTerm("");
+    setShowStarredOnly(false);
+    setSortBy("nexusScore");
+    setSortDirection("desc");
+    setCurrentPage(1);
+  };
+
+  // Pagination controls
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
   };
 
   // No lineups available
@@ -536,6 +623,101 @@ const LineupList = ({
         </div>
       </div>
 
+      {/* Search and filter controls */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "1rem",
+          padding: "0.75rem 1rem",
+          backgroundColor: "#10141e",
+          borderRadius: "4px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            gap: "1rem",
+            alignItems: "center",
+            flexGrow: 1,
+          }}
+        >
+          <div style={{ flexGrow: 1, maxWidth: "300px" }}>
+            <input
+              type="text"
+              placeholder="Search lineups..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "0.5rem",
+                backgroundColor: "#1a202c",
+                border: "1px solid #2d3748",
+                borderRadius: "4px",
+                color: "white",
+              }}
+            />
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <span
+              style={{
+                color: "#a0aec0",
+                marginRight: "0.5rem",
+                fontSize: "0.875rem",
+              }}
+            >
+              Items per page:
+            </span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => setItemsPerPage(parseInt(e.target.value))}
+              style={{
+                padding: "0.25rem 0.5rem",
+                backgroundColor: "#1a202c",
+                color: "#e2e8f0",
+                border: "1px solid #2d3748",
+                borderRadius: "4px",
+              }}
+            >
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="250">250</option>
+            </select>
+          </div>
+
+          <div>
+            <button
+              onClick={resetFilters}
+              style={{
+                background: "none",
+                border: "1px solid #4fd1c5",
+                color: "#4fd1c5",
+                padding: "0.25rem 0.75rem",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontSize: "0.875rem",
+              }}
+            >
+              Reset Filters
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <span style={{ color: "#a0aec0", marginRight: "0.5rem" }}>
+            {filteredAndSortedLineups.length} lineups
+          </span>
+          {filteredAndSortedLineups.length !== lineups.length && (
+            <span style={{ color: "#f56565" }}>
+              (filtered from {lineups.length})
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Lineup actions */}
       <div
         style={{
@@ -568,7 +750,7 @@ const LineupList = ({
               fontWeight: "500",
             }}
           >
-            {lineups.length}
+            {filteredAndSortedLineups.length}
           </div>
         </div>
 
@@ -727,9 +909,94 @@ const LineupList = ({
         </div>
       </div>
 
+      {/* Pagination controls - Top */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "1rem",
+          padding: "0.5rem",
+          backgroundColor: "#0d1829",
+          borderRadius: "0.25rem",
+          border: "1px solid #2d3748",
+        }}
+      >
+        <div>
+          <button
+            onClick={() => goToPage(1)}
+            disabled={currentPage === 1}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor: currentPage === 1 ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              marginRight: "0.25rem",
+              color: currentPage === 1 ? "#718096" : "#e2e8f0",
+              cursor: currentPage === 1 ? "default" : "pointer",
+            }}
+          >
+            ⟪
+          </button>
+          <button
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 1}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor: currentPage === 1 ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              color: currentPage === 1 ? "#718096" : "#e2e8f0",
+              cursor: currentPage === 1 ? "default" : "pointer",
+            }}
+          >
+            ⟨
+          </button>
+        </div>
+
+        <div style={{ color: "#e2e8f0", fontSize: "0.875rem" }}>
+          Page {currentPage} of {totalPages} ({filteredAndSortedLineups.length}{" "}
+          lineups)
+        </div>
+
+        <div>
+          <button
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor:
+                currentPage === totalPages ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              marginRight: "0.25rem",
+              color: currentPage === totalPages ? "#718096" : "#e2e8f0",
+              cursor: currentPage === totalPages ? "default" : "pointer",
+            }}
+          >
+            ⟩
+          </button>
+          <button
+            onClick={() => goToPage(totalPages)}
+            disabled={currentPage === totalPages}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor:
+                currentPage === totalPages ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              color: currentPage === totalPages ? "#718096" : "#e2e8f0",
+              cursor: currentPage === totalPages ? "default" : "pointer",
+            }}
+          >
+            ⟫
+          </button>
+        </div>
+      </div>
+
       {/* Lineups list with individual lineup components */}
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-        {sortedLineups.map((lineup, index) => (
+        {currentLineups.map((lineup, index) => (
           <NexusScoreLineup
             key={lineup.id || `lineup-${index}`}
             lineup={{
@@ -740,7 +1007,7 @@ const LineupList = ({
               firstPlace: lineup.metrics.firstPlace,
             }}
             playerData={playerData}
-            index={index + 1}
+            index={(currentPage - 1) * itemsPerPage + index + 1}
             onEdit={onEdit}
             onStar={() => handleToggleStar(lineup)}
             onDelete={onDelete}
@@ -749,54 +1016,129 @@ const LineupList = ({
         ))}
       </div>
 
-      {/* Run simulation button at bottom */}
-      {sortedLineups.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            marginTop: "1.5rem",
-          }}
-        >
+      {/* Pagination controls - Bottom */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginTop: "1rem",
+          padding: "0.5rem",
+          backgroundColor: "#0d1829",
+          borderRadius: "0.25rem",
+          border: "1px solid #2d3748",
+        }}
+      >
+        <div>
           <button
-            onClick={() => onRunSimulation && onRunSimulation()}
+            onClick={() => goToPage(1)}
+            disabled={currentPage === 1}
             style={{
-              backgroundColor: "#38b2ac",
-              color: "white",
+              padding: "0.25rem 0.5rem",
+              backgroundColor: currentPage === 1 ? "#1a202c" : "#2d3748",
               border: "none",
-              borderRadius: "4px",
-              padding: "0.5rem 1.5rem",
-              fontWeight: "500",
-              cursor: "pointer",
-              transition: "background-color 0.2s",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
+              borderRadius: "0.25rem",
+              marginRight: "0.25rem",
+              color: currentPage === 1 ? "#718096" : "#e2e8f0",
+              cursor: currentPage === 1 ? "default" : "pointer",
             }}
-            onMouseOver={(e) =>
-              (e.currentTarget.style.backgroundColor = "#319795")
-            }
-            onMouseOut={(e) =>
-              (e.currentTarget.style.backgroundColor = "#38b2ac")
-            }
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polygon points="5 3 19 12 5 21 5 3"></polygon>
-            </svg>
-            Run Simulation
+            ⟪
+          </button>
+          <button
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 1}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor: currentPage === 1 ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              color: currentPage === 1 ? "#718096" : "#e2e8f0",
+              cursor: currentPage === 1 ? "default" : "pointer",
+            }}
+          >
+            ⟨
           </button>
         </div>
-      )}
+
+        <div style={{ display: "flex", alignItems: "center" }}>
+          {/* Page number selector */}
+          <span
+            style={{
+              color: "#90cdf4",
+              marginRight: "0.5rem",
+              fontSize: "0.875rem",
+            }}
+          >
+            Go to page:
+          </span>
+          <input
+            type="number"
+            min="1"
+            max={totalPages}
+            value={currentPage}
+            onChange={(e) => {
+              const page = parseInt(e.target.value);
+              if (!isNaN(page) && page >= 1 && page <= totalPages) {
+                goToPage(page);
+              }
+            }}
+            style={{
+              width: "50px",
+              padding: "0.25rem 0.5rem",
+              backgroundColor: "#1a202c",
+              border: "1px solid #2d3748",
+              borderRadius: "0.25rem",
+              color: "white",
+              textAlign: "center",
+            }}
+          />
+          <span
+            style={{
+              color: "#e2e8f0",
+              margin: "0 0.5rem",
+              fontSize: "0.875rem",
+            }}
+          >
+            of {totalPages}
+          </span>
+        </div>
+
+        <div>
+          <button
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor:
+                currentPage === totalPages ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              marginRight: "0.25rem",
+              color: currentPage === totalPages ? "#718096" : "#e2e8f0",
+              cursor: currentPage === totalPages ? "default" : "pointer",
+            }}
+          >
+            ⟩
+          </button>
+          <button
+            onClick={() => goToPage(totalPages)}
+            disabled={currentPage === totalPages}
+            style={{
+              padding: "0.25rem 0.5rem",
+              backgroundColor:
+                currentPage === totalPages ? "#1a202c" : "#2d3748",
+              border: "none",
+              borderRadius: "0.25rem",
+              color: currentPage === totalPages ? "#718096" : "#e2e8f0",
+              cursor: currentPage === totalPages ? "default" : "pointer",
+            }}
+          >
+            ⟫
+          </button>
+        </div>
+      </div>
+
     </div>
   );
 };
