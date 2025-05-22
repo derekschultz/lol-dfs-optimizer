@@ -5,6 +5,7 @@ import OptimizerPage from "./pages/OptimizerPage";
 import LineupList from "./components/LineupList";
 import NexusScoreTestPage from "./pages/NexusScoreTestPage";
 import HybridOptimizerUI from "./components/HybridOptimizerUI";
+import PlayerManagerUI from "./components/PlayerManagerUI";
 
 const App = () => {
   // API base URL - this matches the port in our server.js
@@ -1057,6 +1058,24 @@ const App = () => {
     }
   };
 
+  // Handle player data updates (when players are deleted)
+  const handlePlayersUpdated = (updatedPlayers) => {
+    setPlayerData(updatedPlayers);
+    
+    // Update exposure settings to remove deleted players
+    if (exposureSettings.players.length > 0) {
+      const updatedPlayerIds = new Set(updatedPlayers.map(p => p.id));
+      const filteredPlayerExposures = exposureSettings.players.filter(
+        playerExp => updatedPlayerIds.has(playerExp.id)
+      );
+      
+      setExposureSettings(prev => ({
+        ...prev,
+        players: filteredPlayerExposures
+      }));
+    }
+  };
+
   return (
     <div>
       {/* Header */}
@@ -1075,14 +1094,16 @@ const App = () => {
         {/* Tabs */}
         <div className="tabs-container">
           <ul style={{ listStyle: "none" }}>
-            {["upload", "lineups", "hybrid", "optimizer", "nexustest"].map((tab) => (
+            {["upload", "players", "lineups", "hybrid", "optimizer", "nexustest"].map((tab) => (
               <li key={tab} style={{ display: "inline-block" }}>
                 <button
                   className={`tab ${activeTab === tab ? "active" : ""}`}
                   onClick={() => setActiveTab(tab)}
                 >
-                  {tab === "hybrid"
-                    ? "🧬 Hybrid Optimizer v2.0"
+                  {tab === "players"
+                    ? "Player Management"
+                    : tab === "hybrid"
+                    ? "Hybrid Optimizer v2.0"
                     : tab === "optimizer"
                     ? "Advanced Optimizer (Legacy)"
                     : tab === "nexustest"
@@ -1170,6 +1191,16 @@ const App = () => {
           </div>
         )}
 
+        {/* Player Management Tab */}
+        {activeTab === "players" && (
+          <PlayerManagerUI
+            playerData={playerData}
+            onPlayersUpdated={handlePlayersUpdated}
+            displayNotification={displayNotification}
+            API_BASE_URL={API_BASE_URL}
+          />
+        )}
+
         {/* Lineups Tab */}
         {activeTab === "lineups" && (
           <div className="card">
@@ -1255,9 +1286,11 @@ const App = () => {
           </div>
         )}
 
+
         {/* Hybrid Optimizer v2.0 Tab */}
         {activeTab === "hybrid" && (
           <HybridOptimizerUI
+            API_BASE_URL={API_BASE_URL}
             playerProjections={playerData}
             teamStacks={stackData}
             exposureSettings={exposureSettings}

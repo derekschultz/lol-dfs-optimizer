@@ -167,22 +167,28 @@ class HybridOptimizer {
         usage: 'Best when you have detailed exposure constraints'
       },
       
-      single_entry: {
-        name: 'Single Entry',
-        description: 'Optimized for massive single-entry tournaments',
-        algorithm: 'hybrid',
-        distribution: { genetic: 0.7, simulated_annealing: 0.3 },
+      portfolio: {
+        name: 'Portfolio Optimizer',
+        description: 'Generate diversified portfolio of 20 lineups with barbell strategy',
+        algorithm: 'portfolio',
+        distribution: { monte_carlo: 0.6, genetic: 0.3, simulated_annealing: 0.1 },
         config: {
-          fieldSize: 150000,
-          genetic: {
-            populationSize: 150,
-            generations: 80,
-            diversityWeight: 0.6
+          portfolioSize: 20,
+          bulkGenerationMultiplier: 25, // Generate 500 to select top 20
+          iterations: 5000,
+          randomness: 0.6,
+          leverageMultiplier: 0.8,
+          barbellDistribution: {
+            highFloor: 0.35,    // 35% high-floor lineups (7 of 20)
+            highCeiling: 0.35,  // 35% high-ceiling lineups (7 of 20) 
+            balanced: 0.30      // 30% balanced lineups (6 of 20)
           },
-          leverageMultiplier: 1.8,
-          targetTop: 0.001 // Target top 0.1%
+          stackTargets: {
+            '4-3': 0.6,   // 60% 4-3 stacks
+            '4-2-1': 0.4  // 40% 4-2-1 stacks
+          }
         },
-        usage: 'For massive single-entry GPPs like Milly Maker'
+        usage: 'Creates balanced portfolio with high-floor, high-ceiling, and balanced lineups'
       }
     };
   }
@@ -294,6 +300,8 @@ class HybridOptimizer {
       
       if (resolvedStrategy.algorithm === 'hybrid') {
         results = await this._runHybridOptimization(count, resolvedStrategy, customConfig);
+      } else if (resolvedStrategy.algorithm === 'portfolio') {
+        results = await this._runPortfolioOptimization(resolvedStrategy, customConfig);
       } else {
         results = await this._runSingleAlgorithm(count, resolvedStrategy, customConfig);
       }
@@ -524,8 +532,6 @@ class HybridOptimizer {
       case 'gpp':
       case 'tournament':
         return fieldSize > 5000 ? 'contrarian' : 'tournament';
-      case 'single_entry':
-        return 'single_entry';
     }
     
     // Field size considerations
@@ -607,6 +613,57 @@ class HybridOptimizer {
       lineups: combinedResults,
       summary: this._generateHybridSummary(combinedResults, distribution),
       algorithms: Object.keys(distribution)
+    };
+  }
+
+  /**
+   * Run portfolio optimization
+   */
+  async _runPortfolioOptimization(strategy, customConfig) {
+    const config = { ...strategy.config, ...customConfig };
+    const portfolioSize = config.portfolioSize || 20;
+    const bulkCount = portfolioSize * (config.bulkGenerationMultiplier || 25);
+    
+    this.updateStatus(`Generating ${bulkCount} lineup candidates for portfolio...`);
+    
+    // Generate bulk lineups using hybrid approach
+    const bulkResults = await this._runHybridOptimization(bulkCount, strategy, customConfig);
+    
+    if (!bulkResults || !bulkResults.lineups || bulkResults.lineups.length === 0) {
+      throw new Error('Failed to generate bulk lineups for portfolio');
+    }
+    
+    this.updateStatus('Calculating NexusScore for all candidates...');
+    
+    // Calculate NexusScore for all lineups
+    const candidates = bulkResults.lineups.map(lineup => {
+      const nexusResult = this._calculateNexusScore(lineup);
+      lineup.nexusScore = nexusResult.score;
+      lineup.scoreComponents = nexusResult.components;
+      lineup.avgOwnership = this._calculateLineupOwnership(lineup);
+      lineup.stackType = this._classifyLineupStackType(lineup);
+      lineup.barbellCategory = this._classifyBarbellCategory(lineup);
+      return lineup;
+    });
+    
+    this.updateStatus('Selecting portfolio lineups with barbell distribution...');
+    
+    // Select portfolio with barbell distribution
+    const portfolio = this._selectBarbellPortfolio(candidates, config);
+    
+    console.log(`🏆 Portfolio created: ${portfolio.length} lineups`);
+    console.log(`   - High-floor: ${portfolio.filter(l => l.barbellCategory === 'highFloor').length}`);
+    console.log(`   - High-ceiling: ${portfolio.filter(l => l.barbellCategory === 'highCeiling').length}`);
+    console.log(`   - Balanced: ${portfolio.filter(l => l.barbellCategory === 'balanced').length}`);
+    console.log(`   - 4-3 stacks: ${portfolio.filter(l => l.stackType === '4-3').length}`);
+    console.log(`   - 4-2-1 stacks: ${portfolio.filter(l => l.stackType === '4-2-1').length}`);
+    console.log(`   - NexusScore range: ${Math.min(...portfolio.map(l => l.nexusScore)).toFixed(1)} to ${Math.max(...portfolio.map(l => l.nexusScore)).toFixed(1)}`);
+    
+    return {
+      lineups: portfolio,
+      summary: this._generatePortfolioSummary(portfolio, config),
+      algorithm: 'portfolio',
+      portfolioStats: this._calculatePortfolioStats(portfolio)
     };
   }
 
@@ -732,6 +789,216 @@ class HybridOptimizer {
     }
     
     return comparisons > 0 ? totalDistance / comparisons : 0;
+  }
+
+  /**
+   * Calculate NexusScore for a lineup
+   */
+  _calculateNexusScore(lineup) {
+    // Use AdvancedOptimizer's NexusScore calculation if available
+    if (this.optimizers.monte_carlo && typeof this.optimizers.monte_carlo._calculateNexusScore === 'function') {
+      return this.optimizers.monte_carlo._calculateNexusScore(lineup);
+    }
+    
+    // Fallback simple calculation
+    let baseProjection = 0;
+    if (lineup.cpt) {
+      baseProjection += (lineup.cpt.projection || 0) * 1.5;
+    }
+    if (lineup.players) {
+      baseProjection += lineup.players.reduce((sum, p) => sum + (p.projection || 0), 0);
+    }
+    
+    return { score: baseProjection, components: { baseProjection } };
+  }
+
+  /**
+   * Calculate lineup ownership percentage
+   */
+  _calculateLineupOwnership(lineup) {
+    let totalOwnership = 0;
+    let playerCount = 0;
+    
+    if (lineup.cpt && lineup.cpt.ownership !== undefined) {
+      totalOwnership += parseFloat(lineup.cpt.ownership) || 0;
+      playerCount++;
+    }
+    
+    if (lineup.players) {
+      lineup.players.forEach(player => {
+        if (player.ownership !== undefined) {
+          totalOwnership += parseFloat(player.ownership) || 0;
+          playerCount++;
+        }
+      });
+    }
+    
+    return playerCount > 0 ? totalOwnership / playerCount : 0;
+  }
+
+  /**
+   * Classify lineup stack type based on team distribution
+   */
+  _classifyLineupStackType(lineup) {
+    const teamCounts = {};
+    
+    // Count captain
+    if (lineup.cpt && lineup.cpt.team) {
+      teamCounts[lineup.cpt.team] = (teamCounts[lineup.cpt.team] || 0) + 1;
+    }
+    
+    // Count flex players
+    if (lineup.players) {
+      lineup.players.forEach(player => {
+        if (player.team) {
+          teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+        }
+      });
+    }
+    
+    // Get sorted team counts
+    const counts = Object.values(teamCounts).sort((a, b) => b - a);
+    
+    // Classify based on distribution pattern
+    if (counts.length >= 2 && counts[0] === 4 && counts[1] === 3) {
+      return '4-3';
+    } else if (counts.length >= 3 && counts[0] === 4 && counts[1] === 2 && counts[2] === 1) {
+      return '4-2-1';
+    } else if (counts.length >= 2 && counts[0] >= 4) {
+      return '4-3';
+    } else {
+      return '4-2-1';
+    }
+  }
+
+  /**
+   * Classify lineup into barbell category
+   */
+  _classifyBarbellCategory(lineup) {
+    const ownership = lineup.avgOwnership || this._calculateLineupOwnership(lineup);
+    
+    // High-floor: chalk/safe lineups (high ownership)
+    if (ownership >= 15) {
+      return 'highFloor';
+    }
+    // High-ceiling: contrarian lineups (low ownership)
+    else if (ownership <= 8) {
+      return 'highCeiling';
+    }
+    // Balanced: medium ownership
+    else {
+      return 'balanced';
+    }
+  }
+
+  /**
+   * Select portfolio with barbell distribution
+   */
+  _selectBarbellPortfolio(candidates, config) {
+    const portfolioSize = config.portfolioSize || 20;
+    const barbellDist = config.barbellDistribution || {
+      highFloor: 0.35,
+      highCeiling: 0.35, 
+      balanced: 0.30
+    };
+    
+    // Calculate target counts for each category
+    const targets = {
+      highFloor: Math.round(portfolioSize * barbellDist.highFloor),
+      highCeiling: Math.round(portfolioSize * barbellDist.highCeiling),
+      balanced: Math.round(portfolioSize * barbellDist.balanced)
+    };
+    
+    // Adjust for rounding errors
+    const totalTargets = targets.highFloor + targets.highCeiling + targets.balanced;
+    if (totalTargets !== portfolioSize) {
+      targets.balanced += (portfolioSize - totalTargets);
+    }
+    
+    // Sort candidates by NexusScore within each category
+    const categorized = {
+      highFloor: candidates.filter(l => l.barbellCategory === 'highFloor').sort((a, b) => b.nexusScore - a.nexusScore),
+      highCeiling: candidates.filter(l => l.barbellCategory === 'highCeiling').sort((a, b) => b.nexusScore - a.nexusScore),
+      balanced: candidates.filter(l => l.barbellCategory === 'balanced').sort((a, b) => b.nexusScore - a.nexusScore)
+    };
+    
+    // Select best from each category
+    const portfolio = [];
+    
+    // Take top lineups from each category
+    portfolio.push(...categorized.highFloor.slice(0, targets.highFloor));
+    portfolio.push(...categorized.highCeiling.slice(0, targets.highCeiling));
+    portfolio.push(...categorized.balanced.slice(0, targets.balanced));
+    
+    // If we don't have enough in any category, fill from the highest scoring remaining
+    if (portfolio.length < portfolioSize) {
+      const remaining = candidates
+        .filter(l => !portfolio.includes(l))
+        .sort((a, b) => b.nexusScore - a.nexusScore);
+      
+      portfolio.push(...remaining.slice(0, portfolioSize - portfolio.length));
+    }
+    
+    // Final sort by NexusScore
+    return portfolio.sort((a, b) => b.nexusScore - a.nexusScore).slice(0, portfolioSize);
+  }
+
+  /**
+   * Generate portfolio summary
+   */
+  _generatePortfolioSummary(portfolio, config) {
+    const barbellCounts = {
+      highFloor: portfolio.filter(l => l.barbellCategory === 'highFloor').length,
+      highCeiling: portfolio.filter(l => l.barbellCategory === 'highCeiling').length,
+      balanced: portfolio.filter(l => l.barbellCategory === 'balanced').length
+    };
+    
+    const stackCounts = {
+      '4-3': portfolio.filter(l => l.stackType === '4-3').length,
+      '4-2-1': portfolio.filter(l => l.stackType === '4-2-1').length
+    };
+    
+    const avgNexusScore = portfolio.reduce((sum, l) => sum + (l.nexusScore || 0), 0) / portfolio.length;
+    const avgOwnership = portfolio.reduce((sum, l) => sum + (l.avgOwnership || 0), 0) / portfolio.length;
+    
+    return {
+      algorithm: 'portfolio',
+      portfolioSize: portfolio.length,
+      barbellDistribution: barbellCounts,
+      stackDistribution: stackCounts,
+      averageNexusScore: avgNexusScore,
+      averageOwnership: avgOwnership,
+      diversityScore: this._calculateDiversityScore(portfolio),
+      nexusScoreRange: {
+        min: Math.min(...portfolio.map(l => l.nexusScore || 0)),
+        max: Math.max(...portfolio.map(l => l.nexusScore || 0))
+      },
+      ownershipRange: {
+        min: Math.min(...portfolio.map(l => l.avgOwnership || 0)),
+        max: Math.max(...portfolio.map(l => l.avgOwnership || 0))
+      }
+    };
+  }
+
+  /**
+   * Calculate portfolio statistics
+   */
+  _calculatePortfolioStats(portfolio) {
+    return {
+      totalLineups: portfolio.length,
+      averageNexusScore: portfolio.reduce((sum, l) => sum + (l.nexusScore || 0), 0) / portfolio.length,
+      averageOwnership: portfolio.reduce((sum, l) => sum + (l.avgOwnership || 0), 0) / portfolio.length,
+      sourceAlgorithms: [...new Set(portfolio.map(l => l.sourceAlgorithm))],
+      barbellBreakdown: {
+        highFloor: portfolio.filter(l => l.barbellCategory === 'highFloor').length,
+        highCeiling: portfolio.filter(l => l.barbellCategory === 'highCeiling').length,
+        balanced: portfolio.filter(l => l.barbellCategory === 'balanced').length
+      },
+      stackBreakdown: {
+        '4-3': portfolio.filter(l => l.stackType === '4-3').length,
+        '4-2-1': portfolio.filter(l => l.stackType === '4-2-1').length
+      }
+    };
   }
 
   /**
@@ -862,8 +1129,6 @@ class HybridOptimizer {
       case 'tournament':
       case 'contrarian':
         return contestType === 'gpp' || contestType === 'tournament';
-      case 'single_entry':
-        return contestType === 'single_entry';
       case 'constraint_focused':
         return complexityScore > 10;
       default:

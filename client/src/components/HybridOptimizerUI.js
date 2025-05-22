@@ -11,19 +11,28 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 
-const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, onLineupsGenerated }) => {
+const HybridOptimizerUI = ({ API_BASE_URL, playerProjections, teamStacks, exposureSettings, onLineupsGenerated }) => {
   // State management
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [strategies, setStrategies] = useState({});
   const [selectedStrategy, setSelectedStrategy] = useState('recommended');
+  const [optimizationMode, setOptimizationMode] = useState('standard'); // 'standard' or 'portfolio'
   const [contestInfo, setContestInfo] = useState({
     type: 'gpp',
     fieldSize: 1000,
     entryFee: 5
   });
   const [lineupCount, setLineupCount] = useState(20);
+  const [portfolioConfig, setPortfolioConfig] = useState({
+    portfolioSize: 20,
+    bulkMultiplier: 25,
+    highFloor: 0.35,
+    highCeiling: 0.35,
+    balanced: 0.30,
+    stack43Ratio: 0.6
+  });
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('Ready to initialize');
   const [optimizerStats, setOptimizerStats] = useState(null);
@@ -32,22 +41,45 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customConfig, setCustomConfig] = useState({});
 
-  // Auto-initialize when data is available
+  // Auto-initialize when data is available - simplified
   useEffect(() => {
     if (playerProjections && playerProjections.length > 0 && !isInitialized && !isInitializing) {
-      initializeOptimizer();
+      // Fast initialize without heavy API calls
+      fastInitialize();
     }
   }, [playerProjections, isInitialized, isInitializing]);
 
   /**
-   * Initialize the hybrid optimizer
+   * Fast initialize - minimal setup (UI only, not server)
+   */
+  const fastInitialize = () => {
+    setIsInitializing(true);
+    setStatus('Loading interface...');
+    
+    // Set default strategies without API call for UI display
+    setStrategies({
+      recommended: { name: 'Recommended', description: 'Smart algorithm selection', recommended: true },
+      balanced: { name: 'Balanced', description: 'Reliable lineups with good upside' },
+      cash_game: { name: 'Cash Game', description: 'Consistent scoring for cash games' },
+      tournament: { name: 'Tournament/GPP', description: 'High-ceiling lineups for tournaments' },
+      contrarian: { name: 'Contrarian', description: 'Low-owned players for differentiation' },
+      constraint_focused: { name: 'Constraint Optimizer', description: 'Perfect for complex exposure requirements' }
+    });
+    
+    // Don't set isInitialized to true - that should only happen after server initialization
+    setIsInitializing(false);
+    setStatus('Ready to optimize (will initialize when needed)');
+  };
+
+  /**
+   * Full initialize - only when needed for generation
    */
   const initializeOptimizer = async () => {
     setIsInitializing(true);
     setStatus('Initializing hybrid optimizer...');
 
     try {
-      const response = await fetch('/optimizer/initialize', {
+      const response = await fetch(`${API_BASE_URL}/optimizer/initialize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -55,7 +87,12 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
           contestInfo
         })
       });
-
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Initialize request failed: ${response.status} ${errorText}`);
+      }
+      
       const data = await response.json();
       
       if (data.success) {
@@ -72,11 +109,11 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
         
       } else {
         setStatus(`Initialization failed: ${data.message}`);
-        console.error('Optimizer initialization failed:', data);
+        throw new Error(data.message || 'Initialization failed');
       }
     } catch (error) {
       setStatus(`Initialization error: ${error.message}`);
-      console.error('Error initializing optimizer:', error);
+      throw error;
     } finally {
       setIsInitializing(false);
     }
@@ -87,7 +124,7 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
    */
   const loadStrategies = async () => {
     try {
-      const response = await fetch('/optimizer/strategies');
+      const response = await fetch(`${API_BASE_URL}/optimizer/strategies`);
       const data = await response.json();
       
       if (data.success) {
@@ -103,8 +140,8 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
    * Generate lineups using hybrid optimizer
    */
   const generateLineups = async () => {
-    if (!isInitialized) {
-      await initializeOptimizer();
+    if (!playerProjections || playerProjections.length === 0) {
+      alert('Please load player data first');
       return;
     }
 
@@ -112,47 +149,156 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
     setProgress(0);
     setStatus('Starting optimization...');
 
-    // Simulate progress updates like Advanced Optimizer but slower and more conservative
-    const progressTimer = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 85) return prev; // Cap at 85% until actually done to avoid getting ahead
-        
-        // Much smaller increments to stay behind actual progress
-        const increment = Math.random() * 3 + 1; // Random increment between 1-4%
-        const newProgress = Math.min(prev + increment, 85);
-        
-        // Update status based on progress like Advanced Optimizer
-        if (newProgress < 10) {
-          setStatus('Initializing...');
-        } else if (newProgress < 45) {
-          setStatus('Generating lineups...');
-        } else if (newProgress < 75) {
-          setStatus('Running simulations...');
-        } else {
-          setStatus('Calculating metrics...');
+    // Initialize optimizer if not already done
+    if (!isInitialized) {
+      try {
+        await initializeOptimizer();
+      } catch (error) {
+        setIsOptimizing(false);
+        setStatus('Initialization failed');
+        return;
+      }
+    }
+
+    // Set up real-time progress tracking via Server-Sent Events
+    const progressSessionId = `progress_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    let eventSource = null;
+    let progressTimer = null;
+    let sseReady = false;
+    
+    // Try to use real progress updates via SSE
+    try {
+      eventSource = new EventSource(`${API_BASE_URL}/optimizer/progress/${progressSessionId}`);
+      
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.progress !== undefined) {
+          setProgress(data.progress);
         }
-        
-        return newProgress;
-      });
-    }, 800); // Update every 800ms (slower updates)
+        if (data.status) {
+          setStatus(data.status);
+          
+          // Close connection only when we receive completion status
+          if (data.status === 'Simulation completed successfully') {
+            eventSource.close();
+            if (progressTimer) {
+              clearInterval(progressTimer);
+            }
+          }
+        }
+      };
+      
+      eventSource.onerror = (error) => {
+        eventSource.close();
+        startSimulatedProgress();
+      };
+      
+      eventSource.onopen = () => {
+        sseReady = true;
+      };
+    } catch (error) {
+      startSimulatedProgress();
+    }
+    
+    // Wait for SSE connection to be established before sending generation request
+    if (eventSource) {
+      let waitAttempts = 0;
+      while (!sseReady && waitAttempts < 20) { // Wait up to 2 seconds
+        await new Promise(resolve => setTimeout(resolve, 100));
+        waitAttempts++;
+      }
+    }
+    
+    // Fallback simulated progress function
+    function startSimulatedProgress() {
+      let currentLineup = 0;
+      const targetLineups = optimizationMode === 'portfolio' ? portfolioConfig.portfolioSize : lineupCount;
+      const isPortfolio = optimizationMode === 'portfolio';
+      
+      const updateInterval = isPortfolio ? 1200 : 600;
+      const maxProgress = isPortfolio ? 75 : 85;
+      
+      progressTimer = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= maxProgress) return prev;
+          
+          const increment = isPortfolio ? 
+            Math.random() * 1.5 + 0.5 : 
+            Math.random() * 2 + 1;
+          
+          const newProgress = Math.min(prev + increment, maxProgress);
+          
+          if (newProgress >= 15 && newProgress < maxProgress) {
+            currentLineup = Math.floor(((newProgress - 15) / (maxProgress - 15)) * targetLineups);
+            currentLineup = Math.min(currentLineup, targetLineups - 1);
+          }
+          
+          if (newProgress < 5) {
+            setStatus('Initializing optimizer...');
+          } else if (newProgress < 15) {
+            setStatus('Setting up generation...');
+          } else if (newProgress < maxProgress) {
+            if (isPortfolio) {
+              const candidateCount = portfolioConfig.portfolioSize * portfolioConfig.bulkMultiplier;
+              const currentCandidate = Math.floor(((newProgress - 15) / (maxProgress - 15)) * candidateCount);
+              if (newProgress < 50) {
+                setStatus(`Generating candidates... ${currentCandidate} of ${candidateCount}`);
+              } else if (newProgress < 65) {
+                setStatus(`Scoring candidates... ${currentCandidate} of ${candidateCount}`);
+              } else {
+                setStatus(`Selecting top ${portfolioConfig.portfolioSize} lineups...`);
+              }
+            } else {
+              setStatus(`Generating lineup ${currentLineup + 1} of ${targetLineups}...`);
+            }
+          } else {
+            setStatus(isPortfolio ? 'Finalizing portfolio...' : 'Finalizing results...');
+          }
+          
+          return newProgress;
+        });
+      }, updateInterval);
+    }
 
     try {
-      const response = await fetch('/lineups/generate-hybrid', {
+      const requestBody = optimizationMode === 'portfolio' 
+        ? {
+            count: portfolioConfig.portfolioSize,
+            strategy: 'portfolio',
+            progressSessionId: progressSessionId,
+            customConfig: {
+              portfolioSize: portfolioConfig.portfolioSize,
+              bulkGenerationMultiplier: portfolioConfig.bulkMultiplier,
+              barbellDistribution: {
+                highFloor: portfolioConfig.highFloor,
+                highCeiling: portfolioConfig.highCeiling,
+                balanced: portfolioConfig.balanced
+              },
+              stackTargets: {
+                '4-3': portfolioConfig.stack43Ratio,
+                '4-2-1': 1 - portfolioConfig.stack43Ratio
+              },
+              ...customConfig
+            },
+            saveToLineups: true,
+            exposureSettings: exposureSettings || {}
+          }
+        : {
+            count: lineupCount,
+            strategy: selectedStrategy,
+            progressSessionId: progressSessionId,
+            customConfig,
+            saveToLineups: true,
+            exposureSettings: exposureSettings || {}
+          };
+
+      const response = await fetch(`${API_BASE_URL}/lineups/generate-hybrid`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          count: lineupCount,
-          strategy: selectedStrategy,
-          customConfig,
-          saveToLineups: true,
-          exposureSettings: exposureSettings || {}
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const data = await response.json();
-      
-      // Clear the progress timer
-      clearInterval(progressTimer);
       
       if (data.success) {
         setLastResults(data);
@@ -174,7 +320,13 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
         console.error('Lineup generation failed:', data);
       }
     } catch (error) {
-      clearInterval(progressTimer);
+      // Clean up progress tracking on error
+      if (eventSource) {
+        eventSource.close();
+      }
+      if (progressTimer) {
+        clearInterval(progressTimer);
+      }
       setProgress(100);
       setStatus(`Generation error: ${error.message}`);
       console.error('Error generating lineups:', error);
@@ -246,17 +398,12 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
             onChange={(e) => {
               const newContestInfo = {...contestInfo, type: e.target.value};
               setContestInfo(newContestInfo);
-              // Re-initialize optimizer with new contest info if already initialized
-              if (isInitialized) {
-                setIsInitialized(false);
-                setTimeout(() => initializeOptimizer(), 100);
-              }
+              // No immediate re-initialization - just update the value
             }}
           >
             <option value="cash">Cash Game</option>
             <option value="double_up">Double Up</option>
             <option value="gpp">GPP/Tournament</option>
-            <option value="single_entry">Single Entry</option>
           </select>
         </div>
         
@@ -266,13 +413,10 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
             type="number"
             value={contestInfo.fieldSize}
             onChange={(e) => {
-              const newContestInfo = {...contestInfo, fieldSize: parseInt(e.target.value) || 1000};
+              const value = e.target.value;
+              const newContestInfo = {...contestInfo, fieldSize: value === '' ? '' : parseInt(value) || 1000};
               setContestInfo(newContestInfo);
-              // Re-initialize optimizer with new contest info if already initialized
-              if (isInitialized) {
-                setIsInitialized(false);
-                setTimeout(() => initializeOptimizer(), 100);
-              }
+              // No immediate re-initialization - just update the value
             }}
             min="2"
             max="500000"
@@ -285,7 +429,8 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
             type="number"
             value={contestInfo.entryFee}
             onChange={(e) => {
-              const newContestInfo = {...contestInfo, entryFee: parseFloat(e.target.value) || 5};
+              const value = e.target.value;
+              const newContestInfo = {...contestInfo, entryFee: value === '' ? '' : parseFloat(value) || 5};
               setContestInfo(newContestInfo);
             }}
             min="0.25"
@@ -294,11 +439,6 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
         </div>
       </div>
       
-      {isInitialized && (
-        <div className="contest-note">
-          <small>💡 Contest type and field size changes will re-initialize the optimizer</small>
-        </div>
-      )}
     </div>
   );
 
@@ -438,6 +578,101 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
             <span>{customConfig.leverageMultiplier || 1.0}</span>
           </div>
           
+          {selectedStrategy === 'portfolio' && (
+            <>
+              <div className="form-group">
+                <label>Portfolio Size:</label>
+                <input
+                  type="number"
+                  min="5"
+                  max="150"
+                  value={customConfig.portfolioSize || 20}
+                  onChange={(e) => setCustomConfig({
+                    ...customConfig, 
+                    portfolioSize: parseInt(e.target.value)
+                  })}
+                />
+                <small>Number of lineups in final portfolio</small>
+              </div>
+              
+              <div className="form-group">
+                <label>Bulk Generation Multiplier:</label>
+                <input
+                  type="number"
+                  min="5"
+                  max="50"
+                  value={customConfig.bulkGenerationMultiplier || 25}
+                  onChange={(e) => setCustomConfig({
+                    ...customConfig, 
+                    bulkGenerationMultiplier: parseInt(e.target.value)
+                  })}
+                />
+                <small>Generate {(customConfig.bulkGenerationMultiplier || 25) * (customConfig.portfolioSize || 20)} candidates to select top {customConfig.portfolioSize || 20}</small>
+              </div>
+              
+              <div className="form-group">
+                <label>High-Floor Weight:</label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="0.6"
+                  step="0.05"
+                  value={customConfig.barbellDistribution?.highFloor || 0.35}
+                  onChange={(e) => setCustomConfig({
+                    ...customConfig, 
+                    barbellDistribution: {
+                      ...customConfig.barbellDistribution,
+                      highFloor: parseFloat(e.target.value)
+                    }
+                  })}
+                />
+                <span>{Math.round((customConfig.barbellDistribution?.highFloor || 0.35) * 100)}%</span>
+                <small>Safe chalk lineups</small>
+              </div>
+              
+              <div className="form-group">
+                <label>High-Ceiling Weight:</label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="0.6"
+                  step="0.05"
+                  value={customConfig.barbellDistribution?.highCeiling || 0.35}
+                  onChange={(e) => setCustomConfig({
+                    ...customConfig, 
+                    barbellDistribution: {
+                      ...customConfig.barbellDistribution,
+                      highCeiling: parseFloat(e.target.value)
+                    }
+                  })}
+                />
+                <span>{Math.round((customConfig.barbellDistribution?.highCeiling || 0.35) * 100)}%</span>
+                <small>Contrarian leverage lineups</small>
+              </div>
+              
+              <div className="form-group">
+                <label>4-3 Stack Target:</label>
+                <input
+                  type="range"
+                  min="0.2"
+                  max="0.8"
+                  step="0.05"
+                  value={customConfig.stackTargets?.['4-3'] || 0.6}
+                  onChange={(e) => setCustomConfig({
+                    ...customConfig, 
+                    stackTargets: {
+                      ...customConfig.stackTargets,
+                      '4-3': parseFloat(e.target.value),
+                      '4-2-1': 1 - parseFloat(e.target.value)
+                    }
+                  })}
+                />
+                <span>{Math.round((customConfig.stackTargets?.['4-3'] || 0.6) * 100)}%</span>
+                <small>Remaining {Math.round((1 - (customConfig.stackTargets?.['4-3'] || 0.6)) * 100)}% will be 4-2-1 stacks</small>
+              </div>
+            </>
+          )}
+          
           {selectedStrategy === 'genetic' && (
             <>
               <div className="form-group">
@@ -522,6 +757,187 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
     );
   };
 
+  /**
+   * Render optimization mode selector
+   */
+  const renderModeSelector = () => {
+    return (
+      <div style={{ marginBottom: '20px' }}>
+        <h3>Optimization Mode</h3>
+        <div style={{ display: 'flex', gap: '15px', marginTop: '10px' }}>
+          <div 
+            onClick={() => setOptimizationMode('standard')}
+            style={{
+              flex: 1,
+              padding: '20px',
+              border: optimizationMode === 'standard' ? '2px solid #007bff' : '2px solid #ddd',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              backgroundColor: 'transparent',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <div style={{ fontWeight: 'bold', textAlign: 'center', marginBottom: '8px', fontSize: '16px' }}>
+              Standard Optimization
+            </div>
+            <div style={{ fontSize: '14px', color: '#666', textAlign: 'center' }}>
+              Generate lineups using advanced algorithms (Monte Carlo, Genetic, Simulated Annealing)
+            </div>
+          </div>
+          
+          <div 
+            onClick={() => setOptimizationMode('portfolio')}
+            style={{
+              flex: 1,
+              padding: '20px',
+              border: optimizationMode === 'portfolio' ? '2px solid #007bff' : '2px solid #ddd',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              backgroundColor: 'transparent',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <div style={{ fontWeight: 'bold', textAlign: 'center', marginBottom: '8px', fontSize: '16px' }}>
+              Portfolio Optimizer
+            </div>
+            <div style={{ fontSize: '14px', color: '#666', textAlign: 'center' }}>
+              Generate a diversified portfolio with barbell strategy (high-floor, high-ceiling, balanced)
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  /**
+   * Render portfolio configuration
+   */
+  const renderPortfolioConfig = () => {
+    return (
+      <div style={{ marginBottom: '20px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: 'transparent' }}>
+        <h3>Portfolio Settings</h3>
+        
+        <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Portfolio Size</label>
+            <input
+              type="number"
+              min="5"
+              max="150"
+              value={portfolioConfig.portfolioSize}
+              onChange={(e) => setPortfolioConfig({
+                ...portfolioConfig,
+                portfolioSize: parseInt(e.target.value)
+              })}
+              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+            <small style={{ color: '#666' }}>Number of lineups in final portfolio</small>
+          </div>
+          
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Generation Multiplier</label>
+            <input
+              type="number"
+              min="5"
+              max="50"
+              value={portfolioConfig.bulkMultiplier}
+              onChange={(e) => setPortfolioConfig({
+                ...portfolioConfig,
+                bulkMultiplier: parseInt(e.target.value)
+              })}
+              style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+            <small style={{ color: '#666' }}>Generate {portfolioConfig.bulkMultiplier * portfolioConfig.portfolioSize} candidates to select top {portfolioConfig.portfolioSize}</small>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <h4>Barbell Distribution</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <div>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
+                High-Floor (Safe Chalk) - {Math.round(portfolioConfig.highFloor * 100)}%
+              </label>
+              <input
+                type="range"
+                min="0.1"
+                max="0.6"
+                step="0.05"
+                value={portfolioConfig.highFloor}
+                onChange={(e) => {
+                  const newValue = parseFloat(e.target.value);
+                  const remaining = 1 - newValue - portfolioConfig.highCeiling;
+                  setPortfolioConfig({
+                    ...portfolioConfig,
+                    highFloor: newValue,
+                    balanced: Math.max(0.1, remaining)
+                  });
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+            
+            <div>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
+                High-Ceiling (Contrarian) - {Math.round(portfolioConfig.highCeiling * 100)}%
+              </label>
+              <input
+                type="range"
+                min="0.1"
+                max="0.6"
+                step="0.05"
+                value={portfolioConfig.highCeiling}
+                onChange={(e) => {
+                  const newValue = parseFloat(e.target.value);
+                  const remaining = 1 - newValue - portfolioConfig.highFloor;
+                  setPortfolioConfig({
+                    ...portfolioConfig,
+                    highCeiling: newValue,
+                    balanced: Math.max(0.1, remaining)
+                  });
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+            
+            <div>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
+                Balanced - {Math.round(portfolioConfig.balanced * 100)}%
+              </label>
+              <div style={{ padding: '8px', backgroundColor: '#e9ecef', borderRadius: '4px', color: '#666' }}>
+                {Math.round(portfolioConfig.balanced * 100)}% (auto-calculated)
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4>Stack Distribution</h4>
+          <div>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
+              4-3 Stacks - {Math.round(portfolioConfig.stack43Ratio * 100)}%
+            </label>
+            <input
+              type="range"
+              min="0.2"
+              max="0.8"
+              step="0.05"
+              value={portfolioConfig.stack43Ratio}
+              onChange={(e) => setPortfolioConfig({
+                ...portfolioConfig,
+                stack43Ratio: parseFloat(e.target.value)
+              })}
+              style={{ width: '100%' }}
+            />
+            <small style={{ color: '#666' }}>
+              Remaining {Math.round((1 - portfolioConfig.stack43Ratio) * 100)}% will be 4-2-1 stacks
+            </small>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="hybrid-optimizer-ui">
       <div className="optimizer-header">
@@ -530,7 +946,7 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
           <button 
             className="btn btn-secondary"
             onClick={loadStrategies}
-            disabled={!isInitialized}
+            disabled={isOptimizing}
           >
             Refresh
           </button>
@@ -547,11 +963,17 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
       {/* Contest Configuration */}
       {renderContestSelector()}
 
+      {/* Optimization Mode Selector */}
+      {renderModeSelector()}
+
+      {/* Portfolio Configuration */}
+      {optimizationMode === 'portfolio' && renderPortfolioConfig()}
+
       {/* Progress/Status */}
       {renderProgress()}
 
-      {/* Strategy Selection */}
-      {isInitialized && (
+      {/* Strategy Selection - Only show in standard mode */}
+      {optimizationMode === 'standard' && (
         <div className="strategy-selection">
           <h3>Optimization Strategy</h3>
           <div className="strategy-grid">
@@ -568,24 +990,50 @@ const HybridOptimizerUI = ({ playerProjections, teamStacks, exposureSettings, on
       {/* Generation Controls */}
       <div className="generation-controls">
         <div className="controls-row">
-          <div className="form-group">
-            <label>Number of Lineups:</label>
-            <input
-              type="number"
-              value={lineupCount}
-              onChange={(e) => setLineupCount(parseInt(e.target.value))}
-              min="1"
-              max="150"
-              disabled={isOptimizing}
-            />
-          </div>
+          {optimizationMode === 'standard' && (
+            <div className="form-group">
+              <label>Number of Lineups:</label>
+              <input
+                type="number"
+                value={lineupCount}
+                onChange={(e) => setLineupCount(parseInt(e.target.value))}
+                min="1"
+                max="150"
+                disabled={isOptimizing}
+              />
+            </div>
+          )}
+          
+          {optimizationMode === 'portfolio' && (
+            <div className="portfolio-summary">
+              <div className="summary-stat">
+                <span className="stat-label">Portfolio Size:</span>
+                <span className="stat-value">{portfolioConfig.portfolioSize} lineups</span>
+              </div>
+              <div className="summary-stat">
+                <span className="stat-label">Candidates:</span>
+                <span className="stat-value">{portfolioConfig.portfolioSize * portfolioConfig.bulkMultiplier}</span>
+              </div>
+              <div className="summary-stat">
+                <span className="stat-label">Strategy:</span>
+                <span className="stat-value">
+                  {Math.round(portfolioConfig.highFloor * 100)}% Floor / 
+                  {Math.round(portfolioConfig.highCeiling * 100)}% Ceiling / 
+                  {Math.round(portfolioConfig.balanced * 100)}% Balanced
+                </span>
+              </div>
+            </div>
+          )}
           
           <button
             className="btn btn-primary btn-large"
             onClick={generateLineups}
-            disabled={isOptimizing || isInitializing || !playerProjections?.length}
+            disabled={isOptimizing || !playerProjections?.length}
           >
-            {isOptimizing ? '⚡ Optimizing...' : '🚀 Generate Lineups'}
+            {isOptimizing 
+              ? (optimizationMode === 'portfolio' ? 'Building Portfolio...' : 'Optimizing...')
+              : (optimizationMode === 'portfolio' ? 'Generate Portfolio' : 'Generate Lineups')
+            }
           </button>
         </div>
       </div>

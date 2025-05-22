@@ -48,6 +48,10 @@ let teamStacks = [];
 let lineups = [];
 let contestMetadata = null; // Store contest info from DraftKings import
 let playerIdMapping = new Map(); // Map player names to DraftKings IDs
+
+// Progress tracking for Server-Sent Events
+const progressSessions = new Map(); // sessionId -> { res, progress, status, isActive }
+const progressCallbacks = new Map(); // sessionId -> { progressCallback, statusCallback }
 let contestEntryIds = []; // Store actual Entry IDs from DraftKings contest
 let settings = {
   iterations: 2000,
@@ -747,6 +751,83 @@ function generateDraftKingsCSV(lineupsToExport) {
 }
 
 // API Routes
+
+// Server-Sent Events endpoint for real-time progress updates
+app.get("/optimizer/progress/:sessionId", (req, res) => {
+  const sessionId = req.params.sessionId;
+  
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  });
+
+  // Store the session
+  progressSessions.set(sessionId, {
+    res: res,
+    progress: 0,
+    status: 'Connecting...',
+    isActive: true
+  });
+  
+
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ progress: 0, status: 'Connected to progress stream' })}\n\n`);
+
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log(`SSE session ${sessionId} closed by client`);
+    progressSessions.delete(sessionId);
+    progressCallbacks.delete(sessionId);
+  });
+
+  req.on('end', () => {
+    console.log(`SSE session ${sessionId} ended`);
+    progressSessions.delete(sessionId);
+    progressCallbacks.delete(sessionId);
+  });
+});
+
+// Function to send progress updates to a specific session
+function sendProgressUpdate(sessionId, progress, status) {
+  const session = progressSessions.get(sessionId);
+  if (session && session.isActive) {
+    try {
+      const updateData = { progress };
+      if (status !== undefined) {
+        updateData.status = status;
+        session.status = status;
+      }
+      const data = JSON.stringify(updateData);
+      session.res.write(`data: ${data}\n\n`);
+      session.progress = progress;
+    } catch (error) {
+      console.error(`Error sending progress to session ${sessionId}:`, error);
+      progressSessions.delete(sessionId);
+    }
+  }
+}
+
+// Function to create progress callbacks for a session
+function createProgressCallbacks(sessionId) {
+  const progressCallback = (progress, stage) => {
+    sendProgressUpdate(sessionId, progress);
+  };
+
+  const statusCallback = (status) => {
+    const session = progressSessions.get(sessionId);
+    if (session && session.isActive) {
+      sendProgressUpdate(sessionId, session.progress, status);
+    }
+  };
+
+  progressCallbacks.set(sessionId, { progressCallback, statusCallback });
+  return { progressCallback, statusCallback };
+}
+
 // Get player projections
 app.get("/players/projections", (req, res) => {
   res.json(playerProjections);
@@ -1411,8 +1492,10 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
     strategy = 'recommended', 
     customConfig = {},
     saveToLineups = true,
-    exposureSettings = {}  // Add exposureSettings from request body
+    exposureSettings = {},  // Add exposureSettings from request body
+    progressSessionId = null  // Session ID for progress updates
   } = req.body;
+  
   
 
   try {
@@ -1442,16 +1525,24 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
       debugMode: false
     });
 
-    // Set up progress callbacks like Advanced Optimizer
-    lineupOptimizer.setProgressCallback((percent, stage) => {
-      console.log(`Progress: ${percent}% - ${stage}`);
-      // In a real implementation, you'd send this via WebSocket or SSE
-    });
+    // Set up progress callbacks - use real SSE if session ID provided
+    let progressCallback, statusCallback;
+    
+    if (progressSessionId && progressSessions.has(progressSessionId)) {
+      const callbacks = createProgressCallbacks(progressSessionId);
+      progressCallback = callbacks.progressCallback;
+      statusCallback = callbacks.statusCallback;
+    } else {
+      progressCallback = (percent, stage) => {
+        console.log(`Progress: ${percent}% - ${stage}`);
+      };
+      statusCallback = (status) => {
+        console.log(`Status: ${status}`);
+      };
+    }
 
-    lineupOptimizer.setStatusCallback((status) => {
-      console.log(`Status: ${status}`);
-      // In a real implementation, you'd send this via WebSocket or SSE
-    });
+    lineupOptimizer.setProgressCallback(progressCallback);
+    lineupOptimizer.setStatusCallback(statusCallback);
 
     // Initialize the lineup optimizer
     await lineupOptimizer.initialize(playerProjections, exposureSettings, []);
@@ -1496,6 +1587,24 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
 
       console.log(`Successfully generated ${formattedLineups.length} unique lineups`);
       
+      // Send final progress update if using SSE
+      if (progressSessionId && progressSessions.has(progressSessionId)) {
+        statusCallback('Completed successfully');
+        progressCallback(100, 'Generation complete');
+        
+        // Clean up the session after a short delay
+        setTimeout(() => {
+          if (progressSessions.has(progressSessionId)) {
+            const session = progressSessions.get(progressSessionId);
+            if (session.res && !session.res.destroyed) {
+              session.res.end();
+            }
+            progressSessions.delete(progressSessionId);
+            progressCallbacks.delete(progressSessionId);
+          }
+        }, 1000);
+      }
+      
       res.json({
         success: true,
         lineups: formattedLineups,
@@ -1511,6 +1620,23 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
         recommendations: []
       });
     } else {
+      // Handle error case for SSE
+      if (progressSessionId && progressSessions.has(progressSessionId)) {
+        statusCallback('Failed - no results generated');
+        progressCallback(0, 'Generation failed');
+        
+        setTimeout(() => {
+          if (progressSessions.has(progressSessionId)) {
+            const session = progressSessions.get(progressSessionId);
+            if (session.res && !session.res.destroyed) {
+              session.res.end();
+            }
+            progressSessions.delete(progressSessionId);
+            progressCallbacks.delete(progressSessionId);
+          }
+        }, 1000);
+      }
+      
       res.status(400).json({
         error: "Error generating lineups",
         message: "Hybrid optimizer returned no results"
@@ -1518,6 +1644,24 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
     }
   } catch (error) {
     console.error("Error generating hybrid lineups:", error);
+    
+    // Handle error case for SSE
+    if (progressSessionId && progressSessions.has(progressSessionId)) {
+      statusCallback('Failed with error');
+      progressCallback(0, `Error: ${error.message}`);
+      
+      setTimeout(() => {
+        if (progressSessions.has(progressSessionId)) {
+          const session = progressSessions.get(progressSessionId);
+          if (session.res && !session.res.destroyed) {
+            session.res.end();
+          }
+          progressSessions.delete(progressSessionId);
+          progressCallbacks.delete(progressSessionId);
+        }
+      }, 1000);
+    }
+    
     res.status(500).json({
       error: "Error generating lineups",
       message: error.message
@@ -1712,6 +1856,91 @@ app.delete("/lineups/:id", (req, res) => {
   res.json({
     success: true,
     message: "Lineup deleted successfully",
+  });
+});
+
+// Delete multiple players (must come before single player route)
+app.delete("/players/bulk", (req, res) => {
+  const { playerIds } = req.body;
+
+  if (!playerIds || !Array.isArray(playerIds) || playerIds.length === 0) {
+    return res.status(400).json({
+      error: "Invalid request",
+      message: "playerIds array is required and must not be empty",
+    });
+  }
+
+  const deletedPlayers = [];
+  const notFoundIds = [];
+
+  // Process each player ID
+  playerIds.forEach(id => {
+    const index = playerProjections.findIndex((player) => player.id == id);
+    
+    if (index === -1) {
+      notFoundIds.push(id);
+    } else {
+      const player = playerProjections[index];
+      deletedPlayers.push({
+        id: player.id,
+        name: player.name,
+        team: player.team,
+        position: player.position
+      });
+      playerProjections.splice(index, 1);
+    }
+  });
+
+  // Reset optimizer when player data changes
+  if (deletedPlayers.length > 0) {
+    optimizerInitialized = false;
+    hybridOptimizer = null;
+  }
+
+  console.log(`Deleted ${deletedPlayers.length} players. Not found: ${notFoundIds.length}`);
+  
+  res.json({
+    success: true,
+    message: `Deleted ${deletedPlayers.length} players successfully`,
+    deletedPlayers,
+    notFoundIds: notFoundIds.length > 0 ? notFoundIds : undefined
+  });
+});
+
+// Delete single player
+app.delete("/players/:id", (req, res) => {
+  const id = req.params.id;
+
+  // Find the player
+  const index = playerProjections.findIndex((player) => player.id == id);
+
+  if (index === -1) {
+    return res.status(404).json({
+      error: "Player not found",
+      message: `No player with ID ${id} was found.`,
+    });
+  }
+
+  // Get player info for logging
+  const player = playerProjections[index];
+
+  // Remove the player
+  playerProjections.splice(index, 1);
+
+  // Reset optimizer when player data changes
+  optimizerInitialized = false;
+  hybridOptimizer = null;
+
+  console.log(`Deleted player: ${player.name} (${player.team} - ${player.position})`);
+  res.json({
+    success: true,
+    message: "Player deleted successfully",
+    deletedPlayer: {
+      id: player.id,
+      name: player.name,
+      team: player.team,
+      position: player.position
+    }
   });
 });
 
