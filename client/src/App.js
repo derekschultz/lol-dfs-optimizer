@@ -4,6 +4,7 @@ import "./slider-styles.css";
 import OptimizerPage from "./pages/OptimizerPage";
 import LineupList from "./components/LineupList";
 import NexusScoreTestPage from "./pages/NexusScoreTestPage";
+import HybridOptimizerUI from "./components/HybridOptimizerUI";
 
 const App = () => {
   // API base URL - this matches the port in our server.js
@@ -97,7 +98,7 @@ const App = () => {
 
       try {
         // Load each data type in parallel for better performance
-        const [playersRes, stacksRes, lineupsRes, exposureRes] =
+        const [playersRes, stacksRes, lineupsRes] =
           await Promise.all([
             fetch(`${API_BASE_URL}/players/projections`).catch((err) => {
               console.error("Error fetching player projections:", err);
@@ -109,10 +110,6 @@ const App = () => {
             }),
             fetch(`${API_BASE_URL}/lineups`).catch((err) => {
               console.error("Error fetching lineups:", err);
-              return { ok: false };
-            }),
-            fetch(`${API_BASE_URL}/settings/exposure`).catch((err) => {
-              console.error("Error fetching exposure settings:", err);
               return { ok: false };
             }),
           ]);
@@ -243,15 +240,6 @@ const App = () => {
           console.error("Failed to load lineups");
         }
 
-        // Process exposure settings if endpoint exists
-        if (exposureRes && exposureRes.ok) {
-          try {
-            const exposureData = await exposureRes.json();
-            setExposureSettings(exposureData);
-          } catch (error) {
-            console.error("Failed to parse exposure settings:", error);
-          }
-        }
 
         displayNotification("App data loaded successfully!");
       } catch (error) {
@@ -1068,14 +1056,16 @@ const App = () => {
         {/* Tabs */}
         <div className="tabs-container">
           <ul style={{ listStyle: "none" }}>
-            {["upload", "lineups", "optimizer", "nexustest"].map((tab) => (
+            {["upload", "lineups", "hybrid", "optimizer", "nexustest"].map((tab) => (
               <li key={tab} style={{ display: "inline-block" }}>
                 <button
                   className={`tab ${activeTab === tab ? "active" : ""}`}
                   onClick={() => setActiveTab(tab)}
                 >
-                  {tab === "optimizer"
-                    ? "Advanced Optimizer"
+                  {tab === "hybrid"
+                    ? "🧬 Hybrid Optimizer v2.0"
+                    : tab === "optimizer"
+                    ? "Advanced Optimizer (Legacy)"
                     : tab === "nexustest"
                     ? "NexusScore Test"
                     : tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -1268,7 +1258,25 @@ const App = () => {
           </div>
         )}
 
-        {/* Advanced Optimizer Tab */}
+        {/* Hybrid Optimizer v2.0 Tab */}
+        {activeTab === "hybrid" && (
+          <HybridOptimizerUI
+            playerProjections={playerData}
+            teamStacks={stackData}
+            exposureSettings={exposureSettings}
+            onLineupsGenerated={(generatedLineups, result) => {
+              // Replace existing lineups with newly generated ones
+              setLineups(generatedLineups);
+              displayNotification(
+                `Generated ${generatedLineups.length} lineups using ${result.strategy?.name} strategy!`
+              );
+              // Switch to lineups tab after generation
+              setActiveTab("lineups");
+            }}
+          />
+        )}
+
+        {/* Advanced Optimizer Tab (Legacy) */}
         {activeTab === "optimizer" && (
           <OptimizerPage
             API_BASE_URL={API_BASE_URL}

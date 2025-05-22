@@ -26,7 +26,6 @@ const LineupList = ({
     avgProjection: 0,
     avgOwnership: 0,
     avgSalary: 0,
-    avgGeomean: 0,
   });
 
   // Calculate total pages whenever lineups, itemsPerPage, or filters change
@@ -95,15 +94,13 @@ const LineupList = ({
           .filter((p) => p.position !== "CPT") // Skip CPT as we already counted it
           .reduce((sum, p) => sum + (p.projectedPoints || 0), 0);
 
-        // Calculate average ownership
+        // Calculate lineup uniqueness score (lower = more contrarian)
+        // This represents how "chalk" vs "contrarian" the lineup is
         const totalOwnership = playersWithData.reduce(
           (sum, p) => sum + (p.ownership || 0),
           0
         );
-        const avgOwn =
-          playersWithData.length > 0
-            ? totalOwnership / playersWithData.length
-            : 0;
+        const lineupOwnership = totalOwnership; // Total projected ownership of this lineup combination
 
         // Calculate total salary
         const totalSalary = allPlayers.reduce(
@@ -141,7 +138,7 @@ const LineupList = ({
           .join("|");
 
         // Calculate NexusScore (equivalent to SaberScore in the concept)
-        const ownership = Math.max(0.1, avgOwn / 100); // Convert to decimal with min value
+        const ownership = Math.max(0.1, lineupOwnership / 100); // Convert to decimal with min value
         const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership)); // More points for less owned lineups
 
         // Calculate stack bonus
@@ -163,7 +160,7 @@ const LineupList = ({
           ...lineup,
           metrics: {
             projectedPoints: totalProj,
-            avgOwnership: avgOwn,
+            avgOwnership: lineupOwnership, // Now represents total lineup ownership
             totalSalary,
             geomean,
             nexusScore,
@@ -194,17 +191,10 @@ const LineupList = ({
       const avgSal =
         lineupsWithMetrics.reduce((sum, l) => sum + l.metrics.totalSalary, 0) /
         lineupsWithMetrics.length;
-      const avgGeo =
-        lineupsWithMetrics.reduce(
-          (sum, l) => sum + (l.metrics.geomean || 0),
-          0
-        ) / lineupsWithMetrics.length;
-
       setGlobalStats({
         avgProjection: avgProj,
         avgOwnership: avgOwn,
         avgSalary: avgSal,
-        avgGeomean: avgGeo,
       });
     }
   }, [lineupsWithMetrics]);
@@ -604,20 +594,6 @@ const LineupList = ({
               }}
             >
               ${Math.round(globalStats.avgSalary).toLocaleString()}
-            </span>
-          </div>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-            <span style={{ color: "#90cdf4", marginBottom: "0.25rem" }}>
-              Average Geomean
-            </span>
-            <span
-              style={{
-                color: "#4299e1",
-                fontWeight: "bold",
-                fontSize: "1.125rem",
-              }}
-            >
-              {globalStats.avgGeomean.toFixed(2)}
             </span>
           </div>
         </div>
@@ -1138,7 +1114,6 @@ const LineupList = ({
           </button>
         </div>
       </div>
-
     </div>
   );
 };

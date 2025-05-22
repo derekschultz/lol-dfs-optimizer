@@ -175,6 +175,15 @@ class AdvancedOptimizer {
   }
 
   /**
+   * Update optimizer configuration
+   */
+  updateConfig(newConfig) {
+    this.config = { ...this.config, ...newConfig };
+    console.log("Updated optimizer config:", this.config);
+    this.debugLog("Updated optimizer config:", this.config);
+  }
+
+  /**
    * Initialize the optimizer with player pool and exposure settings
    */
   async initialize(playerPool, exposureSettings = {}, existingLineups = []) {
@@ -611,7 +620,7 @@ class AdvancedOptimizer {
         projectedPoints: projPoints,
         salary: this._safeParseFloat(player.salary, 0),
         team: player.team || "UNKNOWN",
-        ownership: this._safeParseFloat(player.ownership, 0) / 100, // Convert to decimal
+        ownership: this._safeParseFloat(player.ownership, 0), // Keep as percentage
         stdDev: this._calculateStdDev({
           ...player,
           projectedPoints: projPoints,
@@ -784,7 +793,7 @@ class AdvancedOptimizer {
 
       // Higher projections get more exposure, but leverage ownership
       const playerOwnership =
-        this._safeParseFloat(player.ownership, 0.01) * 100; // Ensure not zero
+        this._safeParseFloat(player.ownership, 0.01); // Ensure not zero
       const leverageAdjustment = Math.min(
         1,
         projPoints / Math.max(0.1, playerOwnership) / 1.5
@@ -1462,8 +1471,11 @@ class AdvancedOptimizer {
     this.updateStatus(`Generating ${count} lineups...`);
 
     const lineups = [];
-    const maxAttempts = count * 10; // Allow more attempts than needed to handle constraints
+    const lineupSignatures = new Set(); // Track unique lineup signatures
+    const maxAttempts = count * 50; // Increase max attempts significantly
     let attempts = 0;
+    let consecutiveFailures = 0;
+    const maxConsecutiveFailures = 100; // Stop if we can't generate unique lineups
 
     // Reset exposure tracking for new generation
     this._initializeExposureTracking();
@@ -1476,65 +1488,79 @@ class AdvancedOptimizer {
     }
 
     // Process in small batches to keep UI responsive
-    const targetBatchSize = 3; // Create 3 lineups at a time
+    const targetBatchSize = 1; // Generate one unique lineup at a time for better control
 
-    while (lineups.length < count && attempts < maxAttempts) {
+    while (lineups.length < count && attempts < maxAttempts && consecutiveFailures < maxConsecutiveFailures) {
       if (this.isCancelled) {
         this.debugLog("Lineup generation cancelled");
         break;
       }
 
-      // Calculate batch size for this iteration
-      const batchSize = Math.min(targetBatchSize, count - lineups.length);
+      attempts++;
 
       try {
-        // Update status
-        this.updateStatus(`Generating lineups... (${lineups.length}/${count})`);
+        // Update status every 10 attempts
+        if (attempts % 10 === 0) {
+          this.updateStatus(`Generating lineups... (${lineups.length}/${count}) - Attempt ${attempts}`);
+          
+          // Update progress - scales from 5% to 40% during generation
+          const progress = 5 + (lineups.length / count) * 35;
+          this.updateProgress(progress, "generating_lineups");
+        }
 
-        // Update progress - scales from 5% to 40% during generation
-        const progress = 5 + (lineups.length / count) * 35;
-        this.updateProgress(progress, "generating_lineups");
+        // Generate a lineup with enhanced randomness to prevent duplicates
+        const currentLineupCount = lineups.length;
+        const lineup = await this._buildLineup(lineups, currentLineupCount);
 
-        // Generate a batch of lineups
-        const newLineups = [];
-        let batchAttempts = 0;
+        // Create signature for quick duplicate checking
+        const signature = [lineup.cpt.id, ...lineup.players.map(p => p.id)].sort().join('|');
 
-        while (
-          newLineups.length < batchSize &&
-          batchAttempts < batchSize * 10
-        ) {
-          batchAttempts++;
-          attempts++;
-
-          // Generate a lineup
-          const lineup = await this._buildLineup(lineups);
-
-          // Check if lineup is valid
-          if (this._isValidLineup(lineup, [...lineups, ...newLineups])) {
+        // Check if lineup is valid and unique
+        if (this._isValidLineup(lineup, lineups) && !lineupSignatures.has(signature)) {
+          // Additional diversity check only if we have multiple lineups
+          const hasSufficientDiversity = lineups.length === 0 || this._hasSufficientDiversity(lineup, lineups);
+          
+          if (hasSufficientDiversity) {
             // Track exposures for the new lineup
             this._trackLineupExposure(lineup);
-            newLineups.push(lineup);
+            lineups.push(lineup);
+            lineupSignatures.add(signature);
+            consecutiveFailures = 0; // Reset failure counter
+            
+            this.debugLog(`Lineup accepted: ${lineups.length}/${count} (attempts: ${attempts})`);
+            
+            // Increase randomness for next lineup to ensure diversity
+            this.config.randomness = Math.min(0.9, this.config.randomness + 0.05);
+          } else {
+            consecutiveFailures++;
+            this.debugLog(`Diversity rejected: ${consecutiveFailures} consecutive failures`);
           }
-
-          // Yield to UI thread occasionally
-          if (batchAttempts % 5 === 0) {
-            await this.yieldToUI();
+        } else {
+          consecutiveFailures++;
+          if (lineupSignatures.has(signature)) {
+            this.debugLog(`Duplicate rejected: signature already exists`);
           }
         }
 
-        // Add valid lineups from this batch
-        lineups.push(...newLineups);
-        this.debugLog(
-          `Generated ${newLineups.length} new lineups. Total: ${lineups.length}/${count}`
-        );
+        // Yield to UI thread occasionally
+        if (attempts % 5 === 0) {
+          await this.yieldToUI();
+        }
 
-        // Yield to UI thread between batches
-        await this.yieldToUI();
       } catch (error) {
-        console.error("Error generating lineup batch:", error);
-        // Continue trying instead of failing completely
+        console.error("Error generating lineup:", error);
+        consecutiveFailures++;
         await this.yieldToUI();
       }
+    }
+
+    // Log final generation results
+    if (lineups.length < count) {
+      const reason = consecutiveFailures >= maxConsecutiveFailures ? 
+        "too many consecutive failures (not enough unique combinations)" : 
+        "maximum attempts reached";
+      this.debugLog(`Generation stopped: ${reason}. Generated ${lineups.length}/${count} unique lineups`);
+      this.updateStatus(`Generated ${lineups.length} unique lineups (${reason})`);
     }
 
     // Store generated lineups
@@ -1618,16 +1644,34 @@ class AdvancedOptimizer {
   /**
    * Build a single lineup using a smart algorithm
    */
-  async _buildLineup(existingLineups = []) {
+  async _buildLineup(existingLineups = [], currentLineupCount = 0) {
     // Increment global counter to ensure unique IDs
     lineupCounter++;
+
+    // Create a unique seed for this lineup to inject additional randomness
+    const lineupSeed = Math.random() * 1000 + currentLineupCount * 13 + Date.now() % 1000;
+    
+    // Use the seed to initialize a pseudorandom sequence for this lineup
+    Math.seedrandom = Math.seedrandom || ((seed) => {
+      let m = 0x80000000; // pow(2,31)
+      let a = 1103515245;
+      let c = 12345;
+      let state = seed ? seed : Math.floor(Math.random() * (m - 1));
+      return () => {
+        state = (a * state + c) % m;
+        return state / (m - 1);
+      };
+    });
+    
+    const lineupRandom = Math.seedrandom(lineupSeed);
 
     // Start with empty lineup
     const lineup = {
       id: `lineup_${Date.now()}_${lineupCounter}`,
-      name: `Optimized Lineup ${existingLineups.length + 1}`,
+      name: `Optimized Lineup ${currentLineupCount + 1}`,
       cpt: null,
       players: [],
+      _seed: lineupSeed, // Store seed for debugging
     };
 
     // Track used players and salary
@@ -1641,8 +1685,8 @@ class AdvancedOptimizer {
     const totalLineups =
       this.generatedLineups.length + this.existingLineups.length;
 
-    // Select a stack team with consideration of stack-specific exposures
-    const stackTeam = this._selectStackTeam();
+    // Select a stack team with consideration of stack-specific exposures and added randomness
+    const stackTeam = this._selectStackTeam(currentLineupCount, lineupSeed);
 
     // Start counting players from this team
     teamCounts[stackTeam.name] = 0;
@@ -1684,7 +1728,7 @@ class AdvancedOptimizer {
     }
 
     // Select a captain
-    lineup.cpt = this._selectCaptain(stackTeam, usedPlayers, stackSize);
+    lineup.cpt = this._selectCaptain(stackTeam, usedPlayers, stackSize, lineupSeed);
     usedPlayers.add(lineup.cpt.id);
     remainingSalary -= lineup.cpt.salary;
 
@@ -1777,7 +1821,8 @@ class AdvancedOptimizer {
             remainingSalary,
             lineup.players,
             stackSize,
-            teamCounts
+            teamCounts,
+            lineupSeed
           );
 
           if (player) {
@@ -1799,13 +1844,17 @@ class AdvancedOptimizer {
     // Balance team exposures if needed
     this._balanceTeamExposures(lineup, usedPlayers, remainingSalary);
 
+    // Debug: Log the final lineup composition
+    const lineupSummary = [lineup.cpt.name, ...lineup.players.map(p => p.name)].join(', ');
+    this.debugLog(`Built lineup ${currentLineupCount + 1}: ${lineupSummary}`);
+
     return lineup;
   }
 
   /**
-   * Select a team to stack
+   * Select a team to stack with enhanced randomness
    */
-  _selectStackTeam() {
+  _selectStackTeam(currentLineupCount = 0, lineupSeed = 0) {
     // First check for teams with specific stack requirements
     const teamsNeedingExposure = [];
 
@@ -1877,17 +1926,48 @@ class AdvancedOptimizer {
     // If no valid teams with weight, just use all teams
     const teamsToUse = validTeams.length > 0 ? validTeams : teamWeights;
 
-    // Select a team based on weights
-    return this._weightedRandom(
+    // Add extra randomness to team selection to prevent always picking same team
+    const randomnessFactor = this.config.randomness || 0.3;
+    
+    // Increase randomness significantly for preventing duplicates - use different approach for each lineup
+    const lineupBasedRandomness = Math.min(0.9, randomnessFactor + (currentLineupCount * 0.08));
+    
+    // Use a more aggressive randomness approach for team selection
+    // Use lineupSeed to add deterministic but varying randomness across lineups
+    const seedBasedRandomness = (lineupSeed % 100) / 100;
+    if (seedBasedRandomness < lineupBasedRandomness && currentLineupCount > 0) {
+      // Sometimes just pick a random team to increase diversity
+      const randomIndex = Math.floor(((lineupSeed * 17) % this.teams.length));
+      const randomTeam = this.teams[randomIndex];
+      this.debugLog(`Selected random team ${randomTeam.name} for diversity (lineup ${currentLineupCount}, seed: ${lineupSeed})`);
+      return randomTeam;
+    }
+    
+    // After 5 lineups, force more randomness by flattening the distribution
+    if (currentLineupCount >= 5) {
+      // Flatten the weight distribution to make all teams more equally likely
+      const flattenedWeights = teamsToUse.map(tw => ({
+        team: tw.team,
+        weight: tw.weight * 0.3 + (Math.random() * tw.weight * 0.7)
+      }));
+      teamsToUse.splice(0, teamsToUse.length, ...flattenedWeights);
+    }
+
+    // Select a team based on weights with enhanced randomness
+    const selectedTeam = this._weightedRandom(
       teamsToUse.map((tw) => tw.team),
-      teamsToUse.map((tw) => tw.weight)
+      teamsToUse.map((tw) => tw.weight),
+      lineupSeed
     );
+    
+    this.debugLog(`Selected team: ${selectedTeam?.name}, lineup count: ${currentLineupCount}, randomness: ${randomnessFactor}`);
+    return selectedTeam;
   }
 
   /**
    * Select a captain for the lineup
    */
-  _selectCaptain(stackTeam, usedPlayers, targetStackSize = null) {
+  _selectCaptain(stackTeam, usedPlayers, targetStackSize = null, lineupSeed = 0) {
     // Get potential captain candidates
     let candidates = this.playerPool.filter(
       (player) =>
@@ -1971,7 +2051,7 @@ class AdvancedOptimizer {
       const projectionValue =
         this._safeParseFloat(player.projectedPoints, 0) * 1.5; // CPT gets 1.5x
       const playerOwnership =
-        this._safeParseFloat(player.ownership, 0.01) * 100; // Ensure not zero
+        this._safeParseFloat(player.ownership, 0.01); // Ensure not zero
       const leverageValue = projectionValue / playerOwnership;
       const exposureMultiplier =
         player.availableExposure / Math.max(0.1, player.maxExposure);
@@ -1980,7 +2060,9 @@ class AdvancedOptimizer {
     });
 
     // Select a player based on weights
-    const selectedPlayer = this._weightedRandom(playersToUse, weights);
+    const selectedPlayer = this._weightedRandom(playersToUse, weights, lineupSeed);
+    
+    this.debugLog(`Selected captain: ${selectedPlayer?.name} (${selectedPlayer?.team})`);
 
     // Apply captain formatting
     return {
@@ -2003,7 +2085,8 @@ class AdvancedOptimizer {
     remainingSalary,
     selectedPlayers,
     targetStackSize = null,
-    teamCounts = {}
+    teamCounts = {},
+    lineupSeed = 0
   ) {
     // Special handling for TEAM position
     if (position === "TEAM") {
@@ -2211,7 +2294,7 @@ class AdvancedOptimizer {
 
       // Leverage factor (projection vs ownership)
       const playerOwnership =
-        this._safeParseFloat(player.ownership, 0.01) * 100; // Ensure not zero
+        this._safeParseFloat(player.ownership, 0.01); // Ensure not zero
       const leverageFactor =
         this.config.leverageMultiplier * (projectionValue / playerOwnership);
 
@@ -2235,7 +2318,7 @@ class AdvancedOptimizer {
     });
 
     // Select a player based on weights
-    const selectedPlayer = this._weightedRandom(playersToUse, weights);
+    const selectedPlayer = this._weightedRandom(playersToUse, weights, lineupSeed);
 
     return {
       id: selectedPlayer.id,
@@ -2318,6 +2401,7 @@ class AdvancedOptimizer {
       );
 
     if (totalSalary > this.config.salaryCap) {
+      this.debugLog(`Lineup rejected: Salary $${totalSalary} exceeds cap $${this.config.salaryCap}`);
       return false;
     }
 
@@ -2383,6 +2467,50 @@ class AdvancedOptimizer {
       }
     }
 
+    return true;
+  }
+
+  /**
+   * Enhanced duplicate detection method
+   */
+  _isDuplicateLineup(lineup, existingLineups) {
+    const currentPlayerIds = [lineup.cpt.id, ...lineup.players.map(p => p.id)].sort().join('|');
+    
+    for (let i = 0; i < existingLineups.length; i++) {
+      const existing = existingLineups[i];
+      const existingPlayerIds = [existing.cpt.id, ...existing.players.map(p => p.id)].sort().join('|');
+      if (currentPlayerIds === existingPlayerIds) {
+        this.debugLog(`Duplicate detected: matches existing lineup ${i}`);
+        return true;
+      }
+    }
+    
+    this.debugLog(`Unique lineup: ${currentPlayerIds} (vs ${existingLineups.length} existing)`);
+    return false;
+  }
+
+  /**
+   * Check if lineup has sufficient diversity from existing lineups
+   */
+  _hasSufficientDiversity(lineup, existingLineups) {
+    if (existingLineups.length === 0) return true;
+    
+    const currentPlayers = new Set([lineup.cpt.id, ...lineup.players.map(p => p.id)]);
+    const minDifferentPlayers = Math.max(2, Math.floor(currentPlayers.size * 0.3)); // At least 30% different players
+    
+    for (const existing of existingLineups) {
+      const existingPlayers = new Set([existing.cpt.id, ...existing.players.map(p => p.id)]);
+      
+      // Calculate intersection (same players)
+      const intersection = new Set([...currentPlayers].filter(x => existingPlayers.has(x)));
+      const differentPlayers = currentPlayers.size - intersection.size;
+      
+      if (differentPlayers < minDifferentPlayers) {
+        this.debugLog(`Insufficient diversity: only ${differentPlayers} different players (need ${minDifferentPlayers})`);
+        return false;
+      }
+    }
+    
     return true;
   }
 
@@ -2640,21 +2768,63 @@ class AdvancedOptimizer {
   }
 
   /**
-   * Weighted random selection
+   * Weighted random selection with enhanced randomness
    */
-  _weightedRandom(items, weights) {
+  _weightedRandom(items, weights, lineupSeed = 0) {
     if (items.length === 0) return null;
     if (items.length === 1) return items[0];
 
     // Make sure weights are positive
     const positiveWeights = weights.map((w) => Math.max(0, w));
 
+    // Add randomness factor to flatten the distribution and prevent same selections
+    const randomnessFactor = this.config.randomness || 0.3;
+    
+    // Increase randomness based on current lineup count to prevent duplicates
+    const lineupCount = this.generatedLineups.length;
+    const adaptiveRandomness = Math.min(0.9, randomnessFactor + (lineupCount * 0.03));
+    
+    const baseWeight = Math.max(...positiveWeights) * adaptiveRandomness;
+    
+    // Normalize weights with enhanced randomness
+    const normalizedWeights = positiveWeights.map(w => {
+      // Add different levels of randomness for each selection - make it more variable
+      const randomMultiplier = 0.3 + (Math.random() * adaptiveRandomness * 1.5);
+      // Add additional entropy based on lineup count and seed
+      const entropyBoost = (lineupCount % 7) * 0.1; // Use modulo to create cycling randomness
+      const seedEntropy = lineupSeed ? (lineupSeed % 10) * 0.05 : 0; // Additional seed-based entropy
+      return w + baseWeight * (randomMultiplier + entropyBoost + seedEntropy);
+    });
+
     // Calculate total weight
-    const totalWeight = positiveWeights.reduce((sum, w) => sum + w, 0);
+    const totalWeight = normalizedWeights.reduce((sum, w) => sum + w, 0);
 
     // If all weights are 0, select randomly
     if (totalWeight === 0) {
       return items[Math.floor(Math.random() * items.length)];
+    }
+
+    // Significantly increase pure random selection chance after first few lineups
+    const pureRandomChance = Math.min(0.8, adaptiveRandomness * 1.2);
+    if (Math.random() < pureRandomChance && lineupCount > 1) {
+      // For preventing duplicates, sometimes just pick completely randomly
+      const randomIndex = Math.floor(Math.random() * items.length);
+      this.debugLog(`Pure random selection (chance: ${pureRandomChance}, lineup: ${lineupCount})`);
+      return items[randomIndex];
+    }
+
+    // Add extra randomness - sometimes pick randomly from top options
+    if (Math.random() < adaptiveRandomness * 0.4) {
+      // Sort by weight and pick randomly from top portion
+      const sortedIndices = normalizedWeights
+        .map((weight, index) => ({ weight, index }))
+        .sort((a, b) => b.weight - a.weight);
+      
+      // Increase the portion we select from as we generate more lineups
+      const topPortion = Math.min(0.5, 0.3 + (lineupCount * 0.02));
+      const topCount = Math.max(1, Math.ceil(items.length * topPortion));
+      const randomTopIndex = Math.floor(Math.random() * topCount);
+      return items[sortedIndices[randomTopIndex].index];
     }
 
     // Select based on weights
@@ -2662,14 +2832,14 @@ class AdvancedOptimizer {
     let cumulativeWeight = 0;
 
     for (let i = 0; i < items.length; i++) {
-      cumulativeWeight += positiveWeights[i];
+      cumulativeWeight += normalizedWeights[i];
       if (cumulativeWeight >= threshold) {
         return items[i];
       }
     }
 
-    // Fallback to last item
-    return items[items.length - 1];
+    // Fallback to random selection from available items
+    return items[Math.floor(Math.random() * items.length)];
   }
 }
 

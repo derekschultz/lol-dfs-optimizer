@@ -6,8 +6,10 @@ const fs = require("fs");
 const path = require("path");
 const csv = require("csv-parser");
 
-// Import the AdvancedOptimizer class
+// Import optimizer classes
 const AdvancedOptimizer = require("./client/src/lib/AdvancedOptimizer");
+const HybridOptimizer = require("./client/src/lib/HybridOptimizer");
+const DataValidator = require("./client/src/lib/DataValidator");
 
 const initializeUploadCleanup = require("./uploadCleanup");
 // Initialize cleanup utility
@@ -51,6 +53,10 @@ let settings = {
   outputDir: "./output",
   maxWorkers: 4,
 };
+
+// Hybrid optimizer instance
+let hybridOptimizer = null;
+let optimizerInitialized = false;
 
 // Helper functions
 const generateRandomId = () => Date.now() + Math.floor(Math.random() * 1000);
@@ -706,14 +712,40 @@ app.post(
         });
       }
 
+      // Enhanced data validation with new validator
+      const validator = new DataValidator();
+      const validationResult = validator.validatePlayerPool(parsedPlayers);
+      
+      if (!validationResult.isValid) {
+        return res.status(400).json({
+          error: "Data validation failed",
+          message: "The uploaded data contains errors that prevent optimization",
+          details: validationResult.errors,
+          warnings: validationResult.warnings
+        });
+      }
+
       // Replace playerProjections with new data
       playerProjections = parsedPlayers;
+      
+      // Reset optimizer when new data is loaded
+      optimizerInitialized = false;
+      hybridOptimizer = null;
 
       console.log(`Successfully loaded ${playerProjections.length} players`);
-      res.json({
+      
+      const response = {
         success: true,
         message: `Loaded ${playerProjections.length} player projections successfully`,
-      });
+        validation: validator.generateReport(validationResult)
+      };
+      
+      // Include warnings if any
+      if (validationResult.warnings.length > 0) {
+        response.warnings = validationResult.warnings;
+      }
+      
+      res.json(response);
     } catch (error) {
       console.error("Error processing player projections:", error);
       res
@@ -912,7 +944,273 @@ app.post("/lineups/import", upload.single("file"), (req, res) => {
   }
 });
 
-// Generate lineups
+// Initialize hybrid optimizer
+app.post("/optimizer/initialize", async (req, res) => {
+  try {
+    const { exposureSettings = {}, contestInfo = {} } = req.body;
+    
+    // Check if we have necessary data
+    if (playerProjections.length === 0) {
+      return res.status(400).json({
+        error: "No player projections available",
+        message: "Please upload player projections data before initializing optimizer.",
+      });
+    }
+
+    // Create new hybrid optimizer instance
+    hybridOptimizer = new HybridOptimizer({
+      fieldSizes: {
+        cash: contestInfo.fieldSize || 100,
+        double_up: contestInfo.fieldSize || 200,
+        gpp: contestInfo.fieldSize || 1000,
+        tournament: contestInfo.fieldSize || 1000,
+        single_entry: contestInfo.fieldSize || 150000,
+      }
+    });
+
+    // Set up progress callbacks if needed (for WebSocket or Server-Sent Events)
+    hybridOptimizer.setProgressCallback((progress, stage) => {
+      // Could emit progress updates via WebSocket here
+      console.log(`Optimizer progress: ${progress}% (${stage})`);
+    });
+
+    hybridOptimizer.setStatusCallback((status) => {
+      // Could emit status updates via WebSocket here
+      console.log(`Optimizer status: ${status}`);
+    });
+
+    // Initialize with current data - don't pass existing lineups for fresh generation
+    const initResult = await hybridOptimizer.initialize(
+      playerProjections,
+      exposureSettings,
+      [], // Empty array for fresh lineup generation
+      contestInfo
+    );
+
+    optimizerInitialized = true;
+
+    res.json({
+      success: true,
+      message: "Hybrid optimizer initialized successfully",
+      ...initResult
+    });
+
+  } catch (error) {
+    console.error("Error initializing hybrid optimizer:", error);
+    res.status(500).json({
+      error: "Error initializing optimizer",
+      message: error.message
+    });
+  }
+});
+
+// Get available optimization strategies
+app.get("/optimizer/strategies", (req, res) => {
+  if (!hybridOptimizer) {
+    return res.status(400).json({
+      error: "Optimizer not initialized",
+      message: "Please initialize the optimizer first"
+    });
+  }
+
+  try {
+    const strategies = hybridOptimizer.getStrategies();
+    res.json({
+      success: true,
+      strategies,
+      stats: hybridOptimizer.getStats()
+    });
+  } catch (error) {
+    console.error("Error getting strategies:", error);
+    res.status(500).json({
+      error: "Error retrieving strategies",
+      message: error.message
+    });
+  }
+});
+
+// Generate lineups with hybrid optimizer
+app.post("/lineups/generate-hybrid", async (req, res) => {
+  const { 
+    count = 5, 
+    strategy = 'recommended', 
+    customConfig = {},
+    saveToLineups = true,
+    exposureSettings = {}  // Add exposureSettings from request body
+  } = req.body;
+
+  try {
+    // Check if optimizer is initialized
+    if (!hybridOptimizer || !optimizerInitialized) {
+      return res.status(400).json({
+        error: "Optimizer not initialized",
+        message: "Please initialize the hybrid optimizer first"
+      });
+    }
+
+    console.log(`Generating ${count} lineups with hybrid optimizer using ${strategy} strategy`);
+
+    // Use the same method as Advanced Optimizer - runSimulation
+    // Create an AdvancedOptimizer instance for lineup generation
+    const AdvancedOptimizer = require("./client/src/lib/AdvancedOptimizer");
+    const lineupOptimizer = new AdvancedOptimizer({
+      salaryCap: 50000,
+      positionRequirements: {
+        CPT: 1, TOP: 1, JNG: 1, MID: 1, ADC: 1, SUP: 1, TEAM: 1
+      },
+      iterations: 10000,
+      randomness: 0.4,  // Higher randomness for uniqueness
+      targetTop: 0.2,
+      leverageMultiplier: 1.0,
+      fieldSize: 1000,
+      debugMode: false
+    });
+
+    // Set up progress callbacks like Advanced Optimizer
+    lineupOptimizer.setProgressCallback((percent, stage) => {
+      console.log(`Progress: ${percent}% - ${stage}`);
+      // In a real implementation, you'd send this via WebSocket or SSE
+    });
+
+    lineupOptimizer.setStatusCallback((status) => {
+      console.log(`Status: ${status}`);
+      // In a real implementation, you'd send this via WebSocket or SSE
+    });
+
+    // Initialize the lineup optimizer
+    await lineupOptimizer.initialize(playerProjections, exposureSettings, []);
+    
+    // Generate lineups using the working runSimulation method
+    const result = await lineupOptimizer.runSimulation(count);
+
+    if (result && result.lineups) {
+      // runSimulation already returns unique lineups, no need for additional filtering
+      console.log(`Advanced Optimizer generated ${result.lineups.length} lineups`);
+      
+      // Format lineups to match existing structure
+      const formattedLineups = result.lineups.map((lineup) => ({
+        id: lineup.id || generateRandomId(),
+        name: lineup.name || `Hybrid Lineup ${generateRandomId()}`,
+        cpt: {
+          id: lineup.cpt.id,
+          name: lineup.cpt.name,
+          position: "CPT",
+          team: lineup.cpt.team,
+          salary: lineup.cpt.salary,
+        },
+        players: lineup.players.map((player) => ({
+          id: player.id,
+          name: player.name,
+          position: player.position,
+          team: player.team,
+          salary: player.salary,
+        })),
+        // Include optimization metadata
+        nexusScore: lineup.nexusScore,
+        roi: lineup.roi,
+        sourceAlgorithm: lineup.sourceAlgorithm,
+        projectedPoints: lineup.projectedPoints
+      }));
+
+      // Add to lineups store if requested
+      if (saveToLineups) {
+        // Replace lineups instead of accumulating for fresh generation
+        lineups = formattedLineups;
+      }
+
+      console.log(`Successfully generated ${formattedLineups.length} unique lineups`);
+      
+      res.json({
+        success: true,
+        lineups: formattedLineups,
+        message: `Generated ${formattedLineups.length} unique lineups successfully`,
+        strategy: { name: strategy, algorithm: 'advanced_optimizer' },
+        summary: {
+          algorithm: 'advanced_optimizer',
+          averageROI: result.summary?.averageROI || 0,
+          averageNexusScore: result.summary?.averageNexusScore || 0,
+          uniqueLineups: formattedLineups.length,
+          diversityScore: result.summary?.diversityScore || 0
+        },
+        recommendations: []
+      });
+    } else {
+      res.status(400).json({
+        error: "Error generating lineups",
+        message: "Hybrid optimizer returned no results"
+      });
+    }
+  } catch (error) {
+    console.error("Error generating hybrid lineups:", error);
+    res.status(500).json({
+      error: "Error generating lineups",
+      message: error.message
+    });
+  }
+});
+
+// Get optimizer statistics and performance
+app.get("/optimizer/stats", (req, res) => {
+  if (!hybridOptimizer) {
+    return res.status(400).json({
+      error: "Optimizer not initialized",
+      message: "Please initialize the optimizer first"
+    });
+  }
+
+  try {
+    const stats = hybridOptimizer.getStats();
+    res.json({
+      success: true,
+      stats
+    });
+  } catch (error) {
+    console.error("Error getting optimizer stats:", error);
+    res.status(500).json({
+      error: "Error retrieving stats",
+      message: error.message
+    });
+  }
+});
+
+// Validate data endpoint
+app.post("/data/validate", (req, res) => {
+  try {
+    const { players, teamStacks } = req.body;
+    
+    if (!players || !Array.isArray(players)) {
+      return res.status(400).json({
+        error: "Invalid request",
+        message: "Players array is required"
+      });
+    }
+
+    const validator = new DataValidator();
+    
+    // Validate player pool
+    const playerValidation = validator.validatePlayerPool(players);
+    const response = {
+      success: playerValidation.isValid,
+      players: validator.generateReport(playerValidation)
+    };
+
+    // Validate team stacks if provided
+    if (teamStacks && Array.isArray(teamStacks)) {
+      const stackValidation = validator.validateTeamStacks(teamStacks, players);
+      response.teamStacks = stackValidation;
+    }
+
+    res.json(response);
+  } catch (error) {
+    console.error("Error validating data:", error);
+    res.status(500).json({
+      error: "Error validating data",
+      message: error.message
+    });
+  }
+});
+
+// Generate lineups (legacy endpoint - keep for backward compatibility)
 app.post("/lineups/generate", async (req, res) => {
   const { count = 5, settings: reqSettings = {} } = req.body;
 
