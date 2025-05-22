@@ -6,10 +6,12 @@ import LineupList from "./components/LineupList";
 import NexusScoreTestPage from "./pages/NexusScoreTestPage";
 import HybridOptimizerUI from "./components/HybridOptimizerUI";
 import PlayerManagerUI from "./components/PlayerManagerUI";
+import AIInsights from "./components/AIInsights";
 
 const App = () => {
   // API base URL - this matches the port in our server.js
   const API_BASE_URL = "http://localhost:3001";
+  const AI_API_BASE_URL = "http://localhost:3002";
 
   // State variables
   const [lineups, setLineups] = useState([]);
@@ -90,6 +92,60 @@ const App = () => {
       }));
     }
   }, [playerData, exposureSettings.global, exposureSettings.players.length]);
+
+  // Recalculate actual exposures when lineups change
+  useEffect(() => {
+    if (lineups.length > 0 && exposureSettings.players.length > 0) {
+      // Calculate player exposures
+      const playerExposureMap = new Map();
+      const teamExposureMap = new Map();
+      const positionExposureMap = new Map();
+      
+      // Count occurrences
+      lineups.forEach(lineup => {
+        // Count captain
+        if (lineup.cpt) {
+          const key = `${lineup.cpt.name}_${lineup.cpt.team}`;
+          playerExposureMap.set(key, (playerExposureMap.get(key) || 0) + 1);
+          teamExposureMap.set(lineup.cpt.team, (teamExposureMap.get(lineup.cpt.team) || 0) + 1);
+          positionExposureMap.set('CPT', (positionExposureMap.get('CPT') || 0) + 1);
+        }
+        
+        // Count regular players
+        if (lineup.players) {
+          lineup.players.forEach(player => {
+            const key = `${player.name}_${player.team}`;
+            playerExposureMap.set(key, (playerExposureMap.get(key) || 0) + 1);
+            teamExposureMap.set(player.team, (teamExposureMap.get(player.team) || 0) + 1);
+            positionExposureMap.set(player.position, (positionExposureMap.get(player.position) || 0) + 1);
+          });
+        }
+      });
+      
+      // Update exposure settings with actual values
+      setExposureSettings(prev => ({
+        ...prev,
+        players: prev.players.map(player => {
+          const key = `${player.name}_${player.team}`;
+          const count = playerExposureMap.get(key) || 0;
+          const actual = (count / lineups.length) * 100;
+          return { ...player, actual };
+        }),
+        teams: prev.teams.map(team => {
+          const count = teamExposureMap.get(team.team) || 0;
+          const actual = (count / lineups.length) * 100;
+          return { ...team, actual };
+        }),
+        positions: Object.fromEntries(
+          Object.entries(prev.positions).map(([pos, settings]) => {
+            const count = positionExposureMap.get(pos) || 0;
+            const actual = (count / lineups.length) * 100;
+            return [pos, { ...settings, actual }];
+          })
+        )
+      }));
+    }
+  }, [lineups]); // Recalculate whenever lineups change
 
   // Load all initial data on component mount
   useEffect(() => {
@@ -1023,7 +1079,7 @@ const App = () => {
         {/* Tabs */}
         <div className="tabs-container">
           <ul style={{ listStyle: "none" }}>
-            {["upload", "players", "lineups", "hybrid", "optimizer", "nexustest"].map((tab) => (
+            {["upload", "players", "lineups", "ai-insights", "hybrid", "optimizer", "nexustest"].map((tab) => (
               <li key={tab} style={{ display: "inline-block" }}>
                 <button
                   className={`tab ${activeTab === tab ? "active" : ""}`}
@@ -1031,6 +1087,8 @@ const App = () => {
                 >
                   {tab === "players"
                     ? "Player Management"
+                    : tab === "ai-insights"
+                    ? "AI Insights"
                     : tab === "hybrid"
                     ? "Hybrid Optimizer v2.0"
                     : tab === "optimizer"
@@ -1206,6 +1264,19 @@ const App = () => {
           </div>
         )}
 
+        {/* AI Insights Tab */}
+        {activeTab === "ai-insights" && (
+          <AIInsights
+            API_BASE_URL={AI_API_BASE_URL}
+            lineups={lineups}
+            playerData={playerData}
+            displayNotification={displayNotification}
+            exposureSettings={exposureSettings}
+            onUpdateExposures={handleExposureUpdate}
+            onGenerateOptimizedLineups={generateOptimizedLineups}
+            onLineupsUpdated={setLineups}
+          />
+        )}
 
         {/* Hybrid Optimizer v2.0 Tab */}
         {activeTab === "hybrid" && (

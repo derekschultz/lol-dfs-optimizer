@@ -8,6 +8,12 @@ const NexusScoreLineup = ({
   onStar,
   onDelete,
   isStarred = false,
+  exposureWarning,
+  modificationSuggested,
+  metaScore,
+  metaAligned,
+  optimizationFlag,
+  salaryEfficiency,
 }) => {
   // State for lineup metrics
   const [metrics, setMetrics] = useState({
@@ -226,6 +232,70 @@ const NexusScoreLineup = ({
           </div>
           <div style={{ fontSize: "14px", color: "#cbd5e0" }}>
             {lineup.name || `Lineup ${lineup.id}`}
+          </div>
+          
+          {/* AI Modification Indicators */}
+          <div style={{ display: "flex", marginLeft: "12px", gap: "4px" }}>
+            {lineup.exposureWarning && (
+              <div
+                title={lineup.exposureWarning}
+                style={{
+                  padding: "2px 6px",
+                  backgroundColor: "#dc2626",
+                  color: "white",
+                  fontSize: "10px",
+                  borderRadius: "4px",
+                  fontWeight: "500"
+                }}
+              >
+                ⚠️ EXPOSURE
+              </div>
+            )}
+            {lineup.metaScore !== undefined && (
+              <div
+                title={`Meta Score: ${lineup.metaScore} - ${lineup.metaAligned ? 'Aligned' : 'Not Aligned'}`}
+                style={{
+                  padding: "2px 6px",
+                  backgroundColor: lineup.metaAligned ? "#059669" : "#d97706",
+                  color: "white",
+                  fontSize: "10px",
+                  borderRadius: "4px",
+                  fontWeight: "500"
+                }}
+              >
+                🧠 META {lineup.metaScore}
+              </div>
+            )}
+            {lineup.optimizationFlag && (
+              <div
+                title="Salary optimization suggested"
+                style={{
+                  padding: "2px 6px",
+                  backgroundColor: "#0ea5e9",
+                  color: "white",
+                  fontSize: "10px",
+                  borderRadius: "4px",
+                  fontWeight: "500"
+                }}
+              >
+                💰 SALARY
+              </div>
+            )}
+            {lineup.modificationSuggested && (
+              <div
+                title="AI suggests modifications"
+                style={{
+                  padding: "2px 6px",
+                  backgroundColor: "#7c3aed",
+                  color: "white",
+                  fontSize: "10px",
+                  borderRadius: "4px",
+                  fontWeight: "500"
+                }}
+              >
+                🤖 AI
+              </div>
+            )}
           </div>
         </div>
 

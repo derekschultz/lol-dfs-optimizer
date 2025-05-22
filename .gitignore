@@ -62,3 +62,4 @@ CLAUDE.md
 # Optional: package locks (comment out if you want to commit these)
 # package-lock.json
 # yarn.lock
+ai-service/node_modules/

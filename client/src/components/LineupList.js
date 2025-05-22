@@ -980,6 +980,13 @@ const LineupList = ({
               nexusScore: lineup.metrics.nexusScore,
               roi: lineup.metrics.roi,
               firstPlace: lineup.metrics.firstPlace,
+              // Pass AI modification flags
+              exposureWarning: lineup.exposureWarning,
+              modificationSuggested: lineup.modificationSuggested,
+              metaScore: lineup.metaScore,
+              metaAligned: lineup.metaAligned,
+              optimizationFlag: lineup.optimizationFlag,
+              salaryEfficiency: lineup.salaryEfficiency,
             }}
             playerData={playerData}
             index={(currentPage - 1) * itemsPerPage + index + 1}
