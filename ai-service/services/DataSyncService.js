@@ -12,6 +12,35 @@ class DataSyncService {
     this.cacheTTL = 30000; // 30 seconds TTL
     this.syncInterval = null;
     this.isRunning = false;
+    this.retryAttempts = 3;
+    this.retryDelay = 1000; // 1 second
+  }
+
+  // Helper method for retry logic
+  async fetchWithRetry(url, dataType) {
+    let lastError = null;
+    
+    for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {
+      try {
+        const response = await axios.get(url, {
+          timeout: 5000 // 5 second timeout
+        });
+        
+        if (response.data.success) {
+          return response.data;
+        }
+        throw new Error(`Failed to fetch ${dataType}`);
+      } catch (error) {
+        lastError = error;
+        console.error(`❌ Error fetching ${dataType} (attempt ${attempt}/${this.retryAttempts}):`, error.message);
+        
+        if (attempt < this.retryAttempts) {
+          await new Promise(resolve => setTimeout(resolve, this.retryDelay * attempt));
+        }
+      }
+    }
+    
+    throw lastError;
   }
 
   async initialize() {
@@ -54,28 +83,26 @@ class DataSyncService {
   async fetchPlayers() {
     try {
       console.log(`📡 Fetching players from ${this.mainServerUrl}/api/data/players`);
-      const response = await axios.get(`${this.mainServerUrl}/api/data/players`);
+      const response = await this.fetchWithRetry(`${this.mainServerUrl}/api/data/players`, 'players');
       console.log('📊 Player data response:', {
-        success: response.data.success,
-        dataLength: response.data.data?.length || 0,
-        timestamp: response.data.timestamp
+        success: response.success,
+        dataLength: response.data?.length || 0,
+        timestamp: response.timestamp
       });
       
-      if (response.data.success) {
-        this.cache.players = {
-          data: response.data.data,
-          timestamp: new Date()
-        };
-        return response.data.data;
-      }
-      throw new Error('Failed to fetch player data');
+      this.cache.players = {
+        data: response.data,
+        timestamp: new Date()
+      };
+      return response.data;
     } catch (error) {
-      console.error('❌ Error fetching players:', error.message);
+      console.error('❌ All retry attempts failed for players:', error.message);
       // Return cached data if available
       if (this.cache.players.data) {
-        console.log('Using cached player data');
+        console.log('🔄 Using cached player data after connection failure');
         return this.cache.players.data;
       }
+      console.warn('⚠️  No player data available (connection failed and no cache)');
       return [];
     }
   }
@@ -83,29 +110,27 @@ class DataSyncService {
   async fetchLineups() {
     try {
       console.log(`📡 Fetching lineups from ${this.mainServerUrl}/api/data/lineups`);
-      const response = await axios.get(`${this.mainServerUrl}/api/data/lineups`);
+      const response = await this.fetchWithRetry(`${this.mainServerUrl}/api/data/lineups`, 'lineups');
       console.log('🏆 Lineup data response:', {
-        success: response.data.success,
-        count: response.data.count || 0,
-        dataLength: response.data.data?.length || 0,
-        timestamp: response.data.timestamp
+        success: response.success,
+        count: response.count || 0,
+        dataLength: response.data?.length || 0,
+        timestamp: response.timestamp
       });
       
-      if (response.data.success) {
-        this.cache.lineups = {
-          data: response.data.data,
-          timestamp: new Date()
-        };
-        return response.data.data;
-      }
-      throw new Error('Failed to fetch lineup data');
+      this.cache.lineups = {
+        data: response.data,
+        timestamp: new Date()
+      };
+      return response.data;
     } catch (error) {
-      console.error('❌ Error fetching lineups:', error.message);
+      console.error('❌ All retry attempts failed for lineups:', error.message);
       // Return cached data if available
       if (this.cache.lineups.data) {
-        console.log('Using cached lineup data');
+        console.log('🔄 Using cached lineup data after connection failure');
         return this.cache.lineups.data;
       }
+      console.warn('⚠️  No lineup data available (connection failed and no cache)');
       return [];
     }
   }

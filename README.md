@@ -28,6 +28,15 @@ A powerful web application for optimizing League of Legends Daily Fantasy Sports
 - **Correlation Modeling**: Account for player and team correlations
 - **Ownership Leverage**: Factor in projected ownership for contrarian plays
 - **Field Size Optimization**: Adjust strategies based on contest size
+
+### AI-Powered Features 🤖
+- **Smart Recommendations**: Real-time AI-driven lineup optimization suggestions
+- **Portfolio Grading**: Instant A-F grading of your lineup portfolio
+- **Meta Analysis**: Track and adapt to current game meta trends
+- **Risk Assessment**: Multi-dimensional portfolio risk analysis
+- **One-Click Optimization**: Apply AI suggestions instantly
+
+📖 **[AI Features User Guide](./AI_USER_GUIDE.md)** - Learn how to use the AI-powered features
 - **Multi-Contest Support**: Optimize for cash games vs. tournaments
 - **Risk Analysis**: Comprehensive ROI and variance calculations
 

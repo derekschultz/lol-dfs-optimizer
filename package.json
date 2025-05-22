@@ -26,7 +26,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "axios": "^1.9.0",
     "body-parser": "^2.2.0",
+    "chalk": "^4.1.2",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
     "express": "^4.21.2",
