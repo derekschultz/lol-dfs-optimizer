@@ -13,7 +13,6 @@ const NexusScoreTestPage = ({
   onImportLineups,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [testResults, setTestResults] = useState(null);
   const [historicalData, setHistoricalData] = useState(null);
 
   // Load any historical test data when component mounts
@@ -36,6 +35,7 @@ const NexusScoreTestPage = ({
   }, [API_BASE_URL]);
 
   // Handle saving test results
+  // eslint-disable-next-line no-unused-vars
   const saveTestResults = async (results) => {
     try {
       setIsLoading(true);
@@ -49,8 +49,7 @@ const NexusScoreTestPage = ({
       });
 
       if (response.ok) {
-        const savedData = await response.json();
-        setTestResults(savedData);
+        // Results saved successfully
         alert("Test results saved successfully!");
       } else {
         throw new Error("Failed to save test results");

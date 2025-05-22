@@ -109,7 +109,7 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
     } finally {
       setIsCalculating(false);
     }
-  }, [playerData, lineups, formulas]);
+  }, [playerData, lineups, formulas, calculateComparisonMetrics]);
 
   // Process formulas in batches to keep UI responsive
   const processFormulasBatched = async (
@@ -403,7 +403,6 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
     return calculateNexusScoreBase(lineup, playerPool, (components) => {
       const { baseProjection, leverageFactor, stackBonus, positionBonus } =
         components;
-      const leverageValue = baseProjection * leverageFactor;
 
       // 60% projection, 20% leverage, 15% stacks, 5% position
       const score =

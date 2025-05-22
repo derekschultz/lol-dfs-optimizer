@@ -14,11 +14,8 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
-  BarChart,
-  Bar,
 } from "recharts";
 import NexusScoreLineup from "./NexusScoreLineup";
-import AdvancedOptimizer from "../lib/AdvancedOptimizer";
 import optimizerWorkerService from "../lib/OptimizerWorkerService";
 
 // Helper function to safely format numeric values
@@ -610,7 +607,7 @@ const ResultsPaginationControls = ({
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     return sortedLineups.slice(startIndex, endIndex);
-  }, [sortedLineups, currentPage, itemsPerPage, totalPages]);
+  }, [sortedLineups, currentPage, itemsPerPage]);
 
   // Reset to page 1 when sorted lineups change
   useEffect(() => {
@@ -910,7 +907,6 @@ const AdvancedOptimizerUI = ({
   onChangeTab,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [optimizerReady, setOptimizerReady] = useState(false);
   const [optimizerSettings, setOptimizerSettings] = useState({
     iterations: 10000,
     randomness: 0.15,
@@ -927,6 +923,7 @@ const AdvancedOptimizerUI = ({
   // eslint-disable-next-line no-unused-vars
   const [simulationStage, setSimulationStage] = useState("");
   const [simulationStatus, setSimulationStatus] = useState("");
+  const [optimizerReady, setOptimizerReady] = useState(false);
   const [optimizerInstance, setOptimizerInstance] = useState(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -984,6 +981,7 @@ const AdvancedOptimizerUI = ({
   const optimizerRef = useRef(null);
 
   // Define initializeOptimizer using useCallback before it's used
+  // eslint-disable-next-line no-unused-vars
   const initializeOptimizer = useCallback(async () => {
     try {
       // Always set loading state when initializing
