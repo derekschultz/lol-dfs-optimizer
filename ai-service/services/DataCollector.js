@@ -319,6 +319,82 @@ class DataCollector {
     
     return data;
   }
+
+  async fetchLiveData() {
+    if (!this.ready) {
+      throw new Error('Data Collector not ready');
+    }
+
+    const MAIN_SERVER_URL = 'http://127.0.0.1:3000';
+    const cacheKey = 'live_data';
+    
+    // Check cache first (cache for 2 minutes to avoid excessive calls)
+    let data = this.getCachedData(cacheKey, 2);
+    if (data) {
+      console.log('🔄 Returning cached live data');
+      return data;
+    }
+
+    try {
+      console.log('📡 Fetching live data from main server...');
+      
+      // Fetch data from main server endpoints
+      const [playersRes, lineupsRes, exposuresRes, contestRes] = await Promise.allSettled([
+        axios.get(`${MAIN_SERVER_URL}/api/data/players`),
+        axios.get(`${MAIN_SERVER_URL}/api/data/lineups`),
+        axios.get(`${MAIN_SERVER_URL}/api/data/exposures`),
+        axios.get(`${MAIN_SERVER_URL}/api/data/contest`)
+      ]);
+
+      // Process the results
+      const players = playersRes.status === 'fulfilled' && playersRes.value.data.success 
+        ? playersRes.value.data.data 
+        : [];
+        
+      const lineups = lineupsRes.status === 'fulfilled' && lineupsRes.value.data.success 
+        ? lineupsRes.value.data.lineups 
+        : [];
+        
+      const exposures = exposuresRes.status === 'fulfilled' && exposuresRes.value.data.success 
+        ? exposuresRes.value.data.data 
+        : {};
+        
+      const contest = contestRes.status === 'fulfilled' && contestRes.value.data.success 
+        ? contestRes.value.data.data 
+        : {};
+
+      const liveData = {
+        success: true,
+        players,
+        lineups, 
+        exposures,
+        contest,
+        timestamp: new Date().toISOString(),
+        source: 'main_server'
+      };
+
+      // Cache the result
+      this.setCachedData(cacheKey, liveData);
+      
+      console.log(`✅ Live data fetched: ${players.length} players, ${lineups.length} lineups`);
+      return liveData;
+
+    } catch (error) {
+      console.error('❌ Failed to fetch live data from main server:', error.message);
+      
+      // Return empty data structure
+      return {
+        success: false,
+        error: 'Failed to connect to main server',
+        details: error.message,
+        players: [],
+        lineups: [],
+        exposures: {},
+        contest: {},
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
 }
 
 module.exports = DataCollector;

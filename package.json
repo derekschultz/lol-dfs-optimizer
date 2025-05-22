@@ -4,11 +4,13 @@
   "description": "Advanced Monte Carlo simulation and optimization for League of Legends DFS",
   "main": "index.js",
   "scripts": {
-    "start": "concurrently \"npm run server\" \"npm run client\"",
+    "start": "concurrently \"npm run server\" \"npm run client\" \"npm run ai-service\"",
+    "start-basic": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node server.js",
     "client": "cd client && npm start",
+    "ai-service": "cd ai-service && npm start",
     "build": "cd client && npm run build",
-    "install-all": "npm install && cd client && npm install",
+    "install-all": "npm install && cd client && npm install && cd ../ai-service && npm install",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

@@ -29,11 +29,11 @@ class RecommendationEngine {
       throw new Error('Recommendation Engine not ready');
     }
 
-    const { lineups, playerData, contestData } = data;
+    const { lineups, playerData, contestData, forceRefresh } = data;
     
     // Generate cache key
     const cacheKey = this.generateCacheKey(data);
-    if (this.cache.has(cacheKey)) {
+    if (!forceRefresh && this.cache.has(cacheKey)) {
       console.log('🔄 Returning cached recommendations');
       return this.cache.get(cacheKey);
     }
@@ -350,7 +350,21 @@ class RecommendationEngine {
 
   generateCacheKey(data) {
     const { lineups, playerData } = data;
-    const lineupHash = lineups ? lineups.length.toString() : '0';
+    
+    // Create a more detailed hash that includes lineup composition
+    let lineupHash = '0';
+    if (lineups && lineups.length > 0) {
+      // Include count and a sample of player names to detect changes
+      const playerNames = new Set();
+      lineups.slice(0, 10).forEach(lineup => { // Sample first 10 lineups
+        if (lineup.cpt) playerNames.add(lineup.cpt.name);
+        if (lineup.players) {
+          lineup.players.forEach(p => playerNames.add(p.name));
+        }
+      });
+      lineupHash = `${lineups.length}_${playerNames.size}_${Array.from(playerNames).sort().join(',').substring(0, 50)}`;
+    }
+    
     const playerHash = playerData ? playerData.length.toString() : '0';
     const timestamp = Math.floor(Date.now() / (5 * 60 * 1000)); // 5-minute buckets
     return `rec_${lineupHash}_${playerHash}_${timestamp}`;

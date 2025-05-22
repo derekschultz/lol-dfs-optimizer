@@ -991,6 +991,134 @@ app.post("/settings", (req, res) => {
   res.json({ success: true, message: "Settings saved successfully" });
 });
 
+// AI Service Data Endpoints
+// Get all player data with calculated exposures for AI analysis
+app.get("/api/data/players", (req, res) => {
+  try {
+    // Calculate actual exposures for each player
+    const playerExposureMap = new Map();
+    
+    lineups.forEach(lineup => {
+      // Count captain
+      if (lineup.cpt) {
+        const key = `${lineup.cpt.name}_${lineup.cpt.team}`;
+        playerExposureMap.set(key, (playerExposureMap.get(key) || 0) + 1);
+      }
+      
+      // Count regular players
+      if (lineup.players) {
+        lineup.players.forEach(player => {
+          const key = `${player.name}_${player.team}`;
+          playerExposureMap.set(key, (playerExposureMap.get(key) || 0) + 1);
+        });
+      }
+    });
+    
+    // Enhance player data with exposure information
+    const enhancedPlayerData = playerProjections.map(player => {
+      const key = `${player.name}_${player.team}`;
+      const exposureCount = playerExposureMap.get(key) || 0;
+      const exposurePercentage = lineups.length > 0 ? (exposureCount / lineups.length) * 100 : 0;
+      
+      return {
+        ...player,
+        exposure: exposurePercentage,
+        exposureCount: exposureCount,
+        totalLineups: lineups.length
+      };
+    });
+    
+    res.json({
+      success: true,
+      data: enhancedPlayerData,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Error fetching player data for AI:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get current lineups with metadata for AI analysis
+app.get("/api/data/lineups", (req, res) => {
+  try {
+    // Add metadata to lineups
+    const lineupsWithMetadata = lineups.map(lineup => {
+      // Calculate total salary
+      const captainSalary = lineup.cpt?.salary || 0;
+      const playersSalary = lineup.players?.reduce((sum, p) => sum + (p.salary || 0), 0) || 0;
+      const totalSalary = captainSalary + playersSalary;
+      
+      // Get team composition
+      const teamComposition = {};
+      if (lineup.cpt) {
+        teamComposition[lineup.cpt.team] = (teamComposition[lineup.cpt.team] || 0) + 1;
+      }
+      lineup.players?.forEach(player => {
+        teamComposition[player.team] = (teamComposition[player.team] || 0) + 1;
+      });
+      
+      return {
+        ...lineup,
+        totalSalary,
+        teamComposition,
+        playerCount: 1 + (lineup.players?.length || 0)
+      };
+    });
+    
+    res.json({
+      success: true,
+      data: lineupsWithMetadata,
+      count: lineups.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Error fetching lineups for AI:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get aggregated exposure data for AI analysis
+app.get("/api/data/exposures", (req, res) => {
+  try {
+    const exposures = calculateExposures(lineups);
+    
+    res.json({
+      success: true,
+      data: {
+        team: exposures.teamExposure,
+        position: exposures.positionExposure,
+        totalLineups: lineups.length,
+        averageSalary: lineups.reduce((sum, l) => sum + (l.salary || 0), 0) / (lineups.length || 1),
+        averageProjection: lineups.reduce((sum, l) => sum + (l.projectedPoints || 0), 0) / (lineups.length || 1)
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Error calculating exposures for AI:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get contest metadata and team stacks for AI
+app.get("/api/data/contest", (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        metadata: contestMetadata,
+        teamStacks: teamStacks,
+        settings: settings,
+        entryIds: contestEntryIds
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Error fetching contest data for AI:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Upload player projections
 app.post(
   "/players/projections/upload",

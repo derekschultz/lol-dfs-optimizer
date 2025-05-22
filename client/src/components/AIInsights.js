@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, exposureSettings, onUpdateExposures, onGenerateOptimizedLineups, onLineupsUpdated }) => {
   const [insights, setInsights] = useState([]);
@@ -6,46 +6,171 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [appliedChanges, setAppliedChanges] = useState([]);
+  const [isLiveData, setIsLiveData] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [localLineups, setLocalLineups] = useState(lineups);
+  const localLineupsRef = useRef(lineups);
+  const [portfolioGrade, setPortfolioGrade] = useState(null);
+  const [showCoachInsights, setShowCoachInsights] = useState(false);
 
   useEffect(() => {
-    if (lineups && lineups.length > 0) {
+    if (!isApplying) {
+      setLocalLineups(lineups);
+      localLineupsRef.current = lineups;
+    }
+  }, [lineups]);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    localLineupsRef.current = localLineups;
+  }, [localLineups]);
+
+  useEffect(() => {
+    if (localLineups && localLineups.length > 0 && !isApplying) {
       fetchAIRecommendations();
     }
-  }, [lineups, playerData]);
+  }, [localLineups.length, playerData?.length]); // Only depend on lengths to avoid re-fetching on every change
 
-  const fetchAIRecommendations = async () => {
+  const fetchCoachInsights = async () => {
+    try {
+      setLoading(true);
+      const AI_SERVICE_URL = 'http://localhost:3002';
+      const response = await fetch(`${AI_SERVICE_URL}/api/ai/coach`);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || `AI Coach error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.coaching) {
+        setPortfolioGrade(data.coaching.portfolio_grade);
+        displayNotification(`Portfolio Grade: ${data.coaching.portfolio_grade.grade} (${data.coaching.portfolio_grade.score}/100)`, 'info');
+        return data.coaching;
+      }
+    } catch (error) {
+      console.error('Error fetching coach insights:', error);
+      if (error.message.includes('circular')) {
+        displayNotification('Data error - please refresh the page', 'error');
+      } else {
+        displayNotification('Failed to get portfolio grade', 'error');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper function to clean data before sending to API
+  const cleanDataForAPI = (data) => {
+    if (!data) return data;
+    
+    try {
+      // If it's an array, clean each item
+      if (Array.isArray(data)) {
+        return data.map(item => {
+          // Remove any non-serializable properties
+          if (typeof item === 'object' && item !== null) {
+            const cleaned = {};
+            for (const key in item) {
+              if (item.hasOwnProperty(key)) {
+                const value = item[key];
+                // Skip DOM elements and functions
+                if (value instanceof HTMLElement || typeof value === 'function') {
+                  continue;
+                }
+                // Recursively clean nested objects
+                if (typeof value === 'object' && value !== null) {
+                  cleaned[key] = cleanDataForAPI(value);
+                } else {
+                  cleaned[key] = value;
+                }
+              }
+            }
+            return cleaned;
+          }
+          return item;
+        });
+      }
+      
+      // If it's an object, clean its properties
+      if (typeof data === 'object') {
+        const cleaned = {};
+        for (const key in data) {
+          if (data.hasOwnProperty(key)) {
+            const value = data[key];
+            // Skip DOM elements and functions
+            if (value instanceof HTMLElement || typeof value === 'function') {
+              continue;
+            }
+            // Recursively clean nested objects
+            if (typeof value === 'object' && value !== null) {
+              cleaned[key] = cleanDataForAPI(value);
+            } else {
+              cleaned[key] = value;
+            }
+          }
+        }
+        return cleaned;
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error cleaning data:', error);
+      return Array.isArray(data) ? [] : {};
+    }
+  };
+
+  const fetchAIRecommendations = async (isRefresh = false) => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/ai/recommendations`, {
+      // Connect to AI service on port 3002
+      const AI_SERVICE_URL = 'http://localhost:3002';
+      
+      // Always send current lineup data to ensure AI sees the latest changes
+      const currentLineups = localLineupsRef.current;
+      
+      // Clean the data to remove any circular references
+      const cleanLineups = cleanDataForAPI(currentLineups);
+      const cleanPlayerData = cleanDataForAPI(playerData);
+      
+      const response = await fetch(`${AI_SERVICE_URL}/api/ai/recommendations`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          lineups,
-          playerData,
+          lineups: cleanLineups,
+          playerData: cleanPlayerData,
           contestData: {
-            type: 'tournament',
-            fieldSize: 1176,
-            entryFee: 5
-          }
+            fieldSize: 1000,
+            entryFee: 5,
+            totalPrize: 5000
+          },
+          forceRefresh: isRefresh
         })
       });
-
+      
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`AI Service error! status: ${response.status}`);
       }
 
       const data = await response.json();
       
-      if (data.success) {
+      if (data.success && data.recommendations) {
         setInsights(data.recommendations);
         setLastUpdated(new Date());
-        displayNotification(`Received ${data.recommendations.length} AI insights!`);
+        setIsLiveData(data.source === 'live' || data.live_data === true);
+        
+        if (isRefresh) {
+          displayNotification(`✅ Changes applied! AI analysis refreshed with ${data.recommendations.length} recommendations`);
+        } else {
+          displayNotification(`Received ${data.recommendations.length} AI insights!`);
+        }
       } else {
-        setError('Failed to get AI recommendations');
+        setError(data.error || 'Failed to get AI recommendations');
       }
     } catch (err) {
       console.error('AI Service Error:', err);
@@ -56,7 +181,12 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
   };
 
   const applyRecommendation = async (recommendation) => {
+    if (isApplying) {
+      return;
+    }
+    
     try {
+      setIsApplying(true);
       displayNotification(`Applying: ${recommendation.title}...`, 'info');
       
       // Track the change for verification
@@ -101,6 +231,8 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
     } catch (error) {
       console.error('❌ Error applying recommendation:', error);
       displayNotification(`Failed to apply: ${error.message}`, 'error');
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -112,7 +244,7 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
     const currentExposure = recommendation.data?.current_exposure || 0;
     
     // Calculate how many lineups need to swap out this player
-    const totalLineups = lineups.length;
+    const totalLineups = localLineups.length;
     const currentCount = Math.floor((currentExposure / 100) * totalLineups);
     const targetCount = Math.floor(((currentExposure - targetReduction) / 100) * totalLineups);
     const lineupsToModify = currentCount - targetCount;
@@ -120,7 +252,7 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
     
     // Find lineups containing this player and modify them
     let modifiedCount = 0;
-    const updatedLineups = lineups.map((lineup) => {
+    const updatedLineups = localLineups.map((lineup) => {
       // Check if we've modified enough lineups
       if (modifiedCount >= lineupsToModify) {
         return lineup;
@@ -184,9 +316,16 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
       return lineup;
     });
     
+    // Update local state
+    setLocalLineups(updatedLineups);
+    
     if (onLineupsUpdated) {
       onLineupsUpdated(updatedLineups);
       displayNotification(`✅ Reduced ${playerToReduce} exposure by replacing in ${modifiedCount} lineups!`, 'success');
+      // Refresh AI recommendations after 2 seconds
+      setTimeout(() => {
+        fetchAIRecommendations(true);
+      }, 2000);
     } else {
       displayNotification('❌ onLineupsUpdated function not available', 'error');
     }
@@ -207,7 +346,7 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
     }
     
     // Calculate how many lineups need to add this player
-    const totalLineups = lineups.length;
+    const totalLineups = localLineups.length;
     const currentCount = Math.floor((currentExposure / 100) * totalLineups);
     const targetCount = Math.floor(((currentExposure + targetIncrease) / 100) * totalLineups);
     const lineupsToModify = targetCount - currentCount;
@@ -215,7 +354,7 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
     
     // Find lineups NOT containing this player and add them
     let modifiedCount = 0;
-    const updatedLineups = lineups.map((lineup) => {
+    const updatedLineups = localLineups.map((lineup) => {
       // Check if we've modified enough lineups
       if (modifiedCount >= lineupsToModify) {
         return lineup;
@@ -268,9 +407,16 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
       return lineup;
     });
     
+    // Update local state
+    setLocalLineups(updatedLineups);
+    
     if (onLineupsUpdated) {
       onLineupsUpdated(updatedLineups);
       displayNotification(`✅ Increased ${playerToIncrease} exposure by adding to ${modifiedCount} lineups!`, 'success');
+      // Refresh AI recommendations after 2 seconds (faster now that we use local state)
+      setTimeout(() => {
+        fetchAIRecommendations(true);
+      }, 2000);
     } else {
       displayNotification('❌ onLineupsUpdated function not available', 'error');
     }
@@ -294,6 +440,11 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
       
       onUpdateExposures(newExposureSettings);
       displayNotification(`Increased ${recommendation.data.team} stack exposure to ${newMax}%`, 'success');
+      
+      // Refresh AI recommendations after 4 seconds to allow server to update
+      setTimeout(() => {
+        fetchAIRecommendations(true);
+      }, 4000);
     }
   };
 
@@ -313,6 +464,11 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
     if (onLineupsUpdated) {
       onLineupsUpdated(optimizedLineups);
       displayNotification(`✅ Applied salary optimization to ${optimizedLineups.length} lineups!`, 'success');
+      
+      // Refresh AI recommendations after 2 seconds
+      setTimeout(() => {
+        fetchAIRecommendations(true);
+      }, 2000);
     }
   };
 
@@ -334,6 +490,11 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
     if (onLineupsUpdated) {
       onLineupsUpdated(metaOptimizedLineups);
       displayNotification(`✅ Applied meta insights to ${metaOptimizedLineups.length} lineups!`, 'success');
+      
+      // Refresh AI recommendations after 2 seconds
+      setTimeout(() => {
+        fetchAIRecommendations(true);
+      }, 2000);
     }
   };
 
@@ -393,13 +554,72 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {portfolioGrade && (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center',
+              padding: '0.5rem',
+              backgroundColor: portfolioGrade.grade === 'A+' ? '#dcfce7' : 
+                             portfolioGrade.grade === 'A' ? '#dbeafe' :
+                             portfolioGrade.grade === 'B' ? '#fef3c7' : '#fee2e2',
+              borderRadius: '8px',
+              minWidth: '60px'
+            }}>
+              <span style={{ 
+                fontSize: '1.5rem', 
+                fontWeight: 'bold',
+                color: portfolioGrade.grade === 'A+' ? '#166534' : 
+                       portfolioGrade.grade === 'A' ? '#1e40af' :
+                       portfolioGrade.grade === 'B' ? '#92400e' : '#991b1b'
+              }}>
+                {portfolioGrade.grade}
+              </span>
+              <span style={{ fontSize: '0.625rem', color: '#6b7280' }}>
+                {portfolioGrade.score}/100
+              </span>
+            </div>
+          )}
+          {isLiveData && (
+            <span style={{ 
+              fontSize: '0.75rem', 
+              color: '#10b981', 
+              backgroundColor: '#d1fae5', 
+              padding: '0.25rem 0.5rem',
+              borderRadius: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              <span style={{ 
+                width: '6px', 
+                height: '6px', 
+                backgroundColor: '#10b981', 
+                borderRadius: '50%',
+                display: 'inline-block' 
+              }}></span>
+              Live Data
+            </span>
+          )}
           {lastUpdated && (
             <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
               Updated {lastUpdated.toLocaleTimeString()}
             </span>
           )}
           <button
-            onClick={fetchAIRecommendations}
+            onClick={fetchCoachInsights}
+            className="btn"
+            style={{ 
+              backgroundColor: '#8b5cf6', 
+              color: 'white',
+              fontSize: '0.875rem',
+              padding: '0.5rem 1rem'
+            }}
+          >
+            🎓 Grade
+          </button>
+          <button
+            onClick={() => fetchAIRecommendations(true)}
             disabled={loading}
             className="btn"
             style={{ 
@@ -527,17 +747,22 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
 
                   {insight.actionable && (
                     <button
-                      onClick={() => applyRecommendation(insight)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        applyRecommendation(insight);
+                      }}
+                      disabled={isApplying}
                       className="btn"
                       style={{
                         marginLeft: '1rem',
-                        backgroundColor: '#2563eb',
+                        backgroundColor: isApplying ? '#9ca3af' : '#2563eb',
                         color: 'white',
                         fontSize: '0.875rem',
-                        padding: '0.5rem 0.75rem'
+                        padding: '0.5rem 0.75rem',
+                        cursor: isApplying ? 'not-allowed' : 'pointer'
                       }}
                     >
-                      Apply
+                      {isApplying ? 'Applying...' : 'Apply'}
                     </button>
                   )}
                 </div>
@@ -638,6 +863,7 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
                   padding: '0.5rem 0.75rem'
                 }}
                 onClick={() => {
+                  if (isApplying) return;
                   const highPriorityRecommendations = insights.filter(i => i.priority === 'high');
                   highPriorityRecommendations.forEach(rec => applyRecommendation(rec));
                 }}
@@ -654,7 +880,6 @@ const AIInsights = ({ API_BASE_URL, lineups, playerData, displayNotification, ex
                 }}
                 onClick={() => {
                   displayNotification('Insights exported to console', 'info');
-                  console.log('Export recommendations:', insights);
                 }}
               >
                 Export Insights

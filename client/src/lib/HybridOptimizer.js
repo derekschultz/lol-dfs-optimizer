@@ -167,29 +167,6 @@ class HybridOptimizer {
         usage: 'Best when you have detailed exposure constraints'
       },
       
-      portfolio: {
-        name: 'Portfolio Optimizer',
-        description: 'Generate diversified portfolio of 20 lineups with barbell strategy',
-        algorithm: 'portfolio',
-        distribution: { monte_carlo: 0.6, genetic: 0.3, simulated_annealing: 0.1 },
-        config: {
-          portfolioSize: 20,
-          bulkGenerationMultiplier: 25, // Generate 500 to select top 20
-          iterations: 5000,
-          randomness: 0.6,
-          leverageMultiplier: 0.8,
-          barbellDistribution: {
-            highFloor: 0.35,    // 35% high-floor lineups (7 of 20)
-            highCeiling: 0.35,  // 35% high-ceiling lineups (7 of 20) 
-            balanced: 0.30      // 30% balanced lineups (6 of 20)
-          },
-          stackTargets: {
-            '4-3': 0.6,   // 60% 4-3 stacks
-            '4-2-1': 0.4  // 40% 4-2-1 stacks
-          }
-        },
-        usage: 'Creates balanced portfolio with high-floor, high-ceiling, and balanced lineups'
-      }
     };
   }
 
@@ -300,8 +277,6 @@ class HybridOptimizer {
       
       if (resolvedStrategy.algorithm === 'hybrid') {
         results = await this._runHybridOptimization(count, resolvedStrategy, customConfig);
-      } else if (resolvedStrategy.algorithm === 'portfolio') {
-        results = await this._runPortfolioOptimization(resolvedStrategy, customConfig);
       } else {
         results = await this._runSingleAlgorithm(count, resolvedStrategy, customConfig);
       }
