@@ -20,6 +20,21 @@ const LineupList = ({
   const [showStarredOnly, setShowStarredOnly] = useState(false);
   const [selectedRank, setSelectedRank] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  // Close export menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showExportMenu && !event.target.closest('[data-export-menu]')) {
+        setShowExportMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showExportMenu]);
 
   // Global stats calculations
   const [globalStats, setGlobalStats] = useState({
@@ -304,6 +319,63 @@ const LineupList = ({
     setSortBy("nexusScore");
     setSortDirection("desc");
     setCurrentPage(1);
+  };
+
+  // Handle export functionality
+  const handleExport = async (format) => {
+    setShowExportMenu(false);
+    
+    try {
+      // Get selected lineups (starred ones if filtering is enabled, otherwise all current filtered lineups)
+      const lineupsToExport = showStarredOnly 
+        ? filteredAndSortedLineups.filter(lineup => starredLineups[lineup.id])
+        : filteredAndSortedLineups;
+      
+      if (lineupsToExport.length === 0) {
+        alert("No lineups to export");
+        return;
+      }
+
+      const exportData = {
+        format: format,
+        lineupIds: lineupsToExport.map(lineup => lineup.id)
+      };
+
+      const response = await fetch('/lineups/export', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(exportData)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Export failed');
+      }
+
+      // Get the filename from the response headers
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filename = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
+        : `lineups_${format}_${Date.now()}`;
+
+      // Create download link
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+    } catch (error) {
+      console.error('Export error:', error);
+      alert(`Export failed: ${error.message}`);
+    }
   };
 
   // Pagination controls
@@ -731,35 +803,120 @@ const LineupList = ({
         </div>
 
         <div style={{ display: "flex", gap: "1rem" }}>
-          <button
-            onClick={() => onExport && onExport("csv")}
-            style={{
-              background: "none",
-              border: "none",
-              color: "#4fd1c5",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.25rem",
-            }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          <div style={{ position: "relative" }} data-export-menu>
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#4fd1c5",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.25rem",
+              }}
             >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            <span>Export</span>
-          </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Export</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ transform: showExportMenu ? "rotate(180deg)" : "rotate(0deg)" }}
+              >
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            
+            {showExportMenu && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: "0",
+                  backgroundColor: "#1a202c",
+                  border: "1px solid #2d3748",
+                  borderRadius: "4px",
+                  boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+                  zIndex: 1000,
+                  minWidth: "180px",
+                  marginTop: "0.25rem",
+                }}
+              >
+                <button
+                  onClick={() => handleExport("draftkings")}
+                  style={{
+                    width: "100%",
+                    padding: "0.5rem 0.75rem",
+                    background: "none",
+                    border: "none",
+                    color: "#e2e8f0",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: "0.875rem",
+                  }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = "#2d3748"}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = "transparent"}
+                >
+                  DraftKings Format
+                </button>
+                <button
+                  onClick={() => handleExport("csv")}
+                  style={{
+                    width: "100%",
+                    padding: "0.5rem 0.75rem",
+                    background: "none",
+                    border: "none",
+                    color: "#e2e8f0",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: "0.875rem",
+                  }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = "#2d3748"}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = "transparent"}
+                >
+                  CSV Format
+                </button>
+                <button
+                  onClick={() => handleExport("json")}
+                  style={{
+                    width: "100%",
+                    padding: "0.5rem 0.75rem",
+                    background: "none",
+                    border: "none",
+                    color: "#e2e8f0",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: "0.875rem",
+                  }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = "#2d3748"}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = "transparent"}
+                >
+                  JSON Format
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={() => setShowStarredOnly(!showStarredOnly)}

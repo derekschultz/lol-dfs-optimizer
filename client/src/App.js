@@ -278,6 +278,12 @@ const App = () => {
           (fileContent.includes("Contest ID") ||
             fileContent.includes("Contest Name"));
 
+        const isDraftKingsSalariesFile =
+          fileContent.includes("Position") &&
+          fileContent.includes("Name + ID") &&
+          fileContent.includes("Salary") &&
+          fileContent.includes("TeamAbbrev");
+
         const isRooProjectionsFile =
           fileContent.includes("Median") &&
           (fileContent.includes("Floor") || fileContent.includes("Ceiling"));
@@ -305,15 +311,23 @@ const App = () => {
         } else if (isStacksFile) {
           displayNotification("Detected team stacks file", "info");
           endpoint = `${API_BASE_URL}/teams/stacks/upload`;
-        } else if (isDraftKingsFile) {
-          displayNotification("Detected DraftKings entries file", "info");
-          endpoint = `${API_BASE_URL}/lineups/dkentries`;
+        } else if (isDraftKingsSalariesFile || importMethod === "dkSalaries") {
+          displayNotification("Importing DraftKings salaries and player IDs", "info");
+          endpoint = `${API_BASE_URL}/draftkings/import`;
+        } else if (isDraftKingsFile || importMethod === "dkImport") {
+          displayNotification("Importing DraftKings contest data and player IDs", "info");
+          endpoint = `${API_BASE_URL}/draftkings/import`;
         } else if (isLolFormat) {
-          displayNotification(
-            "Detected League of Legends DraftKings format",
-            "info"
-          );
-          endpoint = `${API_BASE_URL}/lineups/dkentries`;
+          if (importMethod === "dkImport") {
+            displayNotification("Importing DraftKings contest data and player IDs", "info");
+            endpoint = `${API_BASE_URL}/draftkings/import`;
+          } else {
+            displayNotification(
+              "Detected League of Legends DraftKings format",
+              "info"
+            );
+            endpoint = `${API_BASE_URL}/lineups/dkentries`;
+          }
         } else {
           // If we can't detect the file type, show error
           displayNotification(
@@ -371,7 +385,12 @@ const App = () => {
       const result = await response.json();
 
       // Update state based on the endpoint
-      if (endpoint.includes("dkentries") || endpoint.includes("lineups")) {
+      if (endpoint.includes("draftkings/import")) {
+        // Handle DraftKings import response (contest metadata + player ID mapping)
+        displayNotification(
+          `Imported contest data: ${result.contestMetadata?.contestName || 'Unknown'} (${result.playersWithIds}/${result.totalPlayers} players mapped)`
+        );
+      } else if (endpoint.includes("dkentries") || endpoint.includes("lineups")) {
         if (result.lineups && Array.isArray(result.lineups)) {
           // Add NexusScore and ROI to lineups
           const enhancedLineups = result.lineups.map((lineup) => {
@@ -1102,51 +1121,29 @@ const App = () => {
               </div>
 
               <div className="card">
-                <h2 className="card-title">Import Lineups</h2>
-                <div style={{ marginBottom: "1rem" }}>
-                  <label style={{ marginRight: "1rem" }}>
-                    <input
-                      type="radio"
-                      name="importMethod"
-                      value="dkEntries"
-                      checked={importMethod === "dkEntries"}
-                      onChange={() => setImportMethod("dkEntries")}
-                    />
-                    <span style={{ marginLeft: "0.5rem" }}>
-                      DraftKings Entries
-                    </span>
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      name="importMethod"
-                      value="jsonFile"
-                      checked={importMethod === "jsonFile"}
-                      onChange={() => setImportMethod("jsonFile")}
-                    />
-                    <span style={{ marginLeft: "0.5rem" }}>JSON File</span>
-                  </label>
+                <h2 className="card-title">Import DraftKings Data</h2>
+                <div>
+                  <label className="form-label">DraftKings Contest CSV (Contest + Entry IDs)</label>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) => {
+                      setImportMethod("dkImport");
+                      handleFileUpload(e);
+                    }}
+                  />
                 </div>
-
-                {importMethod === "dkEntries" ? (
-                  <div>
-                    <label className="form-label">DraftKings Entries CSV</label>
-                    <input
-                      type="file"
-                      accept=".csv"
-                      onChange={handleFileUpload}
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="form-label">Lineups JSON File</label>
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={handleFileUpload}
-                    />
-                  </div>
-                )}
+                <div style={{ marginTop: "1rem" }}>
+                  <label className="form-label">DraftKings Salaries CSV (Player IDs)</label>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) => {
+                      setImportMethod("dkSalaries");
+                      handleFileUpload(e);
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
