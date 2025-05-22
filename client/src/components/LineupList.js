@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import NexusScoreLineup from "./NexusScoreLineup";
 
 const LineupList = ({
@@ -18,7 +18,6 @@ const LineupList = ({
   const [sortDirection, setSortDirection] = useState("desc");
   const [starredLineups, setStarredLineups] = useState({});
   const [showStarredOnly, setShowStarredOnly] = useState(false);
-  const [selectedRank, setSelectedRank] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [showExportMenu, setShowExportMenu] = useState(false);
 
@@ -41,6 +40,7 @@ const LineupList = ({
     avgProjection: 0,
     avgOwnership: 0,
     avgSalary: 0,
+    avgNexusScore: 0,
   });
 
   // Calculate total pages whenever lineups, itemsPerPage, or filters change
@@ -56,7 +56,7 @@ const LineupList = ({
     if (currentPage > 1) {
       setCurrentPage(1);
     }
-  }, [lineups.length, itemsPerPage, showStarredOnly, starredLineups]);
+  }, [lineups.length, itemsPerPage, showStarredOnly, starredLineups, currentPage]);
 
   // Calculate and process lineup metrics
   const lineupsWithMetrics = useMemo(() => {
@@ -206,10 +206,14 @@ const LineupList = ({
       const avgSal =
         lineupsWithMetrics.reduce((sum, l) => sum + l.metrics.totalSalary, 0) /
         lineupsWithMetrics.length;
+      const avgNexus =
+        lineupsWithMetrics.reduce((sum, l) => sum + l.metrics.nexusScore, 0) /
+        lineupsWithMetrics.length;
       setGlobalStats({
         avgProjection: avgProj,
         avgOwnership: avgOwn,
         avgSalary: avgSal,
+        avgNexusScore: avgNexus,
       });
     }
   }, [lineupsWithMetrics]);
@@ -408,182 +412,6 @@ const LineupList = ({
       className="lineup-list"
       style={{ fontFamily: "Inter, system-ui, sans-serif" }}
     >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "1rem",
-          backgroundColor: "#10141e",
-          padding: "0.75rem 1rem",
-          borderRadius: "4px",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <span
-              style={{
-                marginRight: "0.5rem",
-                color: "#a0aec0",
-                fontSize: "0.875rem",
-              }}
-            >
-              My Lineups ({lineups.length})
-            </span>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#a0aec0"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ marginRight: "0.25rem" }}
-            >
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </div>
-
-          <div
-            style={{
-              borderLeft: "1px solid #1a202c",
-              height: "24px",
-              margin: "0 1rem",
-            }}
-          ></div>
-
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <span
-              style={{
-                marginRight: "0.5rem",
-                color: "#a0aec0",
-                fontSize: "0.875rem",
-              }}
-            >
-              Unique Rank
-            </span>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                backgroundColor: "#1a202c",
-                padding: "0.25rem 0.5rem",
-                borderRadius: "4px",
-                cursor: "pointer",
-              }}
-            >
-              <span style={{ color: "#e2e8f0", fontSize: "0.875rem" }}>
-                {selectedRank}
-              </span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#a0aec0"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ marginLeft: "0.25rem" }}
-              >
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            </div>
-          </div>
-
-          <div
-            style={{
-              borderLeft: "1px solid #1a202c",
-              height: "24px",
-              margin: "0 1rem",
-            }}
-          ></div>
-
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <span
-              style={{
-                marginRight: "0.5rem",
-                color: "#a0aec0",
-                fontSize: "0.875rem",
-              }}
-            >
-              NexusScore
-            </span>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#a0aec0"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <div
-            style={{
-              backgroundColor: "#1a202c",
-              padding: "0.25rem 0.5rem",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#a0aec0"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
-            </svg>
-          </div>
-          <div
-            style={{
-              backgroundColor: "#1a202c",
-              padding: "0.25rem 0.5rem",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#a0aec0"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="8" y1="6" x2="21" y2="6"></line>
-              <line x1="8" y1="12" x2="21" y2="12"></line>
-              <line x1="8" y1="18" x2="21" y2="18"></line>
-              <line x1="3" y1="6" x2="3.01" y2="6"></line>
-              <line x1="3" y1="12" x2="3.01" y2="12"></line>
-              <line x1="3" y1="18" x2="3.01" y2="18"></line>
-            </svg>
-          </div>
-        </div>
-      </div>
 
       {/* Global Stats Overview */}
       <div
@@ -668,6 +496,20 @@ const LineupList = ({
               ${Math.round(globalStats.avgSalary).toLocaleString()}
             </span>
           </div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+            <span style={{ color: "#90cdf4", marginBottom: "0.25rem" }}>
+              Average NexusScore
+            </span>
+            <span
+              style={{
+                color: "#4fd1c5",
+                fontWeight: "bold",
+                fontSize: "1.125rem",
+              }}
+            >
+              {globalStats.avgNexusScore.toFixed(2)}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -708,7 +550,7 @@ const LineupList = ({
             />
           </div>
 
-          <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", marginLeft: "20px" }}>
             <span
               style={{
                 color: "#a0aec0",

@@ -12,7 +12,6 @@ const App = () => {
   const API_BASE_URL = "http://localhost:3001";
 
   // State variables
-  const [simResults, setSimResults] = useState(null);
   const [lineups, setLineups] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("upload");
@@ -252,6 +251,7 @@ const App = () => {
     };
 
     initializeData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Handle file upload with improved file detection
@@ -512,69 +512,6 @@ const App = () => {
     });
   };
 
-  // Run simulation
-  const runSimulation = async () => {
-    try {
-      setIsLoading(true);
-
-      // Validate we have lineups to simulate
-      if (lineups.length === 0) {
-        displayNotification(
-          "No lineups to simulate. Please import or generate lineups first.",
-          "error"
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      // Create the simulation request payload
-      const simulationRequest = {
-        lineups: lineups.map((lineup) => lineup.id), // Send only lineup IDs to minimize payload size
-      };
-
-      // Call the API to run the simulation
-      const response = await fetch(`${API_BASE_URL}/simulation/run`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(simulationRequest),
-      });
-
-      if (!response.ok) {
-        let errorMessage = `Simulation failed: ${response.status} ${response.statusText}`;
-        try {
-          const errorData = await response.json();
-          if (errorData && errorData.message) {
-            errorMessage = errorData.message;
-          }
-        } catch (parseError) {
-          // If we can't parse JSON, try text
-          try {
-            const errorText = await response.text();
-            if (errorText) errorMessage += ` - ${errorText}`;
-          } catch (textError) {
-            // Ignore if we can't get text either
-          }
-        }
-        throw new Error(errorMessage);
-      }
-
-      // Get the simulation results
-      const results = await response.json();
-
-      setSimResults(results);
-      displayNotification("Simulation completed successfully!");
-    } catch (error) {
-      console.error("Simulation error:", error);
-      displayNotification(
-        `Error running simulation: ${error.message}`,
-        "error"
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Generate lineups
   const generateLineups = async (count) => {
@@ -601,14 +538,6 @@ const App = () => {
       }
 
       // Validate we have run a simulation first
-      if (!simResults) {
-        displayNotification(
-          "Please run a simulation first before generating lineups.",
-          "error"
-        );
-        setIsLoading(false);
-        return;
-      }
 
       // Create the lineup generation request
       const generationRequest = {
@@ -1120,7 +1049,7 @@ const App = () => {
           <div>
             <div className="grid grid-cols-2">
               <div className="card">
-                <h2 className="card-title">Import Data</h2>
+                <h2 className="card-title">Import Player/Stack Data</h2>
                 <div>
                   <label className="form-label">
                     Player Projections (ROO CSV)
@@ -1131,7 +1060,7 @@ const App = () => {
                     onChange={handleFileUpload}
                   />
                 </div>
-                <div>
+                <div style={{ marginTop: '15px' }}>
                   <label className="form-label">Team Stacks (Stacks CSV)</label>
                   <input
                     type="file"
@@ -1155,7 +1084,7 @@ const App = () => {
                   />
                 </div>
                 <div style={{ marginTop: "1rem" }}>
-                  <label className="form-label">DraftKings Salaries CSV (Player IDs)</label>
+                  <label className="form-label">DraftKings Salaries CSV</label>
                   <input
                     type="file"
                     accept=".csv"
@@ -1236,11 +1165,8 @@ const App = () => {
                   Manage Exposure
                 </button>
                 <button
-                  className={
-                    simResults ? "btn btn-success" : "btn btn-disabled"
-                  }
+                  className="btn btn-success"
                   onClick={() => generateLineups(1)}
-                  disabled={!simResults}
                 >
                   Add Lineup
                 </button>
@@ -1268,18 +1194,12 @@ const App = () => {
                   >
                     Import lineups
                   </button>
-                  {simResults ? (
-                    <button
-                      onClick={() => generateLineups(5)}
-                      className="btn btn-success"
-                    >
-                      Generate optimal lineups
-                    </button>
-                  ) : (
-                    <button className="btn btn-disabled" disabled>
-                      Run simulation first
-                    </button>
-                  )}
+                  <button
+                    onClick={() => generateLineups(5)}
+                    className="btn btn-success"
+                  >
+                    Generate optimal lineups
+                  </button>
                 </div>
               </div>
             )}
