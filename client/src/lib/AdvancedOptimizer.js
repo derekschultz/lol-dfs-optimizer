@@ -179,7 +179,6 @@ class AdvancedOptimizer {
    */
   updateConfig(newConfig) {
     this.config = { ...this.config, ...newConfig };
-    console.log("Updated optimizer config:", this.config);
     this.debugLog("Updated optimizer config:", this.config);
   }
 
@@ -1472,10 +1471,10 @@ class AdvancedOptimizer {
 
     const lineups = [];
     const lineupSignatures = new Set(); // Track unique lineup signatures
-    const maxAttempts = count * 50; // Increase max attempts significantly
+    const maxAttempts = count * 100; // Allow more attempts for larger lineup counts
     let attempts = 0;
     let consecutiveFailures = 0;
-    const maxConsecutiveFailures = 100; // Stop if we can't generate unique lineups
+    const maxConsecutiveFailures = Math.min(1000, count * 10); // Scale with lineup count
 
     // Reset exposure tracking for new generation
     this._initializeExposureTracking();
@@ -1511,6 +1510,13 @@ class AdvancedOptimizer {
         // Generate a lineup with enhanced randomness to prevent duplicates
         const currentLineupCount = lineups.length;
         const lineup = await this._buildLineup(lineups, currentLineupCount);
+
+        // Check if lineup building failed
+        if (!lineup) {
+          consecutiveFailures++;
+          this.debugLog(`Lineup building failed - attempt ${attempts}`);
+          continue;
+        }
 
         // Create signature for quick duplicate checking
         const signature = [lineup.cpt.id, ...lineup.players.map(p => p.id)].sort().join('|');
@@ -1810,7 +1816,8 @@ class AdvancedOptimizer {
             usedPlayers.add(player.id);
             remainingSalary -= player.salary;
           } else {
-            throw new Error(`Couldn't find player for position TEAM`);
+            this.debugLog(`Couldn't find TEAM player - skipping lineup`);
+            return null; // Return null instead of throwing error
           }
         } else {
           // Regular position selection
@@ -1835,7 +1842,8 @@ class AdvancedOptimizer {
             usedPlayers.add(player.id);
             remainingSalary -= player.salary;
           } else {
-            throw new Error(`Couldn't find player for position ${position}`);
+            this.debugLog(`Couldn't find player for position ${position} - skipping lineup`);
+            return null; // Return null instead of throwing error
           }
         }
       }
@@ -2090,7 +2098,7 @@ class AdvancedOptimizer {
   ) {
     // Special handling for TEAM position
     if (position === "TEAM") {
-      console.log("Selecting TEAM position player...");
+      this.debugLog("Selecting TEAM position player...");
 
       // First try to get a TEAM player from the stack team
       let teamPlayers = this.playerPool.filter(
@@ -2103,7 +2111,7 @@ class AdvancedOptimizer {
 
       // If no TEAM players from stack team, get any TEAM player
       if (teamPlayers.length === 0) {
-        console.log(
+        this.debugLog(
           "No TEAM players from stack team, selecting any TEAM player"
         );
         teamPlayers = this.playerPool.filter(
@@ -2116,7 +2124,7 @@ class AdvancedOptimizer {
 
       // If still no TEAM players, this is an error condition
       if (teamPlayers.length === 0) {
-        console.error(
+        this.debugLog(
           "No TEAM position players available within salary constraint"
         );
         return null;
@@ -2452,20 +2460,7 @@ class AdvancedOptimizer {
       }
     }
 
-    // Check uniqueness against existing lineups
-    for (const existing of existingLineups) {
-      const existingIds = [
-        existing.cpt.id,
-        ...existing.players.map((p) => p.id),
-      ]
-        .sort()
-        .join(",");
-      const currentIds = playerIds.sort().join(",");
-
-      if (existingIds === currentIds) {
-        return false; // Duplicate lineup
-      }
-    }
+    // Note: Uniqueness check is handled by signature checking in the main generation loop
 
     return true;
   }
@@ -2496,9 +2491,17 @@ class AdvancedOptimizer {
     if (existingLineups.length === 0) return true;
     
     const currentPlayers = new Set([lineup.cpt.id, ...lineup.players.map(p => p.id)]);
-    const minDifferentPlayers = Math.max(2, Math.floor(currentPlayers.size * 0.3)); // At least 30% different players
     
-    for (const existing of existingLineups) {
+    // Scale diversity requirement based on how many lineups we have
+    // Start strict (25%) and relax to 15% as we generate more lineups
+    const diversityFactor = Math.max(0.15, 0.25 - (existingLineups.length * 0.001));
+    const minDifferentPlayers = Math.max(1, Math.floor(currentPlayers.size * diversityFactor));
+    
+    // Only check against recent lineups for efficiency with large counts
+    const checkCount = Math.min(existingLineups.length, 50);
+    const recentLineups = existingLineups.slice(-checkCount);
+    
+    for (const existing of recentLineups) {
       const existingPlayers = new Set([existing.cpt.id, ...existing.players.map(p => p.id)]);
       
       // Calculate intersection (same players)

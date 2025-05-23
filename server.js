@@ -1635,7 +1635,14 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
       });
     }
 
-    console.log(`Generating ${count} lineups with hybrid optimizer using ${strategy} strategy`);
+    // Calculate actual lineup count for generation (portfolio needs bulk generation)
+    const bulkMultiplier = customConfig.bulkGenerationMultiplier || 1;
+    const candidateCount = strategy === 'portfolio' ? count * bulkMultiplier : count;
+    
+    console.log(`Generating ${candidateCount} candidate lineups with hybrid optimizer using ${strategy} strategy`);
+    if (strategy === 'portfolio') {
+      console.log(`Will select best ${count} lineups from ${candidateCount} candidates (bulk multiplier: ${bulkMultiplier})`);
+    }
 
     // Use the same method as Advanced Optimizer - runSimulation
     // Create an AdvancedOptimizer instance for lineup generation
@@ -1676,14 +1683,28 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
     await lineupOptimizer.initialize(playerProjections, exposureSettings, []);
     
     // Generate lineups using the working runSimulation method
-    const result = await lineupOptimizer.runSimulation(count);
+    const result = await lineupOptimizer.runSimulation(candidateCount);
 
     if (result && result.lineups) {
-      // runSimulation already returns unique lineups, no need for additional filtering
-      console.log(`Advanced Optimizer generated ${result.lineups.length} lineups`);
+      console.log(`Advanced Optimizer generated ${result.lineups.length} candidate lineups`);
+      
+      // For portfolio strategy, select the best lineups from candidates
+      let selectedLineups = result.lineups;
+      if (strategy === 'portfolio' && result.lineups.length > count) {
+        // Sort by a combination of nexusScore and ROI for portfolio optimization
+        selectedLineups = result.lineups
+          .sort((a, b) => {
+            const scoreA = (a.nexusScore || 0) + (a.roi || 0) * 0.1;
+            const scoreB = (b.nexusScore || 0) + (b.roi || 0) * 0.1;
+            return scoreB - scoreA;
+          })
+          .slice(0, count);
+        
+        console.log(`Selected best ${selectedLineups.length} lineups from ${result.lineups.length} candidates for portfolio`);
+      }
       
       // Format lineups to match existing structure
-      const formattedLineups = result.lineups.map((lineup) => ({
+      const formattedLineups = selectedLineups.map((lineup) => ({
         id: lineup.id || generateRandomId(),
         name: lineup.name || `Hybrid Lineup ${generateRandomId()}`,
         cpt: {
