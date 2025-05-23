@@ -1,8 +1,9 @@
 class MetaDetector {
-  constructor() {
+  constructor(championTracker = null) {
     this.ready = false;
     this.metaCache = null;
     this.lastUpdate = null;
+    this.championTracker = championTracker;
     this.initialize();
   }
 
@@ -22,13 +23,12 @@ class MetaDetector {
   }
 
   async loadHistoricalData() {
-    // In production, this would load from database
-    // For now, we'll use simulated data
+    // Always start with fallback data to ensure service starts
     this.historicalMeta = {
       patches: [
         {
-          version: '13.20',
-          startDate: '2024-10-15',
+          version: '14.23',
+          startDate: new Date().toISOString().split('T')[0],
           championTrends: {
             'Azir': { pickRate: 0.45, winRate: 0.52, priority: 'high' },
             'Jinx': { pickRate: 0.38, winRate: 0.55, priority: 'high' },
@@ -43,7 +43,7 @@ class MetaDetector {
       ],
       playerPerformance: {
         'Faker': {
-          recentForm: [8.2, 7.8, 9.1, 8.5, 7.9], // Last 5 games
+          recentForm: [8.2, 7.8, 9.1, 8.5, 7.9],
           metaFit: 0.85,
           championPool: ['Azir', 'Orianna', 'Sylas', 'LeBlanc']
         },
@@ -54,6 +54,52 @@ class MetaDetector {
         }
       }
     };
+
+    // Try to load real data from champion tracker if available
+    if (this.championTracker) {
+      setTimeout(async () => {
+        try {
+          console.log('🔄 Loading real meta data from Champion Tracker...');
+          
+          const championStats = this.championTracker.getStats();
+          
+          if (championStats && championStats.champions.length > 0) {
+            console.log(`📊 Loaded ${championStats.champions.length} champions from recent matches`);
+            
+            // Convert to our format
+            const championTrends = {};
+            championStats.champions.slice(0, 10).forEach(champ => {
+              const pickRate = champ.picks / Math.max(1, championStats.totalGames);
+              championTrends[champ.championName] = {
+                pickRate: pickRate,
+                winRate: champ.winRate || 0.5,
+                priority: pickRate > 0.3 ? 'high' : pickRate > 0.1 ? 'medium' : 'low'
+              };
+            });
+
+            // Update with real data
+            this.historicalMeta.realChampionData = championStats.champions;
+            this.historicalMeta.patches[0].championTrends = championTrends;
+            
+            // Update player performance from recent forms
+            if (championStats.recentForms) {
+              championStats.recentForms.forEach(form => {
+                if (this.historicalMeta.playerPerformance[form.player]) {
+                  this.historicalMeta.playerPerformance[form.player].recentForm = 
+                    Array(5).fill(form.recentAvgFantasy || 20);
+                  this.historicalMeta.playerPerformance[form.player].metaFit = 
+                    form.formRating || 1.0;
+                }
+              });
+            }
+            
+            console.log('✅ Real meta data loaded successfully');
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to load real data, keeping fallback:', error.message);
+        }
+      }, 1000); // Load after 1 second delay
+    }
   }
 
   async getCurrentMetaInsights() {
@@ -90,7 +136,48 @@ class MetaDetector {
   }
 
   async analyzeTrends() {
-    // Analyze champion and strategy trends
+    // Use real champion data if available
+    if (this.historicalMeta?.realChampionData?.length > 0) {
+      const championData = this.historicalMeta.realChampionData;
+      
+      // Get top champions by average fantasy points
+      const risingChampions = championData
+        .filter(champ => champ.picks >= 3)
+        .slice(0, 3)
+        .map(champ => ({
+          name: champ.championName,
+          pickRate: champ.picks / Math.max(1, this.championTracker?.getStats()?.totalGames || 100),
+          winRate: champ.winRate || 0.5,
+          trend: `${champ.avgFantasyPoints.toFixed(1)} avg fantasy points`,
+          dfsImpact: champ.avgFantasyPoints > 25 ? 'High fantasy value champion' : 'Moderate fantasy impact'
+        }));
+
+      const decliningChampions = championData
+        .filter(champ => champ.avgFantasyPoints < 18 && champ.picks >= 2)
+        .slice(0, 2)
+        .map(champ => ({
+          name: champ.championName,
+          pickRate: champ.picks / Math.max(1, this.championTracker?.getStats()?.totalGames || 100),
+          winRate: champ.winRate || 0.5,
+          trend: `Low ${champ.avgFantasyPoints.toFixed(1)} avg fantasy points`,
+          dfsImpact: 'Reduced fantasy value in recent games'
+        }));
+
+      return {
+        rising_champions: risingChampions,
+        declining_champions: decliningChampions,
+        strategy_trends: [
+          {
+            name: 'Meta stability',
+            prevalence: 0.65,
+            trend: risingChampions.length > 5 ? 'diverse' : 'concentrated',
+            impact: 'Recent match data showing variety in champion selection'
+          }
+        ]
+      };
+    }
+
+    // Fallback to simulated data
     return {
       rising_champions: [
         {
@@ -217,8 +304,16 @@ class MetaDetector {
   }
 
   assessChampionPool(championPool) {
-    // Simple meta alignment check
-    const metaChampions = ['Azir', 'Orianna', 'Jinx', 'Thresh'];
+    // Check against actual meta champions if we have data
+    let metaChampions = ['Azir', 'Orianna', 'Jinx', 'Thresh'];
+    
+    if (this.historicalMeta?.realChampionData?.length > 0) {
+      // Use top 5 champions by fantasy points as "meta"
+      metaChampions = this.historicalMeta.realChampionData
+        .slice(0, 5)
+        .map(c => c.championName);
+    }
+    
     const alignment = championPool.filter(champ => metaChampions.includes(champ)).length / metaChampions.length;
     
     if (alignment > 0.7) return 'excellent';

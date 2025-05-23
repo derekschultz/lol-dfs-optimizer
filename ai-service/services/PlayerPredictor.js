@@ -1,8 +1,13 @@
+const MLModelService = require('./MLModelService');
+const ChampionPerformanceTracker = require('./ChampionPerformanceTracker');
+
 class PlayerPredictor {
-  constructor() {
+  constructor(mlService = null, championTracker = null) {
     this.ready = false;
     this.models = {};
     this.cache = new Map();
+    this.mlService = mlService || new MLModelService();
+    this.championTracker = championTracker;
     this.initialize();
   }
 
@@ -59,49 +64,92 @@ class PlayerPredictor {
       return this.cache.get(cacheKey);
     }
 
-    // Feature engineering
-    const features = this.extractFeatures(player, matchContext);
-    
-    // Generate predictions
-    const basePrediction = this.models.performance.predict(features);
-    const variance = this.models.variance.predict(features);
-    const ceiling = this.models.ceiling.predict(features);
-    const floor = this.models.floor.predict(features);
+    try {
+      // Use ML model if available, otherwise fallback to statistical model
+      let mlPrediction = null;
+      
+      console.log(`🔍 PlayerPredictor: ML Service Ready = ${this.mlService.isReady}, Player = ${player.name}`);
+      
+      if (this.mlService.isReady) {
+        const playerFeatures = this.mlService.extractPlayerFeatures(player, matchContext);
+        mlPrediction = await this.mlService.predictPlayerPerformance(playerFeatures, player);
+        console.log(`✅ ML Prediction completed for ${player.name}`);
+      }
 
-    const prediction = {
-      player: {
-        name: player.name,
-        team: player.team,
-        position: player.position
-      },
-      predictions: {
-        projected_points: basePrediction,
-        confidence_interval: {
-          lower: basePrediction - variance,
-          upper: basePrediction + variance
+      // Feature engineering for statistical model
+      const features = this.extractFeatures(player, matchContext);
+      
+      // Generate predictions (ML if available, otherwise statistical)
+      const basePrediction = mlPrediction ? mlPrediction.fantasyPoints : this.models.performance.predict(features);
+      const variance = mlPrediction ? mlPrediction.variance : this.models.variance.predict(features);
+      const ceiling = mlPrediction ? mlPrediction.ceiling : this.models.ceiling.predict(features);
+      const floor = mlPrediction ? mlPrediction.floor : this.models.floor.predict(features);
+
+      const prediction = {
+        player: {
+          name: player.name,
+          team: player.team,
+          position: player.position
         },
-        ceiling: ceiling,
-        floor: floor,
-        variance: variance
-      },
-      factors: this.generateExplanation(features, player),
-      confidence: this.calculateConfidence(features),
-      last_updated: new Date().toISOString()
-    };
+        predictions: {
+          projected_points: basePrediction,
+          confidence_interval: {
+            lower: basePrediction - variance,
+            upper: basePrediction + variance
+          },
+          ceiling: ceiling,
+          floor: floor,
+          variance: variance
+        },
+        factors: this.generateExplanation(features, player),
+        confidence: mlPrediction ? mlPrediction.confidence : this.calculateConfidence(features),
+        model_used: mlPrediction ? 'ml_neural_network' : 'statistical',
+        last_updated: new Date().toISOString()
+      };
 
-    // Cache for 15 minutes
-    this.cache.set(cacheKey, prediction);
-    setTimeout(() => this.cache.delete(cacheKey), 15 * 60 * 1000);
+      // Cache for 15 minutes
+      this.cache.set(cacheKey, prediction);
+      setTimeout(() => this.cache.delete(cacheKey), 15 * 60 * 1000);
 
-    return prediction;
+      return prediction;
+    } catch (error) {
+      console.warn('Error in ML prediction, using fallback:', error.message);
+      
+      // Fallback to basic statistical prediction
+      const features = this.extractFeatures(player, matchContext);
+      const basePrediction = this.models.performance.predict(features);
+      
+      return {
+        player: {
+          name: player.name,
+          team: player.team,
+          position: player.position
+        },
+        predictions: {
+          projected_points: basePrediction,
+          confidence_interval: { lower: basePrediction - 3, upper: basePrediction + 3 },
+          ceiling: basePrediction + 5,
+          floor: Math.max(0, basePrediction - 5),
+          variance: 3
+        },
+        factors: this.generateExplanation(features, player),
+        confidence: 0.65,
+        model_used: 'fallback',
+        last_updated: new Date().toISOString()
+      };
+    }
   }
 
   extractFeatures(player, matchContext) {
-    // Simulate feature extraction
+    // Get champion performance data if available
+    const championId = matchContext.championId || player.championId;
+    const championStats = championId ? this.championTracker.getChampionStats(championId) : null;
+    const championTier = championId ? this.championTracker.getChampionTier(championId) : 'C';
+    
     const baseFeatures = {
       // Player characteristics
       current_form: this.calculateRecentForm(player),
-      season_average: player.projectedPoints || 8.0,
+      season_average: player.projectedPoints || 20.0,
       position_strength: this.getPositionStrength(player.position),
       
       // Team factors
@@ -116,6 +164,13 @@ class PlayerPredictor {
       // Meta factors
       meta_fit: this.getMetaFit(player),
       champion_pool_strength: this.getChampionPoolStrength(player),
+      
+      // Champion performance (NEW - using real data)
+      champion_win_rate: championStats?.winRate || 0.5,
+      champion_avg_fantasy: championStats?.avgFantasyPoints || 20,
+      champion_pick_rate: championStats?.pickRate || 0.1,
+      champion_tier: championTier === 'S' ? 1.0 : championTier === 'A' ? 0.8 : 
+                     championTier === 'B' ? 0.6 : championTier === 'C' ? 0.4 : 0.2,
       
       // Historical performance
       vs_opponent_history: this.getOpponentHistory(player, matchContext.opponent),

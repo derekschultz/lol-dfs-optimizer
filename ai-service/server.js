@@ -3,6 +3,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const http = require('http');
 const socketIo = require('socket.io');
+require('dotenv').config();
 
 // Import AI services
 const RecommendationEngine = require('./services/RecommendationEngine');
@@ -11,6 +12,9 @@ const PlayerPredictor = require('./services/PlayerPredictor');
 const RiskAssessor = require('./services/RiskAssessor');
 const DataCollector = require('./services/DataCollector');
 const DataSyncService = require('./services/DataSyncService');
+// Removed LoL Esports API - using Riot API only
+const MLModelService = require('./services/MLModelService');
+const ChampionPerformanceTracker = require('./services/ChampionPerformanceTracker');
 
 const app = express();
 const server = http.createServer(app);
@@ -28,11 +32,15 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Initialize AI services
-const recommendationEngine = new RecommendationEngine();
-const metaDetector = new MetaDetector();
-const playerPredictor = new PlayerPredictor();
-const riskAssessor = new RiskAssessor();
+// Initialize shared services first
+const mlModelService = new MLModelService();
+const championTracker = new ChampionPerformanceTracker(process.env.RIOT_API_KEY);
+
+// Initialize AI services with shared dependencies
+const recommendationEngine = new RecommendationEngine(mlModelService);
+const metaDetector = new MetaDetector(championTracker);
+const playerPredictor = new PlayerPredictor(mlModelService, championTracker);
+const riskAssessor = new RiskAssessor(mlModelService);
 const dataCollector = new DataCollector();
 const dataSyncService = new DataSyncService();
 
@@ -49,6 +57,520 @@ app.get('/health', (req, res) => {
       data_sync: dataSyncService.isRunning
     }
   });
+});
+
+// Test Riot API integration
+app.get('/api/ai/test-riot-api', async (req, res) => {
+  try {
+    if (!process.env.RIOT_API_KEY) {
+      return res.json({
+        success: false,
+        error: 'RIOT_API_KEY not configured in .env file'
+      });
+    }
+    
+    const RiotGamesAPI = require('./services/RiotGamesAPI');
+    const riotAPI = new RiotGamesAPI(process.env.RIOT_API_KEY);
+    
+    // Test with an active NA account
+    const summonerName = 'GeneralSnivy';  // You can change this to any active player
+    const region = 'NA';
+    
+    // Get summoner
+    const summoner = await riotAPI.getSummonerByName(summonerName, region);
+    
+    // Get recent matches
+    const matchIds = await riotAPI.getMatchHistory(summoner.puuid, region, 5);
+    
+    // Get details for first match
+    let matchData = null;
+    if (matchIds.length > 0) {
+      matchData = await riotAPI.processMatchForStats(matchIds[0], region);
+    }
+    
+    res.json({
+      success: true,
+      summoner: {
+        name: summoner.name,
+        level: summoner.summonerLevel,
+        puuid: summoner.puuid
+      },
+      recent_matches: matchIds.length,
+      sample_match: matchData ? {
+        matchId: matchData.matchId,
+        duration: Math.round(matchData.gameDuration / 60) + ' minutes',
+        player_stats: matchData.playerStats.find(p => p.puuid === summoner.puuid)?.stats || null
+      } : null
+    });
+  } catch (error) {
+    console.error('Error testing Riot API:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Test endpoint for ML scaling
+app.post('/api/ai/test-ml-scaling', async (req, res) => {
+  try {
+    const { player } = req.body;
+    
+    if (!player || !player.projectedPoints) {
+      return res.status(400).json({
+        success: false,
+        error: 'Player with projectedPoints required'
+      });
+    }
+    
+    // Test ML prediction
+    const playerFeatures = mlModelService.extractPlayerFeatures(player, {});
+    const mlPrediction = await mlModelService.predictPlayerPerformance(playerFeatures, player);
+    
+    res.json({
+      success: true,
+      input: {
+        player_name: player.name,
+        base_projection: player.projectedPoints
+      },
+      ml_prediction: mlPrediction,
+      adjustment: {
+        points_added: mlPrediction.fantasyPoints - player.projectedPoints,
+        percentage: ((mlPrediction.fantasyPoints - player.projectedPoints) / player.projectedPoints * 100).toFixed(1) + '%'
+      }
+    });
+  } catch (error) {
+    console.error('Error testing ML scaling:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Update champion data from Riot API
+app.post('/api/ai/update-riot-data', async (req, res) => {
+  try {
+    if (!process.env.RIOT_API_KEY) {
+      return res.json({
+        success: false,
+        error: 'RIOT_API_KEY not configured'
+      });
+    }
+    
+    // Trigger update with specific players
+    await championTracker.updateStats();
+    
+    const stats = championTracker.getStats();
+    res.json({
+      success: true,
+      message: 'Champion data update initiated',
+      stats: {
+        totalGames: stats.totalGames,
+        champions: stats.champions.length,
+        players: stats.recentForms.length
+      }
+    });
+  } catch (error) {
+    console.error('Error updating Riot data:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Test endpoint for champion performance
+app.get('/api/ai/champion-stats', async (req, res) => {
+  try {
+    const topChampions = championTracker.getTopChampions(15);
+    const totalChampions = championTracker.championStats.size;
+    
+    res.json({
+      success: true,
+      champion_data: {
+        total_champions: totalChampions,
+        last_update: championTracker.lastUpdate ? new Date(championTracker.lastUpdate).toISOString() : null,
+        top_performers: topChampions.map(champ => ({
+          championName: champ.championName,
+          tier: championTracker.getChampionTier(champ.championName),
+          avgFantasyPoints: champ.avgFantasyPoints?.toFixed(2),
+          winRate: champ.winRate ? (champ.winRate * 100).toFixed(1) + '%' : 'N/A',
+          picks: champ.picks,
+          avgKDA: champ.avgKDA?.toFixed(2) || 'N/A'
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error getting champion stats:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Player form analysis endpoints
+app.get('/api/ai/player-form', async (req, res) => {
+  try {
+    const { player } = req.query;
+    
+    if (player) {
+      // Get specific player form
+      const form = championTracker.getPlayerForm(player);
+      if (!form || form.trend === 'stable') {
+        return res.status(404).json({
+          success: false,
+          error: `No form data available for player: ${player}`
+        });
+      }
+      
+      res.json({
+        success: true,
+        player_form: {
+          player,
+          ...form
+        }
+      });
+    } else {
+      // Get all player forms
+      const stats = championTracker.getStats();
+      const hotPlayers = stats.recentForms.filter(f => f.hotStreak || f.trend === 'hot');
+      const coldPlayers = stats.recentForms.filter(f => f.coldStreak || f.trend === 'cold');
+      
+      res.json({
+        success: true,
+        form_analysis: {
+          hot_players: hotPlayers.slice(0, 5),
+          cold_players: coldPlayers.slice(0, 5),
+          all_forms: stats.recentForms,
+          last_updated: championTracker.lastUpdate
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error getting player form:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/ai/streaks', async (req, res) => {
+  try {
+    const stats = championTracker.getStats();
+    const forms = stats.recentForms;
+    
+    const winStreaks = forms
+      .filter(f => f.streak?.type === 'win' && f.streak.count >= 2)
+      .sort((a, b) => b.streak.count - a.streak.count);
+      
+    const lossStreaks = forms
+      .filter(f => f.streak?.type === 'loss' && f.streak.count >= 2)
+      .sort((a, b) => b.streak.count - a.streak.count);
+    
+    res.json({
+      success: true,
+      streaks: {
+        win_streaks: winStreaks.map(f => ({
+          player: f.player,
+          streak_count: f.streak.count,
+          recent_fantasy_avg: f.recentAvgFantasy?.toFixed(1),
+          form_rating: f.formRating?.toFixed(2)
+        })),
+        loss_streaks: lossStreaks.map(f => ({
+          player: f.player,
+          streak_count: f.streak.count,
+          recent_fantasy_avg: f.recentAvgFantasy?.toFixed(1),
+          form_rating: f.formRating?.toFixed(2)
+        })),
+        summary: {
+          players_on_win_streaks: winStreaks.length,
+          players_on_loss_streaks: lossStreaks.length,
+          longest_win_streak: winStreaks[0]?.streak?.count || 0,
+          longest_loss_streak: lossStreaks[0]?.streak?.count || 0
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting streaks:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Player mapping management endpoints
+app.get('/api/ai/player-mappings', (req, res) => {
+  try {
+    const mappings = Array.from(championTracker.proPlayerMappings.entries()).map(([name, data]) => ({
+      dfsName: name,
+      ...data,
+      hasPuuid: !!data.puuid
+    }));
+    
+    const successful = mappings.filter(m => m.hasPuuid);
+    const failed = mappings.filter(m => !m.hasPuuid);
+    
+    res.json({
+      success: true,
+      player_mappings: {
+        total: mappings.length,
+        successful: successful.length,
+        failed: failed.length,
+        mappings: mappings,
+        successful_players: successful.map(p => p.dfsName),
+        failed_players: failed.map(p => ({ name: p.dfsName, summoner: p.summonerName, region: p.region }))
+      }
+    });
+  } catch (error) {
+    console.error('Error getting player mappings:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/ai/test-player-lookup', async (req, res) => {
+  try {
+    const { summonerName, region, tagLine } = req.body;
+    
+    if (!summonerName || !region) {
+      return res.status(400).json({
+        success: false,
+        error: 'summonerName and region are required'
+      });
+    }
+    
+    const RiotGamesAPI = require('./services/RiotGamesAPI');
+    const riotAPI = new RiotGamesAPI(process.env.RIOT_API_KEY);
+    
+    try {
+      const summoner = await riotAPI.getSummonerByName(summonerName, region, tagLine);
+      
+      res.json({
+        success: true,
+        summoner_found: true,
+        data: {
+          name: summoner.name,
+          level: summoner.summonerLevel,
+          puuid: summoner.puuid,
+          accountId: summoner.accountId,
+          id: summoner.id
+        }
+      });
+    } catch (lookupError) {
+      res.json({
+        success: false,
+        summoner_found: false,
+        error: lookupError.response?.status || lookupError.message,
+        attempted: {
+          summonerName,
+          region,
+          tagLine: tagLine || 'none'
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error testing player lookup:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/ai/matchup', async (req, res) => {
+  try {
+    const { player1, player2, team1, team2 } = req.query;
+    
+    if (team1 && team2) {
+      // Team vs team analysis
+      const analysis = await championTracker.getTeamMatchupAnalysis(team1, team2);
+      if (!analysis) {
+        return res.status(404).json({
+          success: false,
+          error: `No data available for teams: ${team1} vs ${team2}`
+        });
+      }
+      
+      res.json({
+        success: true,
+        matchup_type: 'team',
+        ...analysis
+      });
+    } else if (player1 && player2) {
+      // Player vs player analysis
+      const analysis = await championTracker.getMatchupAnalysis(player1, player2);
+      if (!analysis) {
+        return res.status(404).json({
+          success: false,
+          error: `No data available for players: ${player1} vs ${player2}`
+        });
+      }
+      
+      res.json({
+        success: true,
+        matchup_type: 'player',
+        ...analysis
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: 'Please provide either player1 & player2 or team1 & team2 parameters'
+      });
+    }
+  } catch (error) {
+    console.error('Error getting matchup analysis:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Comprehensive AI insights endpoint
+app.get('/api/ai/insights', async (req, res) => {
+  try {
+    const stats = championTracker.getStats();
+    const metaInsights = await metaDetector.getCurrentMetaInsights();
+    
+    // Get hot/cold players
+    const hotPlayers = stats.recentForms.filter(f => f.hotStreak || f.trend === 'hot').slice(0, 5);
+    const coldPlayers = stats.recentForms.filter(f => f.coldStreak || f.trend === 'cold').slice(0, 5);
+    
+    // Get top performing champions
+    const topChampions = championTracker.getTopChampions(10);
+    
+    // Get streak information
+    const winStreaks = stats.recentForms
+      .filter(f => f.streak?.type === 'win' && f.streak.count >= 2)
+      .sort((a, b) => b.streak.count - a.streak.count)
+      .slice(0, 3);
+      
+    const lossStreaks = stats.recentForms
+      .filter(f => f.streak?.type === 'loss' && f.streak.count >= 2)
+      .sort((a, b) => b.streak.count - a.streak.count)
+      .slice(0, 3);
+    
+    // Calculate team form averages
+    const teamForms = new Map();
+    stats.recentForms.forEach(form => {
+      const mapping = championTracker.proPlayerMappings.get(form.player);
+      if (mapping && mapping.team) {
+        if (!teamForms.has(mapping.team)) {
+          teamForms.set(mapping.team, { players: [], avgForm: 0, hotPlayers: 0 });
+        }
+        const team = teamForms.get(mapping.team);
+        team.players.push(form);
+        team.hotPlayers += form.hotStreak ? 1 : 0;
+      }
+    });
+    
+    // Calculate team averages
+    for (const [teamName, team] of teamForms) {
+      team.avgForm = team.players.reduce((sum, p) => sum + (p.formRating || 1), 0) / team.players.length;
+    }
+    
+    const topTeams = Array.from(teamForms.entries())
+      .sort(([,a], [,b]) => b.avgForm - a.avgForm)
+      .slice(0, 5)
+      .map(([name, data]) => ({
+        team: name,
+        avgFormRating: data.avgForm.toFixed(2),
+        playersInForm: data.players.length,
+        hotPlayers: data.hotPlayers
+      }));
+    
+    res.json({
+      success: true,
+      ai_insights: {
+        data_status: {
+          total_games_analyzed: stats.totalGames,
+          champions_tracked: stats.champions.length,
+          players_analyzed: stats.recentForms.length,
+          last_update: championTracker.lastUpdate,
+          ml_models_ready: mlModelService.isReady
+        },
+        
+        player_insights: {
+          hot_players: hotPlayers.map(p => ({
+            player: p.player,
+            trend: p.trend,
+            recent_avg: p.recentAvgFantasy?.toFixed(1),
+            streak: p.streak,
+            form_rating: p.formRating?.toFixed(2),
+            projection_multiplier: p.projectionMultiplier?.toFixed(2)
+          })),
+          
+          cold_players: coldPlayers.map(p => ({
+            player: p.player,
+            trend: p.trend,
+            recent_avg: p.recentAvgFantasy?.toFixed(1),
+            streak: p.streak,
+            form_rating: p.formRating?.toFixed(2),
+            projection_multiplier: p.projectionMultiplier?.toFixed(2)
+          })),
+          
+          win_streaks: winStreaks.map(p => ({
+            player: p.player,
+            streak_count: p.streak.count,
+            recent_fantasy_avg: p.recentAvgFantasy?.toFixed(1)
+          })),
+          
+          loss_streaks: lossStreaks.map(p => ({
+            player: p.player,
+            streak_count: p.streak.count,
+            recent_fantasy_avg: p.recentAvgFantasy?.toFixed(1)
+          }))
+        },
+        
+        champion_insights: {
+          top_performers: topChampions.slice(0, 5).map(c => ({
+            champion: c.championName,
+            tier: championTracker.getChampionTier(c.championName),
+            avg_fantasy: c.avgFantasyPoints?.toFixed(1),
+            win_rate: c.winRate ? (c.winRate * 100).toFixed(1) + '%' : 'N/A',
+            games: c.picks
+          })),
+          
+          meta_trends: metaInsights.trends?.rising_champions?.slice(0, 3) || []
+        },
+        
+        team_insights: {
+          top_form_teams: topTeams,
+          team_analysis: metaInsights.teamInsights || []
+        },
+        
+        recommendations: {
+          captain_candidates: hotPlayers.slice(0, 3).map(p => ({
+            player: p.player,
+            reason: `${p.trend} form with ${p.recentAvgFantasy?.toFixed(1)} avg fantasy points`
+          })),
+          
+          avoid_players: coldPlayers.slice(0, 2).map(p => ({
+            player: p.player,
+            reason: `${p.trend} trend with ${p.streak?.type === 'loss' ? p.streak.count + ' game loss streak' : 'declining performance'}`
+          })),
+          
+          stack_recommendations: topTeams.slice(0, 2).map(t => ({
+            team: t.team,
+            reason: `${t.avgFormRating} avg form rating with ${t.hotPlayers} players in hot form`
+          }))
+        }
+      },
+      generated_at: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error generating comprehensive insights:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // AI Insights Endpoints
@@ -147,6 +669,36 @@ app.get('/api/ai/meta-insights', async (req, res) => {
       success: false,
       error: 'Failed to get meta insights',
       details: error.message
+    });
+  }
+});
+
+// Removed second LoL Esports API test endpoint - using Riot API only
+
+// ML Model information endpoint
+app.get('/api/ai/ml-models', async (req, res) => {
+  try {
+    const modelInfo = {
+      status: mlModelService.isReady ? 'ready' : 'initializing',
+      models: mlModelService.isReady ? mlModelService.getModelInfo() : {},
+      tensorflow_backend: require('@tensorflow/tfjs').getBackend(),
+      features: {
+        player_performance_prediction: mlModelService.isReady,
+        lineup_scoring: mlModelService.isReady,
+        risk_assessment: mlModelService.isReady
+      },
+      generated_at: new Date().toISOString()
+    };
+
+    res.json({
+      success: true,
+      ml_service: modelInfo
+    });
+  } catch (error) {
+    console.error('Error getting ML model info:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });

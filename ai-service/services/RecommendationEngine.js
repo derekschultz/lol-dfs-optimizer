@@ -1,11 +1,11 @@
-const { PythonShell } = require('python-shell');
-const path = require('path');
+const MLModelService = require('./MLModelService');
 
 class RecommendationEngine {
-  constructor() {
+  constructor(mlService = null) {
     this.ready = false;
     this.models = null;
     this.cache = new Map();
+    this.mlService = mlService || new MLModelService();
     this.initialize();
   }
 
@@ -372,6 +372,46 @@ class RecommendationEngine {
 
   generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
+  }
+
+  // ML-powered lineup scoring
+  async scoreLlmLineups(lineups) {
+    if (!this.mlService.isReady) {
+      return [];
+    }
+
+    const scoredLineups = [];
+
+    for (const [index, lineup] of lineups.entries()) {
+      try {
+        const lineupFeatures = this.mlService.extractLineupFeatures(lineup);
+        const mlScore = await this.mlService.scoreLineup(lineupFeatures);
+        
+        scoredLineups.push({
+          id: index,
+          lineup: lineup,
+          mlScore: mlScore.score,
+          confidence: mlScore.confidence,
+          reason: this.generateScoreReason(mlScore.score, lineupFeatures)
+        });
+      } catch (error) {
+        console.warn(`Failed to score lineup ${index}:`, error.message);
+      }
+    }
+
+    return scoredLineups.sort((a, b) => b.mlScore - a.mlScore);
+  }
+
+  generateScoreReason(score, features) {
+    if (score > 0.8) {
+      return 'Excellent lineup optimization with balanced risk/reward';
+    } else if (score > 0.6) {
+      return 'Good lineup with minor optimization opportunities';
+    } else if (score > 0.4) {
+      return 'Average lineup with several improvement areas';
+    } else {
+      return 'Below-average lineup requiring significant optimization';
+    }
   }
 }
 

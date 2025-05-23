@@ -1,5 +1,7 @@
+const MLModelService = require('./MLModelService');
+
 class RiskAssessor {
-  constructor() {
+  constructor(mlService = null) {
     this.ready = false;
     this.riskThresholds = {
       player_exposure: { low: 15, medium: 25, high: 35 },
@@ -7,6 +9,7 @@ class RiskAssessor {
       correlation: { low: 0.3, medium: 0.6, high: 0.8 },
       variance: { low: 0.8, medium: 1.2, high: 1.8 }
     };
+    this.mlService = mlService || new MLModelService();
     this.initialize();
   }
 
@@ -48,8 +51,36 @@ class RiskAssessor {
       generated_at: new Date().toISOString()
     };
 
-    // Calculate overall risk score
-    analysis.risk_score = this.calculateOverallRiskScore(analysis.detailed_analysis);
+    // Add ML-based risk assessment if available
+    if (this.mlService.isReady) {
+      try {
+        const riskFeatures = this.mlService.extractRiskFeatures(lineups);
+        const mlRiskAssessment = await this.mlService.assessRisk(riskFeatures);
+        
+        analysis.ml_risk_assessment = {
+          concentration_risk: mlRiskAssessment.concentrationRisk,
+          variance_risk: mlRiskAssessment.varianceRisk,
+          meta_risk: mlRiskAssessment.metaRisk,
+          overall_risk: mlRiskAssessment.overallRisk,
+          confidence: mlRiskAssessment.confidence,
+          model_used: 'ml_neural_network'
+        };
+
+        // Blend ML and traditional risk scores
+        const mlWeight = 0.4; // 40% ML, 60% traditional
+        const traditionalScore = this.calculateOverallRiskScore(analysis.detailed_analysis);
+        const mlScore = mlRiskAssessment.overallRisk * 100;
+        
+        analysis.risk_score = (traditionalScore * (1 - mlWeight)) + (mlScore * mlWeight);
+      } catch (error) {
+        console.warn('ML risk assessment failed:', error.message);
+        analysis.risk_score = this.calculateOverallRiskScore(analysis.detailed_analysis);
+      }
+    } else {
+      // Calculate overall risk score using traditional methods
+      analysis.risk_score = this.calculateOverallRiskScore(analysis.detailed_analysis);
+    }
+    
     analysis.overall_risk = this.categorizeRisk(analysis.risk_score);
 
     // Generate risk factors and recommendations
