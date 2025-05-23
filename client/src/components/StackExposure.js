@@ -9,10 +9,32 @@ const StackExposure = ({ lineups = [], playerData = [], onTargetExposureUpdate }
 
   // Calculate stack exposures from lineups
   const stackExposures = useMemo(() => {
-    if (lineups.length === 0) return [];
-
+    // Only show teams if we have player data uploaded
+    if (!playerData || playerData.length === 0) {
+      return [];
+    }
+    
     // Get unique teams from player data
-    const teams = [...new Set(playerData.map(p => p.team))].filter(Boolean);
+    let teams = [...new Set(playerData.map(p => p.team))].filter(Boolean);
+    
+    // If no teams from player data, try to get from lineups as fallback
+    if (teams.length === 0 && lineups.length > 0) {
+      const lineupTeams = new Set();
+      lineups.forEach(lineup => {
+        if (lineup.cpt?.team) lineupTeams.add(lineup.cpt.team);
+        if (lineup.players) {
+          lineup.players.forEach(player => {
+            if (player?.team) lineupTeams.add(player.team);
+          });
+        }
+      });
+      teams = [...lineupTeams];
+    }
+    
+    // If still no teams, return empty (don't show default teams without data)
+    if (teams.length === 0) {
+      return [];
+    }
     
     // Initialize team stack data
     const teamStackData = teams.map(team => ({
@@ -267,7 +289,12 @@ const StackExposure = ({ lineups = [], playerData = [], onTargetExposureUpdate }
           color: "#64748B", 
           margin: 0 
         }}>
-          Track and manage team stack exposure percentages across your lineups
+          {!playerData || playerData.length === 0
+            ? "Upload player projections (ROO) and team stacks to view and set target exposures"
+            : lineups.length > 0 
+              ? `Track and manage team stack exposure percentages across your ${lineups.length} lineups`
+              : "Set target stack exposure percentages before generating lineups"
+          }
         </p>
       </div>
 
@@ -364,13 +391,31 @@ const StackExposure = ({ lineups = [], playerData = [], onTargetExposureUpdate }
       {filteredExposures.length === 0 ? (
         <div style={{ 
           textAlign: "center", 
-          padding: "2rem", 
-          color: "#9CA3AF" 
+          padding: "3rem 2rem", 
+          color: "#64748B",
+          backgroundColor: "#1E293B",
+          borderRadius: "8px",
+          border: "1px solid #334155"
         }}>
-          {lineups.length === 0 
-            ? "No lineups available to calculate stack exposure"
-            : "No team data available"
-          }
+          <div style={{ marginBottom: "16px" }}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ margin: "0 auto", display: "block" }}>
+              <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <h3 style={{ fontSize: "18px", fontWeight: "600", color: "#E2E8F0", margin: "0 0 8px 0" }}>
+            Upload Data Required
+          </h3>
+          <p style={{ margin: "0 0 16px 0", lineHeight: "1.5" }}>
+            {!playerData || playerData.length === 0
+              ? "Upload player projections (ROO) and team stacks on the Upload tab to view teams and set target exposures."
+              : "No team data available - check your uploaded player projections file."
+            }
+          </p>
+          {(!playerData || playerData.length === 0) && (
+            <p style={{ fontSize: "14px", color: "#94A3B8", margin: 0 }}>
+              Once uploaded, you'll be able to set target stack exposures for each team before generating lineups.
+            </p>
+          )}
         </div>
       ) : (
         <div style={{ overflowX: "auto" }}>
@@ -427,21 +472,6 @@ const StackExposure = ({ lineups = [], playerData = [], onTargetExposureUpdate }
                 }} onClick={() => handleSort("minExp")}>
                   <span style={{ display: "flex", alignItems: "center", gap: "4px", justifyContent: "center" }}>
                     {activeStackSize === "all" ? "4" : activeStackSize}-stacks Exp {getSortIcon("minExp")}
-                    <button
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "#94A3B8",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        marginLeft: "4px"
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                      }}
-                    >
-                      ⌄
-                    </button>
                   </span>
                 </th>
                 <th style={{ 

@@ -1334,20 +1334,20 @@ const HybridOptimizerUI = ({
           {optimizationMode === "portfolio" && (
             <div className="portfolio-summary">
               <div className="summary-stat">
-                <span className="stat-label">Portfolio Size:</span>
+                <span className="stat-label">Portfolio Size: </span>
                 <span className="stat-value">
                   {portfolioConfig.portfolioSize} lineups
                 </span>
               </div>
               <div className="summary-stat">
-                <span className="stat-label">Candidates:</span>
+                <span className="stat-label">Candidates: </span>
                 <span className="stat-value">
                   {portfolioConfig.portfolioSize *
                     portfolioConfig.bulkMultiplier}
                 </span>
               </div>
               <div className="summary-stat">
-                <span className="stat-label">Strategy:</span>
+                <span className="stat-label">Strategy: </span>
                 <span className="stat-value">
                   {Math.round(portfolioConfig.highFloor * 100)}% Floor /
                   {Math.round(portfolioConfig.highCeiling * 100)}% Ceiling /
