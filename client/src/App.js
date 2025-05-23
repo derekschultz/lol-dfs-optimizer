@@ -1214,35 +1214,6 @@ const App = () => {
               }}
             >
               <h2 className="card-title">My Lineups ({lineups.length})</h2>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <div className="dropdown">
-                  <button className="btn">Export</button>
-                  <div className="dropdown-content">
-                    <button onClick={() => exportLineups("csv")}>
-                      CSV Format
-                    </button>
-                    <button onClick={() => exportLineups("json")}>
-                      JSON Format
-                    </button>
-                    <button onClick={() => exportLineups("dk")}>
-                      DraftKings Format
-                    </button>
-                  </div>
-                </div>
-                <button
-                  className="btn"
-                  style={{ backgroundColor: "#38b2ac", color: "white" }}
-                  onClick={() => setActiveTab("exposure")}
-                >
-                  Manage Exposure
-                </button>
-                <button
-                  className="btn btn-success"
-                  onClick={() => generateLineups(1)}
-                >
-                  Add Lineup
-                </button>
-              </div>
             </div>
 
             {lineups.length > 0 ? (

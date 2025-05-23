@@ -567,6 +567,12 @@ class AdvancedOptimizer {
       teamStacks: new Map(), // "team_stackSize" -> lineup count (lineups with X-stack)
       positions: new Map(),
       stackLineups: new Map(), // stackSize -> lineup count (for overall stack tracking)
+      
+      // Enhanced tracking
+      qualityAdjustedExposures: new Map(), // Exposure weighted by lineup strength
+      synergyScores: new Map(), // Track stack synergy effectiveness
+      correlationMatrix: new Map(), // Dynamic correlation tracking
+      exposurePredictions: new Map(), // Predicted exposures for remaining lineups
     };
 
     if (!this.existingLineups || this.existingLineups.length === 0) {
@@ -689,6 +695,11 @@ class AdvancedOptimizer {
     allPlayers.forEach(player => {
       if (!player || !player.id) return;
       
+      // Safety check for exposureTracking
+      if (!this.exposureTracking || !this.exposureTracking.qualityAdjustedExposures) {
+        return;
+      }
+      
       const currentQualityExposure = this.exposureTracking.qualityAdjustedExposures.get(player.id) || 0;
       this.exposureTracking.qualityAdjustedExposures.set(player.id, currentQualityExposure + qualityScore);
     });
@@ -778,6 +789,11 @@ class AdvancedOptimizer {
    * Update synergy scores for team stacks
    */
   _updateSynergyScores(lineup, qualityScore) {
+    // Safety check for exposureTracking
+    if (!this.exposureTracking || !this.exposureTracking.synergyScores) {
+      return;
+    }
+    
     const teamCounts = {};
     const allPlayers = [];
     if (lineup.cpt) allPlayers.push(lineup.cpt);
@@ -804,6 +820,11 @@ class AdvancedOptimizer {
    * Update dynamic correlation matrix
    */
   _updateCorrelationMatrix(lineup, qualityScore) {
+    // Safety check for exposureTracking
+    if (!this.exposureTracking || !this.exposureTracking.correlationMatrix) {
+      return;
+    }
+    
     const allPlayers = [];
     if (lineup.cpt) allPlayers.push(lineup.cpt);
     if (lineup.players) allPlayers.push(...lineup.players);
@@ -820,10 +841,10 @@ class AdvancedOptimizer {
           
           // Calculate correlation bonus based on team, position, etc.
           let corrBonus = 0;
-          if (player1.team === player2.team) {
+          if (player1.team === player2.team && this.config?.correlation?.sameTeam) {
             corrBonus += this.config.correlation.sameTeam;
           }
-          if (player1.position === player2.position) {
+          if (player1.position === player2.position && this.config?.correlation?.sameTeamSamePosition) {
             corrBonus += this.config.correlation.sameTeamSamePosition;
           }
           
@@ -3735,34 +3756,132 @@ class AdvancedOptimizer {
    * Update adaptive targeting using Bayesian methods
    */
   _updateAdaptiveTargeting(currentLineupCount, totalTargetLineups) {
-    if (currentLineupCount < 5) return; // Need some data before adapting
+    // Always update accuracy metrics, but only adapt targeting after 5 lineups
+    const shouldAdapt = currentLineupCount >= 5;
+    
+    // Safety check for exposureTracking
+    if (!this.exposureTracking || !this.exposureTracking.exposurePredictions) {
+      return;
+    }
     
     const progress = currentLineupCount / totalTargetLineups;
     const remaining = totalTargetLineups - currentLineupCount;
     
-    // Update target exposures based on current performance
-    this.teamStackExposures.forEach(stackExp => {
-      const stackKey = `${stackExp.team}_${stackExp.stackSize}`;
-      const currentCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
-      const currentExposure = currentCount / currentLineupCount;
-      const targetExposure = (stackExp.target || 0) / 100;
+    // Always update accuracy metrics
+    this._updateAllAccuracyMetrics(currentLineupCount, totalTargetLineups);
+    
+    // Only adapt targeting after we have enough data
+    if (shouldAdapt) {
+      // Update target exposures based on current performance
+      this.teamStackExposures.forEach(stackExp => {
+        const stackKey = `${stackExp.team}_${stackExp.stackSize}`;
+        const currentCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+        const currentExposure = currentCount / currentLineupCount;
+        const targetExposure = (stackExp.target || 0) / 100;
+        
+        if (targetExposure > 0) {
+          // Bayesian update of target based on current performance
+          const adjustedTarget = this._bayesianTargetUpdate(
+            targetExposure,
+            currentExposure,
+            progress,
+            remaining
+          );
+          
+          // Store updated target in exposure tracking for future decisions
+          this.exposureTracking.exposurePredictions.set(stackKey, adjustedTarget);
+        }
+      });
+    }
+  }
+
+  /**
+   * Update all accuracy metrics (team stacks and player exposures)
+   */
+  _updateAllAccuracyMetrics(currentLineupCount, totalTargetLineups) {
+    const progress = currentLineupCount / totalTargetLineups;
+    
+    // Track team stack accuracy
+    if (this.teamStackExposures) {
+      this.teamStackExposures.forEach(stackExp => {
+        const stackKey = `${stackExp.team}_${stackExp.stackSize}`;
+        const currentCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+        const currentExposure = currentCount / currentLineupCount;
+        const targetExposure = (stackExp.target || 0) / 100;
+        
+        if (targetExposure > 0) {
+          this._updateAccuracyMetrics(stackKey, targetExposure, currentExposure, progress);
+        }
+      });
+    }
+    
+    // Track player exposure accuracy
+    if (this.playerExposures && this.playerExposures.length > 0) {
+      this.playerExposures.forEach(playerExp => {
+        const playerId = playerExp.playerId || playerExp.player_id;
+        if (playerId) {
+          const currentCount = this.exposureTracking.players.get(playerId) || 0;
+          const currentExposure = currentCount / currentLineupCount;
+          const targetExposure = (playerExp.target || 0) / 100;
+          
+          if (targetExposure > 0) {
+            const playerKey = `player_${playerId}`;
+            this._updateAccuracyMetrics(playerKey, targetExposure, currentExposure, progress);
+          }
+        }
+      });
+    }
+    
+    // Add basic accuracy metrics even without specific targets
+    if (currentLineupCount > 0) {
+      let overallDeviation = 0;
       
-      if (targetExposure > 0) {
-        // Bayesian update of target based on current performance
-        const adjustedTarget = this._bayesianTargetUpdate(
-          targetExposure,
-          currentExposure,
-          progress,
-          remaining
-        );
-        
-        // Store updated target in exposure tracking for future decisions
-        this.exposureTracking.exposurePredictions.set(stackKey, adjustedTarget);
-        
-        // Update accuracy tracking
-        this._updateAccuracyMetrics(stackKey, targetExposure, currentExposure, progress);
+      // If we have specific targets, use them
+      const totalTargetExposures = this.teamStackExposures ? this.teamStackExposures.reduce((sum, exp) => sum + (exp.target || 0), 0) : 0;
+      
+      if (totalTargetExposures > 0) {
+        const totalActualExposures = Array.from(this.exposureTracking.teamStacks.values()).reduce((sum, count) => sum + (count / currentLineupCount), 0) * 100;
+        overallDeviation = Math.abs(totalActualExposures - totalTargetExposures) / 100;
+      } else {
+        // Fallback: measure diversity as accuracy (ideal = balanced distribution)
+        const playerCounts = Array.from(this.exposureTracking.players.values());
+        if (playerCounts.length > 0) {
+          const avgPlayerUsage = playerCounts.reduce((sum, count) => sum + count, 0) / playerCounts.length;
+          const variance = playerCounts.reduce((sum, count) => sum + Math.pow(count - avgPlayerUsage, 2), 0) / playerCounts.length;
+          
+          // Better diversity calculation: coefficient of variation
+          const coefficientOfVariation = avgPlayerUsage > 0 ? Math.sqrt(variance) / avgPlayerUsage : 0;
+          
+          // Good diversity: CV between 0.2-0.8, excellent <0.2, poor >1.0
+          // Convert to deviation (0 = perfect, 1 = very poor)
+          if (coefficientOfVariation <= 0.2) {
+            overallDeviation = coefficientOfVariation / 0.2 * 0.1; // 0-10% deviation for excellent diversity
+          } else if (coefficientOfVariation <= 0.8) {
+            overallDeviation = 0.1 + (coefficientOfVariation - 0.2) / 0.6 * 0.3; // 10-40% deviation for good diversity
+          } else {
+            overallDeviation = Math.min(0.8, 0.4 + (coefficientOfVariation - 0.8) * 0.4); // 40-80% deviation for poor diversity
+          }
+          
+        } else {
+          // Minimal fallback: assume reasonable accuracy if we can't measure
+          overallDeviation = 0.3; // Equivalent to ~40% accuracy baseline
+        }
       }
-    });
+      
+      // Add to overall accuracy history
+      this.exposureAccuracy.accuracyHistory.push({
+        deviation: overallDeviation,
+        timestamp: Date.now(),
+        progress: progress,
+        lineupCount: currentLineupCount
+      });
+      
+      
+      // Keep history manageable
+      if (this.exposureAccuracy.accuracyHistory.length > 500) {
+        this.exposureAccuracy.accuracyHistory.splice(0, 100);
+      }
+    }
   }
 
   /**
@@ -3864,6 +3983,7 @@ class AdvancedOptimizer {
       confidenceIntervals: this.exposureAccuracy.confidenceIntervals,
       recentTrends: new Map()
     };
+    
     
     // Calculate overall accuracy
     if (this.exposureAccuracy.accuracyHistory.length > 0) {
@@ -3981,6 +4101,11 @@ class AdvancedOptimizer {
    * Calculate historical synergy bonus from quality-weighted exposures
    */
   _calculateHistoricalSynergyBonus(teamName) {
+    // Safety check for exposureTracking
+    if (!this.exposureTracking || !this.exposureTracking.synergyScores) {
+      return 0;
+    }
+    
     // Look up synergy scores from tracking
     const synergyKeys = Array.from(this.exposureTracking.synergyScores.keys())
       .filter(key => key.startsWith(`${teamName}_`));
