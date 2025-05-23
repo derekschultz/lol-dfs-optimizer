@@ -7,6 +7,7 @@ import NexusScoreTestPage from "./pages/NexusScoreTestPage";
 import HybridOptimizerUI from "./components/HybridOptimizerUI";
 import PlayerManagerUI from "./components/PlayerManagerUI";
 import AIInsights from "./components/AIInsights";
+import StackExposure from "./components/StackExposure";
 
 const App = () => {
   // API base URL - this matches the port in our server.js
@@ -42,6 +43,7 @@ const App = () => {
       SUP: { min: 0, max: 100, target: null },
       CPT: { min: 0, max: 100, target: null },
     },
+    stackExposureTargets: {}, // Add stack exposure targets
   });
 
   // Function to show notification
@@ -683,7 +685,17 @@ const App = () => {
         },
         // Always include exposure settings
         exposureSettings: options.exposureSettings || exposureSettings,
+        // Include stack exposure targets
+        stackExposureTargets: exposureSettings.stackExposureTargets,
       };
+      
+      // DEBUG: Log what we're actually sending
+      console.log("🚀 SENDING LINEUP REQUEST:", {
+        count,
+        hasStackTargets: !!exposureSettings.stackExposureTargets,
+        stackTargetsCount: Object.keys(exposureSettings.stackExposureTargets || {}).length,
+        stackTargets: exposureSettings.stackExposureTargets
+      });
 
       // Call the API to generate lineups
       const response = await fetch(`${API_BASE_URL}/lineups/generate`, {
@@ -1079,7 +1091,7 @@ const App = () => {
         {/* Tabs */}
         <div className="tabs-container">
           <ul style={{ listStyle: "none" }}>
-            {["upload", "players", "lineups", "ai-insights", "hybrid", "optimizer", "nexustest"].map((tab) => (
+            {["upload", "players", "lineups", "stack-exposure", "ai-insights", "hybrid", "optimizer", "nexustest"].map((tab) => (
               <li key={tab} style={{ display: "inline-block" }}>
                 <button
                   className={`tab ${activeTab === tab ? "active" : ""}`}
@@ -1087,6 +1099,8 @@ const App = () => {
                 >
                   {tab === "players"
                     ? "Player Management"
+                    : tab === "stack-exposure"
+                    ? "Stack Exposure"
                     : tab === "ai-insights"
                     ? "AI Insights"
                     : tab === "hybrid"
@@ -1262,6 +1276,25 @@ const App = () => {
               </div>
             )}
           </div>
+        )}
+
+        {/* Stack Exposure Tab */}
+        {activeTab === "stack-exposure" && (
+          <StackExposure
+            lineups={lineups}
+            playerData={playerData}
+            onTargetExposureUpdate={(targetData) => {
+              console.log("Target exposure updated:", targetData);
+              // Update exposure settings to include stack targets in backend-expected format
+              setExposureSettings(prev => ({
+                ...prev,
+                stackExposureTargets: {
+                  ...prev.stackExposureTargets,
+                  [`${targetData.team}_${targetData.stackSize}_target`]: targetData.targetExposure
+                }
+              }));
+            }}
+          />
         )}
 
         {/* AI Insights Tab */}

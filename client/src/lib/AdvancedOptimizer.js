@@ -42,6 +42,7 @@ class AdvancedOptimizer {
       },
       fieldSize: 1000, // Default field size for tournaments
       debugMode: false, // Enable extra logging for debugging
+      stackExposureTargets: {}, // Stack exposure targets from UI
       ...config,
     };
 
@@ -430,7 +431,7 @@ class AdvancedOptimizer {
           });
         } else {
           // Regular team exposure
-          this.teamExposures.push({
+          const teamExposure = {
             team: team.team,
             min:
               team.min !== undefined && team.min !== null ? team.min / 100 : 0,
@@ -440,9 +441,68 @@ class AdvancedOptimizer {
               team.target !== undefined && team.target !== null
                 ? team.target / 100
                 : null,
-          });
+          };
+          this.teamExposures.push(teamExposure);
+          this.debugLog(`Added team exposure constraint:`, teamExposure);
         }
       });
+    }
+
+    // Process stack exposure targets from config
+    if (this.config.stackExposureTargets && Object.keys(this.config.stackExposureTargets).length > 0) {
+      this.debugLog("==== OPTIMIZER STACK EXPOSURE PROCESSING ====");
+      this.debugLog("Received stack exposure targets:", this.config.stackExposureTargets);
+      
+      Object.entries(this.config.stackExposureTargets).forEach(([key, value]) => {
+        if (value !== null && value !== undefined) {
+          // Parse the key (format: "team_stackSize_type" like "KT_4_target")
+          const parts = key.split('_');
+          if (parts.length >= 3) {
+            const type = parts[parts.length - 1]; // Last part is type (target/min/max)
+            const stackSize = parts[parts.length - 2]; // Second to last is stack size
+            const team = parts.slice(0, -2).join('_'); // Everything before last 2 parts is team name
+            
+            this.debugLog(`Processing stack target: ${key}`, {
+              team,
+              stackSize,
+              type,
+              value,
+              parsedStackSize: parseInt(stackSize)
+            });
+            
+            if (team && stackSize && type && value !== '') {
+              // Find existing stack exposure or create new one
+              let stackExposure = this.teamStackExposures.find(
+                se => se.team === team && se.stackSize === parseInt(stackSize)
+              );
+              
+              if (!stackExposure) {
+                stackExposure = {
+                  team,
+                  stackSize: parseInt(stackSize),
+                  min: 0,
+                  max: 1,
+                  target: null
+                };
+                this.teamStackExposures.push(stackExposure);
+                this.debugLog(`Created new stack exposure constraint:`, stackExposure);
+              }
+              
+              // Set the appropriate value (convert percentage to decimal)
+              if (type === 'min') {
+                stackExposure.min = parseInt(value) / 100;
+              } else if (type === 'max') {
+                stackExposure.max = parseInt(value) / 100;
+              } else if (type === 'target') {
+                stackExposure.target = parseInt(value) / 100;
+                this.debugLog(`Set target for ${team} ${stackSize}-stack: ${stackExposure.target * 100}%`);
+              }
+            }
+          }
+        }
+      });
+      
+      this.debugLog("Final team stack exposures:", this.teamStackExposures);
     }
 
     // Process position exposure settings
@@ -473,6 +533,7 @@ class AdvancedOptimizer {
       teamCount: this.teamExposures.length,
       teamStackCount: this.teamStackExposures.length,
       positions: Object.keys(this.positionExposures),
+      stackExposures: this.teamStackExposures,
     });
   }
 
@@ -1586,6 +1647,9 @@ class AdvancedOptimizer {
    * Now includes stack-specific exposure checks
    */
   _teamNeedsExposure(team, stackSize = null) {
+    // DISABLED: Return false to prevent aggressive targeting
+    return false;
+    
     const totalLineups =
       this.generatedLineups.length + this.existingLineups.length;
     if (totalLineups === 0) return true; // Always need exposure for first lineup
@@ -1601,13 +1665,24 @@ class AdvancedOptimizer {
         (te) => te.team === team && te.stackSize === stackSize
       );
 
-      if (stackConstraint && stackConstraint.min > 0) {
+      if (stackConstraint) {
         // Need more exposure if below min
-        if (currentPct < stackConstraint.min) {
+        if (stackConstraint.min > 0 && currentPct < stackConstraint.min) {
           this.debugLog(
-            `Team ${team} needs more ${stackSize}-stack exposure: ${
+            `Team ${team} needs more ${stackSize}-stack exposure (min): ${
               currentPct * 100
             }% < ${stackConstraint.min * 100}%`
+          );
+          return true;
+        }
+        
+        // Also check if below target (with tolerance to avoid infinite attempts)
+        const tolerance = 0.10; // 10% tolerance to prevent over-pursuit
+        if (stackConstraint.target > 0 && currentPct < stackConstraint.target - tolerance) {
+          this.debugLog(
+            `Team ${team} needs more ${stackSize}-stack exposure (target): ${
+              currentPct * 100
+            }% < ${stackConstraint.target * 100}% (with ${tolerance * 100}% tolerance)`
           );
           return true;
         }
@@ -1651,6 +1726,7 @@ class AdvancedOptimizer {
    * Build a single lineup using a smart algorithm
    */
   async _buildLineup(existingLineups = [], currentLineupCount = 0) {
+    
     // Increment global counter to ensure unique IDs
     lineupCounter++;
 
@@ -1697,21 +1773,34 @@ class AdvancedOptimizer {
     // Start counting players from this team
     teamCounts[stackTeam.name] = 0;
 
-    // Determine stack size based on constraints
-    let stackSize = null;
+    // Determine stack pattern - enforce only 4-3 and 4-2-1 patterns
+    let stackPattern = null;
+    let primaryStackSize = null;
 
+    // Randomly choose between 4-3 and 4-2-1 patterns (weighted by exposure targets)
+    const availablePatterns = ['4-3', '4-2-1'];
+    
     // Check if this team has any stack-specific constraints
     const teamStackConstraints = this.teamStackExposures.filter(
-      (tc) => tc.team === stackTeam.name
+      (tc) => tc.team === stackTeam.name && (tc.stackSize === 4 || tc.stackSize === 3 || tc.stackSize === 2)
     );
 
     if (teamStackConstraints.length > 0) {
-      // Find underexposed stack sizes
+      // Find underexposed stack sizes for this team
       const underexposedStacks = teamStackConstraints.filter((tc) => {
         const stackKey = `${stackTeam.name}_${tc.stackSize}`;
         const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
         const currentPct = totalLineups > 0 ? stackCount / totalLineups : 0;
-        return currentPct < tc.min;
+        
+        // DISABLED: Check if below minimum OR below target exposure (but not over max)
+        // Return false to disable stack size targeting that was causing 60% over-selection
+        return false;
+        
+        const belowMin = tc.min > 0 && currentPct < tc.min;
+        const belowTarget = tc.target > 0 && currentPct < tc.target;
+        const overMax = tc.max < 1 && currentPct >= tc.max;
+        
+        return (belowMin || belowTarget) && !overMax;
       });
 
       if (underexposedStacks.length > 0) {
@@ -1723,18 +1812,55 @@ class AdvancedOptimizer {
           const bCount = this.exposureTracking.teamStacks.get(bKey) || 0;
           const aPct = totalLineups > 0 ? aCount / totalLineups : 0;
           const bPct = totalLineups > 0 ? bCount / totalLineups : 0;
-          return aPct - a.min - (bPct - b.min); // Most negative = most underexposed relative to min
+          
+          // Calculate how far below target/min each stack is
+          const aDeficit = Math.max(
+            (a.min > 0 ? a.min - aPct : 0),
+            (a.target > 0 ? a.target - aPct : 0)
+          );
+          const bDeficit = Math.max(
+            (b.min > 0 ? b.min - bPct : 0),
+            (b.target > 0 ? b.target - bPct : 0)
+          );
+          
+          return bDeficit - aDeficit; // Highest deficit first
         })[0];
 
-        stackSize = targetStack.stackSize;
+        primaryStackSize = targetStack.stackSize;
+        
+        // Determine pattern based on primary stack size
+        if (primaryStackSize === 4) {
+          // Primary team gets 4, so decide between 4-3 and 4-2-1
+          stackPattern = Math.random() < 0.5 ? '4-3' : '4-2-1';
+        } else if (primaryStackSize === 3) {
+          // Primary team gets 3, must be 4-3 pattern with another team getting 4
+          stackPattern = '4-3';
+          // Note: Another team will get the 4-stack
+        } else if (primaryStackSize === 2) {
+          // Primary team gets 2, must be 4-2-1 pattern
+          stackPattern = '4-2-1';
+        }
+        
         this.debugLog(
-          `Selected ${stackSize}-stack for team ${stackTeam.name} based on exposure constraints`
+          `Selected ${primaryStackSize}-stack for team ${stackTeam.name}, pattern: ${stackPattern}`
         );
       }
     }
 
+    // Default to random pattern if no constraints
+    if (!stackPattern) {
+      stackPattern = availablePatterns[Math.floor(Math.random() * availablePatterns.length)];
+      primaryStackSize = stackPattern === '4-3' ? 4 : 4; // Primary team always gets 4 in default case
+      this.debugLog(`Default pattern selected: ${stackPattern}, primary team gets ${primaryStackSize}`);
+    }
+
     // Select a captain
-    lineup.cpt = this._selectCaptain(stackTeam, usedPlayers, stackSize, lineupSeed);
+    lineup.cpt = this._selectCaptain(stackTeam, usedPlayers, primaryStackSize, lineupSeed);
+    if (!lineup.cpt) {
+      this.debugLog(`Failed to select captain for team ${stackTeam.name}`);
+      return null;
+    }
+    
     usedPlayers.add(lineup.cpt.id);
     remainingSalary -= lineup.cpt.salary;
 
@@ -1742,6 +1868,15 @@ class AdvancedOptimizer {
     if (lineup.cpt.team) {
       teamCounts[lineup.cpt.team] = (teamCounts[lineup.cpt.team] || 0) + 1;
     }
+
+    // Store the intended pattern for validation
+    lineup._intendedPattern = stackPattern;
+    lineup._primaryStackTeam = stackTeam.name;
+    lineup._primaryStackSize = primaryStackSize;
+
+    this.debugLog(
+      `Building lineup with pattern ${stackPattern} for team ${stackTeam.name}. Captain: ${lineup.cpt.name} (${lineup.cpt.team})`
+    );
 
     // Find available positions in player pool
     const availablePositions = new Set(this.playerPool.map((p) => p.position));
@@ -1827,9 +1962,10 @@ class AdvancedOptimizer {
             usedPlayers,
             remainingSalary,
             lineup.players,
-            stackSize,
+            primaryStackSize,
             teamCounts,
-            lineupSeed
+            lineupSeed,
+            stackPattern
           );
 
           if (player) {
@@ -1860,20 +1996,132 @@ class AdvancedOptimizer {
   }
 
   /**
+   * Filter candidates to enforce stack pattern (4-3 or 4-2-1 only)
+   */
+  _filterCandidatesByStackPattern(candidates, currentTeamCounts, stackPattern, primaryTeam, targetStackSize) {
+    this.debugLog(
+      `Filtering candidates for pattern ${stackPattern}. Current counts: ${JSON.stringify(currentTeamCounts)}`
+    );
+    
+    const filtered = candidates.filter(candidate => {
+      // Simulate adding this candidate to see if it would violate the pattern
+      const testCounts = { ...currentTeamCounts };
+      testCounts[candidate.team] = (testCounts[candidate.team] || 0) + 1;
+      
+      // Check if this would create a valid intermediate state
+      const counts = Object.values(testCounts).sort((a, b) => b - a);
+      const maxCount = counts[0] || 0;
+      
+      let isValid = true;
+      let reason = '';
+      
+      // For 4-3 pattern: allow building toward [4, 3] 
+      // For 4-2-1 pattern: allow building toward [4, 2, 1]
+      if (stackPattern === '4-3') {
+        // Don't allow any team to exceed 4
+        if (maxCount > 4) {
+          isValid = false;
+          reason = 'max count > 4';
+        }
+        // Don't allow more than 2 teams total
+        else if (counts.length > 2) {
+          isValid = false;
+          reason = 'more than 2 teams';
+        }
+        // If we have 2 teams and one has 4, the other shouldn't exceed 3
+        else if (counts.length === 2 && counts[0] === 4 && counts[1] > 3) {
+          isValid = false;
+          reason = 'second team > 3 when first is 4';
+        }
+      } else if (stackPattern === '4-2-1') {
+        // Don't allow any team to exceed 4
+        if (maxCount > 4) {
+          isValid = false;
+          reason = 'max count > 4';
+        }
+        // Don't allow more than 3 teams total
+        else if (counts.length > 3) {
+          isValid = false;
+          reason = 'more than 3 teams';
+        }
+        // If we have 2+ teams and the largest has 4, the second shouldn't exceed 2
+        else if (counts.length >= 2 && counts[0] === 4 && counts[1] > 2) {
+          isValid = false;
+          reason = 'second team > 2 when first is 4';
+        }
+        // If we have 3 teams with pattern [4, 2, x], x shouldn't exceed 1
+        else if (counts.length === 3 && counts[0] === 4 && counts[1] === 2 && counts[2] > 1) {
+          isValid = false;
+          reason = 'third team > 1 when pattern is 4-2';
+        }
+      }
+      
+      if (!isValid) {
+        this.debugLog(
+          `Rejected ${candidate.team} ${candidate.name}: ${reason}. Would create counts: [${counts.join(', ')}]`
+        );
+      }
+      
+      return isValid;
+    });
+    
+    this.debugLog(
+      `Pattern filtering result: ${candidates.length} -> ${filtered.length} candidates`
+    );
+    
+    return filtered;
+  }
+
+  /**
    * Select a team to stack with enhanced randomness
    */
   _selectStackTeam(currentLineupCount = 0, lineupSeed = 0) {
     // First check for teams with specific stack requirements
     const teamsNeedingExposure = [];
 
-    // Check regular team exposures
+    // Check regular team exposures (both min and target)
     this.teamExposures.forEach((team) => {
       if (team.min > 0 && this._teamNeedsExposure(team.team)) {
         teamsNeedingExposure.push(team.team);
       }
+      
+      // Also check if team is below target exposure
+      if (team.target > 0) {
+        const totalLineups = this.generatedLineups.length + this.existingLineups.length;
+        if (totalLineups > 0) {
+          const teamCount = this.exposureTracking.teams.get(team.team) || 0;
+          const currentPct = teamCount / totalLineups;
+          
+          // Use tolerance ranges - don't add if already at or above target
+          const lowerTolerance = 0.03; // 3% lower tolerance
+          const upperTolerance = 0.03; // 3% upper tolerance
+          
+          console.log(`EXPOSURE DEBUG - ${team.team}: ${teamCount}/${totalLineups} = ${(currentPct * 100).toFixed(1)}%, target: ${(team.target * 100).toFixed(1)}%`);
+          
+          // Only add team if it's significantly below target
+          if (currentPct < team.target - lowerTolerance) {
+            teamsNeedingExposure.push(team.team);
+            console.log(`  -> ADDED to teamsNeedingExposure (below target)`);
+            this.debugLog(
+              `Team ${team.team} below target exposure: ${(currentPct * 100).toFixed(1)}% < ${(team.target * 100).toFixed(1)}%`
+            );
+          } else if (currentPct >= team.target + upperTolerance) {
+            console.log(`  -> SKIPPED (already over target)`);
+            this.debugLog(
+              `Team ${team.team} already over target: ${(currentPct * 100).toFixed(1)}% >= ${((team.target + upperTolerance) * 100).toFixed(1)}%`
+            );
+          } else {
+            console.log(`  -> SKIPPED (within tolerance range)`);
+          }
+        } else {
+          // First lineup always needs target teams
+          teamsNeedingExposure.push(team.team);
+          console.log(`EXPOSURE DEBUG - ${team.team}: First lineup, added to teamsNeedingExposure`);
+        }
+      }
     });
 
-    // Check stack-specific exposures
+    // Check stack-specific exposures (both min and target)
     this.teamStackExposures.forEach((stack) => {
       if (
         stack.min > 0 &&
@@ -1881,20 +2129,85 @@ class AdvancedOptimizer {
       ) {
         teamsNeedingExposure.push(stack.team);
       }
+      
+      // Also check if team is below target exposure
+      if (stack.target > 0) {
+        const totalLineups = this.generatedLineups.length + this.existingLineups.length;
+        if (totalLineups > 0) {
+          const stackKey = `${stack.team}_${stack.stackSize}`;
+          const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+          const currentPct = stackCount / totalLineups;
+          
+          // Use tolerance ranges - don't add if already at or above target  
+          const lowerTolerance = 0.03; // 3% lower tolerance
+          const upperTolerance = 0.03; // 3% upper tolerance
+          
+          if (currentPct < stack.target - lowerTolerance && currentPct < stack.target + upperTolerance) {
+            teamsNeedingExposure.push(stack.team);
+            this.debugLog(
+              `Team ${stack.team} below target stack exposure: ${(currentPct * 100).toFixed(1)}% < ${(stack.target * 100).toFixed(1)}%`
+            );
+          } else if (currentPct >= stack.target + upperTolerance) {
+            this.debugLog(
+              `Team ${stack.team} already over target stack: ${(currentPct * 100).toFixed(1)}% >= ${((stack.target + upperTolerance) * 100).toFixed(1)}%`
+            );
+          }
+        } else {
+          // First lineup always needs target teams
+          teamsNeedingExposure.push(stack.team);
+        }
+      }
     });
 
-    // If we have teams that need exposure, prioritize them
+    // If we have teams that need exposure, prioritize them by deficit
     if (teamsNeedingExposure.length > 0) {
-      // Pick a random team from those needing exposure
-      const teamName =
-        teamsNeedingExposure[
-          Math.floor(Math.random() * teamsNeedingExposure.length)
-        ];
-      const team = this.teams.find((t) => t.name === teamName);
+      // Calculate deficit for each team needing exposure
+      const teamDeficits = teamsNeedingExposure.map(teamName => {
+        const totalLineups = this.generatedLineups.length + this.existingLineups.length;
+        let maxDeficit = 0;
+        
+        // Check all stack constraints for this team
+        this.teamStackExposures.forEach(stack => {
+          if (stack.team === teamName) {
+            const stackKey = `${stack.team}_${stack.stackSize}`;
+            const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+            const currentPct = totalLineups > 0 ? stackCount / totalLineups : 0;
+            
+            // Calculate deficit from target or min
+            const targetDeficit = stack.target > 0 ? Math.max(0, stack.target - currentPct) : 0;
+            const minDeficit = stack.min > 0 ? Math.max(0, stack.min - currentPct) : 0;
+            
+            maxDeficit = Math.max(maxDeficit, targetDeficit, minDeficit);
+          }
+        });
+        
+        // Also check regular team exposures
+        this.teamExposures.forEach(teamExp => {
+          if (teamExp.team === teamName) {
+            const teamCount = this.exposureTracking.teams.get(teamName) || 0;
+            const currentPct = totalLineups > 0 ? teamCount / totalLineups : 0;
+            
+            const targetDeficit = teamExp.target > 0 ? Math.max(0, teamExp.target - currentPct) : 0;
+            const minDeficit = teamExp.min > 0 ? Math.max(0, teamExp.min - currentPct) : 0;
+            
+            maxDeficit = Math.max(maxDeficit, targetDeficit, minDeficit);
+          }
+        });
+        
+        return { teamName, deficit: maxDeficit };
+      });
+      
+      // Sort by highest deficit and pick from top 3 to maintain some randomness
+      teamDeficits.sort((a, b) => b.deficit - a.deficit);
+      const topDeficitTeams = teamDeficits.slice(0, Math.min(3, teamDeficits.length));
+      
+      const selectedTeamData = topDeficitTeams[Math.floor(Math.random() * topDeficitTeams.length)];
+      const team = this.teams.find((t) => t.name === selectedTeamData.teamName);
 
       if (team) {
+        console.log(`SELECTED TEAM: ${selectedTeamData.teamName} with ${(selectedTeamData.deficit * 100).toFixed(1)}% deficit`);
         this.debugLog(
-          `Selected team ${teamName} based on exposure requirements`
+          `TEAM SELECTION: Selected team ${selectedTeamData.teamName} with ${(selectedTeamData.deficit * 100).toFixed(1)}% deficit from target`
         );
         return team;
       }
@@ -1916,15 +2229,20 @@ class AdvancedOptimizer {
         this.generatedLineups.length + this.existingLineups.length;
       const teamCount = this.exposureTracking.teams.get(team.name) || 0;
       const currentExposure =
-        totalLineups > 0 ? teamCount / (totalLineups * 6) : 0;
+        totalLineups > 0 ? teamCount / totalLineups : 0;
 
-      // Adjust weight based on exposure gap
-      const exposureGap = targetExposure - currentExposure;
-      const exposureMultiplier = Math.max(0.1, 1 + exposureGap);
+      // Adjust weight based on exposure difference
+      let exposureAdjustment = 1.0;
+      if (totalLineups > 0) {
+        const exposureDiff = targetExposure - currentExposure;
+        // If under-exposed, increase weight; if over-exposed, decrease weight
+        exposureAdjustment = 1.0 + (exposureDiff * 2);
+        exposureAdjustment = Math.max(0.1, Math.min(3.0, exposureAdjustment)); // Clamp between 0.1x and 3x
+      }
 
       return {
         team,
-        weight: projectionValue * exposureMultiplier,
+        weight: projectionValue * exposureAdjustment,
       };
     });
 
@@ -1968,7 +2286,7 @@ class AdvancedOptimizer {
       lineupSeed
     );
     
-    this.debugLog(`Selected team: ${selectedTeam?.name}, lineup count: ${currentLineupCount}, randomness: ${randomnessFactor}`);
+    
     return selectedTeam;
   }
 
@@ -2094,7 +2412,8 @@ class AdvancedOptimizer {
     selectedPlayers,
     targetStackSize = null,
     teamCounts = {},
-    lineupSeed = 0
+    lineupSeed = 0,
+    stackPattern = null
   ) {
     // Special handling for TEAM position
     if (position === "TEAM") {
@@ -2196,6 +2515,35 @@ class AdvancedOptimizer {
       // If still no candidates, return null
       if (candidates.length === 0) {
         return null;
+      }
+    }
+
+    // Apply stack pattern enforcement
+    if (stackPattern) {
+      const originalCount = candidates.length;
+      candidates = this._filterCandidatesByStackPattern(
+        candidates, 
+        teamCounts, 
+        stackPattern, 
+        stackTeam.name, 
+        targetStackSize
+      );
+      
+      this.debugLog(
+        `Pattern filtering for ${position}: ${originalCount} -> ${candidates.length} candidates (pattern: ${stackPattern})`
+      );
+      
+      if (candidates.length === 0) {
+        this.debugLog(
+          `No candidates for ${position} that fit ${stackPattern} pattern, relaxing pattern constraint`
+        );
+        // Fallback: allow any candidate if pattern can't be met
+        candidates = this.playerPool.filter(
+          (player) =>
+            !usedPlayers.has(player.id) &&
+            player.position === position &&
+            this._safeParseFloat(player.salary, 0) <= remainingSalary
+        );
       }
     }
 
@@ -2458,6 +2806,53 @@ class AdvancedOptimizer {
         );
         return false;
       }
+    }
+
+    // Check stack type constraints (only allow 4-3 and 4-2-1 stacks)
+    const counts = Object.values(teamCounts).sort((a, b) => b - a);
+    const stackPattern = counts.join('-');
+    
+    // Must be exactly 4-3 or 4-2-1 pattern
+    const isValid43Stack = (counts.length === 2 && counts[0] === 4 && counts[1] === 3);
+    const isValid421Stack = (counts.length === 3 && counts[0] === 4 && counts[1] === 2 && counts[2] === 1);
+    
+    if (!isValid43Stack && !isValid421Stack) {
+      this.debugLog(
+        `Lineup invalid: stack pattern ${stackPattern} not allowed (only 4-3 and 4-2-1 allowed)`
+      );
+      return false;
+    }
+
+    // Check DraftKings rule: players must be from at least 2 games (no full game stacks)
+    const games = new Set();
+    
+    // Add captain's game
+    if (lineup.cpt && lineup.cpt.team) {
+      const captainOpponent = this._getTeamOpponent(lineup.cpt.team);
+      if (captainOpponent) {
+        // Create a game identifier using alphabetically sorted team names
+        const gameTeams = [lineup.cpt.team, captainOpponent].sort();
+        games.add(gameTeams.join(' vs '));
+      }
+    }
+    
+    // Add players' games
+    lineup.players.forEach((player) => {
+      if (player && player.team) {
+        const playerOpponent = this._getTeamOpponent(player.team);
+        if (playerOpponent) {
+          // Create a game identifier using alphabetically sorted team names
+          const gameTeams = [player.team, playerOpponent].sort();
+          games.add(gameTeams.join(' vs '));
+        }
+      }
+    });
+    
+    if (games.size < 2) {
+      this.debugLog(
+        `Lineup invalid: players from only ${games.size} game(s) (DraftKings requires at least 2 games)`
+      );
+      return false;
     }
 
     // Note: Uniqueness check is handled by signature checking in the main generation loop

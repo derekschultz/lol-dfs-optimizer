@@ -337,6 +337,7 @@ const HybridOptimizerUI = ({
               },
               saveToLineups: true,
               exposureSettings: exposureSettings || {},
+              stackExposureTargets: exposureSettings?.stackExposureTargets || {},
             }
           : {
               count: lineupCount,
@@ -345,7 +346,9 @@ const HybridOptimizerUI = ({
               customConfig,
               saveToLineups: true,
               exposureSettings: exposureSettings || {},
+              stackExposureTargets: exposureSettings?.stackExposureTargets || {},
             };
+
 
       const response = await fetch(`${API_BASE_URL}/lineups/generate-hybrid`, {
         method: "POST",

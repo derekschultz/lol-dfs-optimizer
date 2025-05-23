@@ -406,6 +406,11 @@ class GeneticOptimizer extends AdvancedOptimizer {
         try {
           const offspring = await this._crossover(parent1, parent2);
           
+          // Check if offspring is valid (not null due to stack constraints)
+          if (offspring === null) {
+            throw new Error("Invalid stack pattern in offspring");
+          }
+          
           // Mutation
           if (Math.random() < this.geneticConfig.mutationRate) {
             await this._mutate(offspring);
@@ -704,6 +709,65 @@ class GeneticOptimizer extends AdvancedOptimizer {
         }
         seenIds.add(lineup.players[i].id);
       }
+    }
+    
+    // Check stack type constraints (only allow 4-3 and 4-2-1 stacks)
+    const teamCounts = {};
+    if (lineup.cpt && lineup.cpt.team) {
+      teamCounts[lineup.cpt.team] = 1;
+    }
+    lineup.players.forEach(player => {
+      if (player.team) {
+        teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+      }
+    });
+    
+    const counts = Object.values(teamCounts).sort((a, b) => b - a);
+    const stackPattern = counts.join('-');
+    
+    // Must be exactly 4-3 or 4-2-1 pattern
+    const isValid43Stack = (counts.length === 2 && counts[0] === 4 && counts[1] === 3);
+    const isValid421Stack = (counts.length === 3 && counts[0] === 4 && counts[1] === 2 && counts[2] === 1);
+    
+    if (!isValid43Stack && !isValid421Stack) {
+      this.debugLog(
+        `GeneticOptimizer: Invalid stack pattern ${stackPattern}, attempting to fix...`
+      );
+      // For now, return null to indicate this lineup should be discarded
+      // A more sophisticated fix could be implemented later
+      return null;
+    }
+
+    // Check DraftKings rule: players must be from at least 2 games (no full game stacks)
+    const games = new Set();
+    
+    // Add captain's game
+    if (lineup.cpt && lineup.cpt.team) {
+      const captainOpponent = this._getTeamOpponent(lineup.cpt.team);
+      if (captainOpponent) {
+        // Create a game identifier using alphabetically sorted team names
+        const gameTeams = [lineup.cpt.team, captainOpponent].sort();
+        games.add(gameTeams.join(' vs '));
+      }
+    }
+    
+    // Add players' games
+    lineup.players.forEach((player) => {
+      if (player && player.team) {
+        const playerOpponent = this._getTeamOpponent(player.team);
+        if (playerOpponent) {
+          // Create a game identifier using alphabetically sorted team names
+          const gameTeams = [player.team, playerOpponent].sort();
+          games.add(gameTeams.join(' vs '));
+        }
+      }
+    });
+    
+    if (games.size < 2) {
+      this.debugLog(
+        `GeneticOptimizer: players from only ${games.size} game(s) (DraftKings requires at least 2 games)`
+      );
+      return null;
     }
     
     return lineup;

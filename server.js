@@ -204,9 +204,31 @@ const generateOptimalLineups = async (count, options = {}) => {
   }
 
   try {
+    // Extract stack exposure targets from options
+    const stackExposureTargets = options.stackExposureTargets || {};
+    console.log("==== STACK EXPOSURE DEBUGGING ====");
+    console.log("Raw stack exposure targets received:", JSON.stringify(stackExposureTargets, null, 2));
+    console.log("Number of stack targets:", Object.keys(stackExposureTargets).length);
+    
+    // Debug: Log available teams to check if KT exists
+    const availableTeams = [...new Set(playerProjections.map(p => p.team))].filter(Boolean);
+    console.log("Available teams in player data:", availableTeams);
+    console.log("Looking for KT in teams:", availableTeams.includes('KT') ? 'FOUND' : 'NOT FOUND');
+    
+    // Log each target individually for debugging
+    Object.entries(stackExposureTargets).forEach(([key, value]) => {
+      const parts = key.split('_');
+      console.log(`Stack target: ${key} = ${value}%`, {
+        team: parts.slice(0, -2).join('_'),
+        stackSize: parts[parts.length - 2],
+        type: parts[parts.length - 1]
+      });
+    });
+    
     // Create an instance of the advanced optimizer with settings
     const optimizer = new AdvancedOptimizer({
       salaryCap: 50000,
+      debugMode: true, // Enable debug logging to troubleshoot KT issue
       positionRequirements: {
         CPT: 1,
         TOP: 1,
@@ -221,6 +243,7 @@ const generateOptimalLineups = async (count, options = {}) => {
       targetTop: 0.1,
       leverageMultiplier: 0.7,
       debugMode: true, // Enable for detailed logging
+      stackExposureTargets, // Pass stack exposure targets to optimizer
     });
 
     // Initialize the optimizer with player data
@@ -1621,8 +1644,15 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
     customConfig = {},
     saveToLineups = true,
     exposureSettings = {},  // Add exposureSettings from request body
+    stackExposureTargets = {}, // Add stack exposure targets from request body
     progressSessionId = null  // Session ID for progress updates
   } = req.body;
+  
+  
+  // Debug: Log available teams
+  const availableTeams = [...new Set(playerProjections.map(p => p.team))].filter(Boolean);
+  console.log("Available teams in player data:", availableTeams);
+  console.log("Looking for KT in teams:", availableTeams.includes('KT') ? 'FOUND' : 'NOT FOUND');
   
   
 
@@ -1649,6 +1679,7 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
     const AdvancedOptimizer = require("./client/src/lib/AdvancedOptimizer");
     const lineupOptimizer = new AdvancedOptimizer({
       salaryCap: 50000,
+      debugMode: true, // Enable debug logging to see alerts
       positionRequirements: {
         CPT: 1, TOP: 1, JNG: 1, MID: 1, ADC: 1, SUP: 1, TEAM: 1
       },
@@ -1690,18 +1721,43 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
       
       // For portfolio strategy, select the best lineups from candidates
       let selectedLineups = result.lineups;
+      
+      
       if (strategy === 'portfolio' && result.lineups.length > count) {
-        // Sort by a combination of nexusScore and ROI for portfolio optimization
+        // Use balanced selection that considers both score and team diversity
+        // Use actual stack exposure targets instead of equal distribution
+        const teamCounts = {};
+        const teamTargets = {};
+        
+        // Parse stack exposure targets to get team-specific limits
+        Object.keys(stackExposureTargets).forEach(key => {
+          if (key.includes('_target')) {
+            const team = key.split('_')[0];
+            const targetPct = stackExposureTargets[key] / 100; // Convert percentage to decimal
+            teamTargets[team] = Math.round(count * targetPct); // Calculate target lineup count
+          }
+        });
+        
+        
         selectedLineups = result.lineups
           .sort((a, b) => {
             const scoreA = (a.nexusScore || 0) + (a.roi || 0) * 0.1;
             const scoreB = (b.nexusScore || 0) + (b.roi || 0) * 0.1;
             return scoreB - scoreA;
           })
+          .filter(lineup => {
+            const team = lineup._primaryStackTeam || 'Unknown';
+            const target = teamTargets[team] || Math.ceil(count / 4); // Fallback to equal distribution
+            if ((teamCounts[team] || 0) < target) {
+              teamCounts[team] = (teamCounts[team] || 0) + 1;
+              return true;
+            }
+            return false;
+          })
           .slice(0, count);
         
-        console.log(`Selected best ${selectedLineups.length} lineups from ${result.lineups.length} candidates for portfolio`);
       }
+      
       
       // Format lineups to match existing structure
       const formattedLineups = selectedLineups.map((lineup) => ({
