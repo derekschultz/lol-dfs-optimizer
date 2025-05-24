@@ -212,8 +212,6 @@ const generateOptimalLineups = async (count, options = {}) => {
     
     // Debug: Log available teams to check if KT exists
     const availableTeams = [...new Set(playerProjections.map(p => p.team))].filter(Boolean);
-    console.log("Available teams in player data:", availableTeams);
-    console.log("Looking for KT in teams:", availableTeams.includes('KT') ? 'FOUND' : 'NOT FOUND');
     
     // Log each target individually for debugging
     Object.entries(stackExposureTargets).forEach(([key, value]) => {
@@ -802,7 +800,6 @@ app.get("/optimizer/progress/:sessionId", (req, res) => {
 
   // Handle client disconnect
   req.on('close', () => {
-    console.log(`SSE session ${sessionId} closed by client`);
     progressSessions.delete(sessionId);
     progressCallbacks.delete(sessionId);
   });
@@ -1014,6 +1011,7 @@ app.post("/settings", (req, res) => {
   res.json({ success: true, message: "Settings saved successfully" });
 });
 
+
 // AI Service Data Endpoints
 // Get all player data with calculated exposures for AI analysis
 app.get("/api/data/players", (req, res) => {
@@ -1141,6 +1139,7 @@ app.get("/api/data/contest", (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
 
 // Upload player projections
 app.post(
@@ -1578,12 +1577,10 @@ app.post("/optimizer/initialize", async (req, res) => {
     // Set up progress callbacks if needed (for WebSocket or Server-Sent Events)
     hybridOptimizer.setProgressCallback((progress, stage) => {
       // Could emit progress updates via WebSocket here
-      console.log(`Optimizer progress: ${progress}% (${stage})`);
     });
 
     hybridOptimizer.setStatusCallback((status) => {
       // Could emit status updates via WebSocket here
-      console.log(`Optimizer status: ${status}`);
     });
 
     // Initialize with current data - don't pass existing lineups for fresh generation
@@ -1651,8 +1648,6 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
   
   // Debug: Log available teams
   const availableTeams = [...new Set(playerProjections.map(p => p.team))].filter(Boolean);
-  console.log("Available teams in player data:", availableTeams);
-  console.log("Looking for KT in teams:", availableTeams.includes('KT') ? 'FOUND' : 'NOT FOUND');
   
   
 
@@ -1669,10 +1664,6 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
     const bulkMultiplier = customConfig.bulkGenerationMultiplier || 1;
     const candidateCount = strategy === 'portfolio' ? count * bulkMultiplier : count;
     
-    console.log(`Generating ${candidateCount} candidate lineups with hybrid optimizer using ${strategy} strategy`);
-    if (strategy === 'portfolio') {
-      console.log(`Will select best ${count} lineups from ${candidateCount} candidates (bulk multiplier: ${bulkMultiplier})`);
-    }
 
     // Use the same method as Advanced Optimizer - runSimulation
     // Create an AdvancedOptimizer instance for lineup generation
@@ -1717,7 +1708,6 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
     const result = await lineupOptimizer.runSimulation(candidateCount);
 
     if (result && result.lineups) {
-      console.log(`Advanced Optimizer generated ${result.lineups.length} candidate lineups`);
       
       // For portfolio strategy, select the best lineups from candidates
       let selectedLineups = result.lineups;
@@ -1790,7 +1780,6 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
         lineups = formattedLineups;
       }
 
-      console.log(`Successfully generated ${formattedLineups.length} unique lineups`);
       
       // Send final progress update if using SSE
       if (progressSessionId && progressSessions.has(progressSessionId)) {

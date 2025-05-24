@@ -13,7 +13,14 @@ class RiotGamesAPI {
             'EUW': 'euw1.api.riotgames.com',
             'KR': 'kr.api.riotgames.com',
             'EUN': 'eun1.api.riotgames.com',
-            'BR': 'br1.api.riotgames.com'
+            'BR': 'br1.api.riotgames.com',
+            'CN': 'oc1.api.riotgames.com', // China uses Oceania API endpoint
+            'OCE': 'oc1.api.riotgames.com',
+            'JP': 'jp1.api.riotgames.com',
+            'TR': 'tr1.api.riotgames.com',
+            'RU': 'ru.api.riotgames.com',
+            'LAN': 'la1.api.riotgames.com',
+            'LAS': 'la2.api.riotgames.com'
         };
         
         // Regional routing values for match-v5
@@ -27,14 +34,59 @@ class RiotGamesAPI {
             'TR': 'europe',
             'RU': 'europe',
             'KR': 'asia',
-            'JP': 'asia'
+            'JP': 'asia',
+            'CN': 'sea', // China uses SEA routing
+            'OCE': 'sea',
+            'PH': 'sea',
+            'SG': 'sea',
+            'TH': 'sea',
+            'TW': 'sea',
+            'VN': 'sea'
         };
         
         this.defaultRegion = 'NA';
         this.cache = new Map();
         this.cacheTTL = 60 * 60 * 1000; // 1 hour
+        
+        // Rate limiting for Personal API Key (100 requests/2min, 20 requests/1sec)
+        this.requestQueue = [];
+        this.lastRequestTime = 0;
+        this.requestsInLastSecond = 0;
+        this.requestsInLastTwoMinutes = [];
+        this.minDelayBetweenRequests = 1200; // 1.2 seconds to stay under 20/sec
     }
     
+    /**
+     * Rate limiting enforcement
+     */
+    async enforceRateLimit() {
+        const now = Date.now();
+        
+        // Clean old requests from 2-minute window
+        this.requestsInLastTwoMinutes = this.requestsInLastTwoMinutes.filter(
+            time => now - time < 120000 // 2 minutes
+        );
+        
+        // Check 2-minute limit (100 requests)
+        if (this.requestsInLastTwoMinutes.length >= 95) { // Leave buffer
+            const oldestRequest = Math.min(...this.requestsInLastTwoMinutes);
+            const waitTime = 120000 - (now - oldestRequest) + 1000; // Wait + 1 sec buffer
+            console.log(`⏳ Rate limit: waiting ${waitTime}ms for 2-minute window`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+        
+        // Check minimum delay between requests (1.2 seconds)
+        const timeSinceLastRequest = now - this.lastRequestTime;
+        if (timeSinceLastRequest < this.minDelayBetweenRequests) {
+            const waitTime = this.minDelayBetweenRequests - timeSinceLastRequest;
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+        
+        // Record this request
+        this.lastRequestTime = Date.now();
+        this.requestsInLastTwoMinutes.push(this.lastRequestTime);
+    }
+
     /**
      * Make API request with rate limit handling
      */
@@ -49,7 +101,13 @@ class RiotGamesAPI {
             }
         }
         
+        // Enforce rate limiting
+        await this.enforceRateLimit();
+        
         try {
+            // Debug logging (can be removed in production)
+            // console.log(`🔍 API Request: ${url}`);
+            
             const response = await axios.get(url, {
                 headers: {
                     'X-Riot-Token': this.apiKey
@@ -66,10 +124,44 @@ class RiotGamesAPI {
             return response.data;
         } catch (error) {
             if (error.response?.status === 429) {
-                console.warn('Rate limit exceeded, waiting...');
-                await new Promise(resolve => setTimeout(resolve, 10000));
+                // Extract retry-after header if available
+                const retryAfter = error.response.headers['retry-after'];
+                const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 10000;
+                
+                console.warn(`⚠️ Rate limit exceeded (429), waiting ${waitTime}ms...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                
+                // Reset rate limit tracking to be more conservative
+                this.lastRequestTime = Date.now();
+                this.requestsInLastTwoMinutes = [];
+                
                 return this.makeRequest(url); // Retry
             }
+            
+            // Handle 403 Forbidden errors specifically
+            if (error.response?.status === 403) {
+                const errorMsg = `Riot API access forbidden (403). This usually means:
+                - API key is invalid or expired
+                - API key lacks required permissions
+                - Request violates API usage policies
+                - Summoner name doesn't exist
+                Original URL: ${url}`;
+                
+                const customError = new Error('Request failed with status code 403');
+                customError.isApiKeyIssue = true;
+                customError.status = 403;
+                customError.details = errorMsg;
+                throw customError;
+            }
+            
+            // Handle other HTTP errors
+            if (error.response?.status) {
+                const customError = new Error(`Request failed with status code ${error.response.status}`);
+                customError.status = error.response.status;
+                customError.response = error.response;
+                throw customError;
+            }
+            
             throw error;
         }
     }
@@ -98,10 +190,27 @@ class RiotGamesAPI {
                 tagLine: account.tagLine
             };
         } catch (error) {
-            // Fallback to old endpoint if needed
-            const baseUrl = `https://${this.regions[region]}`;
-            const url = `${baseUrl}/lol/summoner/v4/summoners/by-name/${encodeURIComponent(summonerName)}`;
-            return await this.makeRequest(url);
+            // Only fallback to old endpoint for specific errors (like 404 not found)
+            if (error.response?.status === 404) {
+                console.log(`🔍 Riot ID not found for ${summonerName}#${tag}, trying legacy endpoint...`);
+                try {
+                    const baseUrl = `https://${this.regions[region]}`;
+                    const url = `${baseUrl}/lol/summoner/v4/summoners/by-name/${encodeURIComponent(summonerName)}`;
+                    return await this.makeRequest(url);
+                } catch (legacyError) {
+                    // If legacy endpoint also fails with 403/404, treat as player not found
+                    if (legacyError.response?.status === 403 || legacyError.response?.status === 404) {
+                        const notFoundError = new Error(`Player not found: ${summonerName}#${tag}`);
+                        notFoundError.code = 'PLAYER_NOT_FOUND';
+                        notFoundError.status = 404;
+                        throw notFoundError;
+                    }
+                    throw legacyError;
+                }
+            }
+            
+            // For other errors (403, 429, etc.), throw them instead of falling back
+            throw error;
         }
     }
     

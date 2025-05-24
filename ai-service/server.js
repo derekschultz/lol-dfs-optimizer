@@ -10,8 +10,8 @@ const RecommendationEngine = require('./services/RecommendationEngine');
 const MetaDetector = require('./services/MetaDetector');
 const PlayerPredictor = require('./services/PlayerPredictor');
 const RiskAssessor = require('./services/RiskAssessor');
-const DataCollector = require('./services/DataCollector');
 const DataSyncService = require('./services/DataSyncService');
+const BackgroundDataCollector = require('./services/BackgroundDataCollector');
 // Removed LoL Esports API - using Riot API only
 const MLModelService = require('./services/MLModelService');
 const ChampionPerformanceTracker = require('./services/ChampionPerformanceTracker');
@@ -41,8 +41,42 @@ const recommendationEngine = new RecommendationEngine(mlModelService);
 const metaDetector = new MetaDetector(championTracker);
 const playerPredictor = new PlayerPredictor(mlModelService, championTracker);
 const riskAssessor = new RiskAssessor(mlModelService);
-const dataCollector = new DataCollector();
 const dataSyncService = new DataSyncService();
+const backgroundDataCollector = new BackgroundDataCollector(process.env.RIOT_API_KEY);
+
+// Start background data collection
+backgroundDataCollector.startAutoCollection();
+
+// API key debug endpoint
+app.get('/debug/api-key', (req, res) => {
+  res.json({ 
+    hasApiKey: !!process.env.RIOT_API_KEY,
+    apiKeyLength: process.env.RIOT_API_KEY?.length || 0,
+    apiKeyPrefix: process.env.RIOT_API_KEY?.substring(0, 10) || 'none'
+  });
+});
+
+// Test single API call endpoint
+app.get('/debug/test-api-call', async (req, res) => {
+  try {
+    const testResult = await backgroundDataCollector.dataCollector.riotAPI.getSummonerByName('Canyon', 'KR', 'KR1');
+    res.json({
+      success: true,
+      result: testResult,
+      message: 'API call successful'
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message,
+      status: error.status,
+      details: error.details,
+      stack: error.stack,
+      apiKeyUsed: backgroundDataCollector.dataCollector.riotAPI.apiKey?.substring(0, 10) + '...',
+      apiKeyLength: backgroundDataCollector.dataCollector.riotAPI.apiKey?.length
+    });
+  }
+});
 
 // Health check
 app.get('/health', (req, res) => {
@@ -776,6 +810,126 @@ app.get('/api/ai/sync-status', (req, res) => {
   }
 });
 
+// Get cached data (instant response)
+app.get('/api/ai/collect-data', async (req, res) => {
+  try {
+    console.log('📋 Serving cached data...');
+    
+    const cachedData = backgroundDataCollector.getCachedData();
+    
+    if (cachedData.success) {
+      res.json({
+        success: true,
+        message: 'Cached data retrieved successfully',
+        data: {
+          matches: {
+            total: cachedData.data.matches?.total || 0,
+            source: cachedData.data.matches?.source || 'cached'
+          },
+          players: {
+            total: cachedData.data.players?.total || 0,
+            source: cachedData.data.players?.source || 'cached'
+          },
+          ownership: {
+            total: cachedData.data.ownership?.total || 0,
+            source: 'cached'
+          },
+          meta: {
+            available: !!cachedData.data.meta,
+            source: 'cached'
+          },
+          errors: cachedData.data.errors || [],
+          timestamp: cachedData.data.timestamp,
+          lastUpdated: cachedData.lastUpdated,
+          fromCache: true
+        }
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: 'No cached data available',
+        message: 'Background collection may still be running. Try again in a few minutes.',
+        fromCache: true
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Failed to get cached data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve cached data',
+      details: error.message
+    });
+  }
+});
+
+// Manual trigger for background collection (for testing/forcing updates)
+app.post('/api/ai/collect-data', async (req, res) => {
+  try {
+    console.log('🔄 Manual background collection triggered...');
+    
+    // Check if already collecting
+    const status = backgroundDataCollector.getStatus();
+    if (status.isCollecting) {
+      return res.json({
+        success: false,
+        error: 'Collection already in progress',
+        message: 'Background collection is currently running',
+        status: status
+      });
+    }
+    
+    // Start collection (non-blocking)
+    backgroundDataCollector.collectAllData().then(result => {
+      console.log('✅ Manual collection completed:', result.success);
+    }).catch(error => {
+      console.error('❌ Manual collection failed:', error);
+    });
+    
+    res.json({
+      success: true,
+      message: 'Background collection started',
+      note: 'Collection is running in background. Use GET /api/ai/collect-data to get cached results.',
+      status: backgroundDataCollector.getStatus()
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to start background collection:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to start background collection',
+      details: error.message
+    });
+  }
+});
+
+// Get collection status and progress
+app.get('/api/ai/collection-status', async (req, res) => {
+  try {
+    const status = backgroundDataCollector.getStatus();
+    const progress = backgroundDataCollector.getProgress();
+    
+    res.json({
+      success: true,
+      status: {
+        ...status,
+        nextCollection: status.lastCollection ? 
+          new Date(status.lastCollection.getTime() + 30 * 60 * 1000).toISOString() : 
+          'Soon'
+      },
+      progress: progress
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to get collection status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get collection status',
+      details: error.message
+    });
+  }
+});
+
 app.get('/api/ai/coach', async (req, res) => {
   try {
     console.log('Generating AI coach recommendations...');
@@ -809,6 +963,19 @@ app.get('/api/ai/coach', async (req, res) => {
       riskAssessor.assessPortfolioRisk(cleanLineups, cleanExposures)
     ]);
     
+    // Get top players by projected points and generate predictions
+    const topPlayers = cleanPlayers
+      .sort((a, b) => (b.projectedPoints || 0) - (a.projectedPoints || 0))
+      .slice(0, 10); // Top 10 players
+    
+    let playerPredictions = [];
+    try {
+      const predictions = await playerPredictor.predictPlayerPerformance(topPlayers, {});
+      playerPredictions = predictions.predictions || [];
+    } catch (error) {
+      console.warn('Failed to generate player predictions:', error.message);
+    }
+    
     // Generate coaching summary
     const coachingSummary = {
       portfolio_grade: calculatePortfolioGrade(riskAnalysis, recommendations),
@@ -822,6 +989,14 @@ app.get('/api/ai/coach', async (req, res) => {
     res.json({
       success: true,
       coaching: coachingSummary,
+      player_predictions: playerPredictions.map(pred => ({
+        player: pred.player,
+        projected: pred.predictions.projected_points,
+        ceiling: pred.predictions.ceiling,
+        floor: pred.predictions.floor,
+        confidence: pred.confidence,
+        factors: pred.factors
+      })),
       supporting_data: {
         recommendations_count: recommendations.length,
         risk_score: riskAnalysis.risk_score,
@@ -1076,7 +1251,7 @@ const startBackgroundTasks = () => {
   setInterval(async () => {
     try {
       console.log('Running background data collection...');
-      await dataCollector.collectLatestData();
+      await backgroundDataCollector.dataCollector.collectLatestData();
       
       // Notify connected clients of data updates
       io.emit('data_update', {

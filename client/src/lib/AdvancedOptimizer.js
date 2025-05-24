@@ -91,13 +91,6 @@ class AdvancedOptimizer {
     this.onStatusUpdate = null; // Callback for status text updates
     this.isCancelled = false; // Flag to allow cancellation
 
-    this.debugLog(
-      `Advanced Optimizer created with config: ${JSON.stringify(
-        this.config,
-        null,
-        2
-      )}`
-    );
   }
 
   /**
@@ -206,7 +199,6 @@ class AdvancedOptimizer {
    * Initialize the optimizer with player pool and exposure settings
    */
   async initialize(playerPool, exposureSettings = {}, existingLineups = []) {
-    this.debugLog("Initializing advanced optimizer...");
     this.resetCancel();
     this.updateStatus("Initializing optimizer...");
     this.updateProgress(5, "initialization");
@@ -224,24 +216,7 @@ class AdvancedOptimizer {
         );
       }
 
-      // Log sample player data
-      if (playerPool.length > 0) {
-        this.debugLog("Sample player data:", {
-          id: playerPool[0].id,
-          name: playerPool[0].name,
-          position: playerPool[0].position,
-          team: playerPool[0].team,
-          projectedPoints: playerPool[0].projectedPoints,
-          ownership: playerPool[0].ownership,
-        });
 
-        this.debugLog("Sample projectedPoints:", {
-          raw: playerPool[0].projectedPoints,
-          type: typeof playerPool[0].projectedPoints,
-          asNumber: this._safeParseFloat(playerPool[0].projectedPoints),
-          withFallback: this._safeParseFloat(playerPool[0].projectedPoints, 0),
-        });
-      }
 
       this.updateProgress(10, "processing_players");
       this.updateStatus("Processing player data...");
@@ -269,7 +244,6 @@ class AdvancedOptimizer {
 
       // Create and store team information
       this.teams = this._extractTeams(processedPlayerPool);
-      this.debugLog(`Extracted ${this.teams.length} teams from player data`);
       this.updateProgress(40, "extracting_matchups");
       await this.yieldToUI();
 
@@ -285,9 +259,6 @@ class AdvancedOptimizer {
 
       // Calculate team and player correlations
       this.correlationMatrix = this._buildCorrelationMatrix();
-      this.debugLog(
-        `Built correlation matrix with ${this.correlationMatrix.size} entries`
-      );
       this.updateProgress(60, "initializing_performance");
       this.updateStatus("Generating player performance distributions...");
       await this.yieldToUI();
@@ -298,9 +269,6 @@ class AdvancedOptimizer {
 
       // Initialize player performance simulation map
       await this._initializePlayerPerformanceMap();
-      this.debugLog(
-        `Initialized performance map for ${this.playerPerfMap.size} players`
-      );
       this.updateProgress(90, "initializing_exposures");
       this.updateStatus("Initializing exposure tracking...");
       await this.yieldToUI();
@@ -312,7 +280,6 @@ class AdvancedOptimizer {
       this.optimizerReady = true;
       this.updateProgress(100, "ready");
       this.updateStatus("Optimizer ready");
-      this.debugLog("Advanced optimizer initialized successfully");
       return true;
     } catch (error) {
       console.error("Error initializing optimizer:", error);
@@ -327,7 +294,6 @@ class AdvancedOptimizer {
    * Extract team matchups from player data
    */
   _extractTeamMatchups() {
-    this.debugLog("Extracting team matchups...");
 
     // First check if players already have opponent information
     const hasOpponentData = this.playerPool.some(
@@ -362,7 +328,6 @@ class AdvancedOptimizer {
       });
     } else {
       // No opponent data in player pool, create artificial matchups
-      this.debugLog("No opponent data found, creating artificial matchups");
 
       // Get unique teams
       const teams = [
@@ -383,13 +348,6 @@ class AdvancedOptimizer {
       }
     }
 
-    // Log the matchups for debugging
-    this.debugLog(
-      "Team matchups extracted:",
-      Array.from(this.teamMatchups.entries()).map(
-        ([team, opp]) => `${team} vs ${opp}`
-      )
-    );
 
     return this.teamMatchups;
   }
@@ -462,7 +420,6 @@ class AdvancedOptimizer {
                 : null,
           };
           this.teamExposures.push(teamExposure);
-          this.debugLog(`Added team exposure constraint:`, teamExposure);
         }
       });
     }
@@ -547,13 +504,6 @@ class AdvancedOptimizer {
       }
     }
 
-    this.debugLog("Processed exposure settings:", {
-      playerCount: this.playerExposures.length,
-      teamCount: this.teamExposures.length,
-      teamStackCount: this.teamStackExposures.length,
-      positions: Object.keys(this.positionExposures),
-      stackExposures: this.teamStackExposures,
-    });
   }
 
   /**
@@ -576,7 +526,6 @@ class AdvancedOptimizer {
     };
 
     if (!this.existingLineups || this.existingLineups.length === 0) {
-      this.debugLog("No existing lineups to track exposure for");
       return;
     }
 
@@ -1195,9 +1144,6 @@ class AdvancedOptimizer {
     this.playerPerfMap.clear();
 
     const iterations = this.config.iterations;
-    this.debugLog(
-      `Initializing Monte Carlo simulation with ${iterations} iterations...`
-    );
 
     // For performance, use TypedArrays instead of regular arrays
     this.playerPool.forEach((player) => {
@@ -1295,7 +1241,6 @@ class AdvancedOptimizer {
       }
     }
 
-    this.debugLog("Player performance map initialized");
   }
 
   /**
@@ -1785,7 +1730,7 @@ class AdvancedOptimizer {
           const accuracyMetrics = this.getAccuracyMetrics();
           const accuracyPct = Math.round(accuracyMetrics.overallAccuracy * 100);
           
-          this.updateStatus(`Generating lineups... (${lineups.length}/${count}) - Attempt ${attempts} - Accuracy: ${accuracyPct}%`);
+          this.updateStatus(`Generating lineups... (${lineups.length}/${count})`);
           
           // Update progress - scales from 5% to 40% during generation
           const progress = 5 + (lineups.length / count) * 35;

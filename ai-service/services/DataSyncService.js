@@ -2,7 +2,7 @@ const axios = require('axios');
 
 class DataSyncService {
   constructor() {
-    this.mainServerUrl = 'http://127.0.0.1:3000';
+    this.mainServerUrl = 'http://127.0.0.1:3001';
     this.cache = {
       players: { data: null, timestamp: null },
       lineups: { data: null, timestamp: null },
@@ -32,7 +32,6 @@ class DataSyncService {
         throw new Error(`Failed to fetch ${dataType}`);
       } catch (error) {
         lastError = error;
-        console.error(`❌ Error fetching ${dataType} (attempt ${attempt}/${this.retryAttempts}):`, error.message);
         
         if (attempt < this.retryAttempts) {
           await new Promise(resolve => setTimeout(resolve, this.retryDelay * attempt));
@@ -61,8 +60,6 @@ class DataSyncService {
   }
 
   async syncAllData() {
-    console.log('🔄 Syncing data from main server...');
-    
     try {
       // Fetch all data in parallel
       const [players, lineups, exposures, contest] = await Promise.all([
@@ -72,7 +69,7 @@ class DataSyncService {
         this.fetchContest()
       ]);
       
-      console.log('✅ Data sync completed successfully');
+      console.log('✅ Data sync completed');
       return { players, lineups, exposures, contest };
     } catch (error) {
       console.error('❌ Data sync failed:', error.message);
@@ -82,13 +79,7 @@ class DataSyncService {
 
   async fetchPlayers() {
     try {
-      console.log(`📡 Fetching players from ${this.mainServerUrl}/api/data/players`);
       const response = await this.fetchWithRetry(`${this.mainServerUrl}/api/data/players`, 'players');
-      console.log('📊 Player data response:', {
-        success: response.success,
-        dataLength: response.data?.length || 0,
-        timestamp: response.timestamp
-      });
       
       this.cache.players = {
         data: response.data,
@@ -96,27 +87,17 @@ class DataSyncService {
       };
       return response.data;
     } catch (error) {
-      console.error('❌ All retry attempts failed for players:', error.message);
       // Return cached data if available
       if (this.cache.players.data) {
-        console.log('🔄 Using cached player data after connection failure');
         return this.cache.players.data;
       }
-      console.warn('⚠️  No player data available (connection failed and no cache)');
       return [];
     }
   }
 
   async fetchLineups() {
     try {
-      console.log(`📡 Fetching lineups from ${this.mainServerUrl}/api/data/lineups`);
       const response = await this.fetchWithRetry(`${this.mainServerUrl}/api/data/lineups`, 'lineups');
-      console.log('🏆 Lineup data response:', {
-        success: response.success,
-        count: response.count || 0,
-        dataLength: response.data?.length || 0,
-        timestamp: response.timestamp
-      });
       
       this.cache.lineups = {
         data: response.data,
@@ -124,13 +105,10 @@ class DataSyncService {
       };
       return response.data;
     } catch (error) {
-      console.error('❌ All retry attempts failed for lineups:', error.message);
       // Return cached data if available
       if (this.cache.lineups.data) {
-        console.log('🔄 Using cached lineup data after connection failure');
         return this.cache.lineups.data;
       }
-      console.warn('⚠️  No lineup data available (connection failed and no cache)');
       return [];
     }
   }
@@ -147,10 +125,8 @@ class DataSyncService {
       }
       throw new Error('Failed to fetch exposure data');
     } catch (error) {
-      console.error('Error fetching exposures:', error.message);
       // Return cached data if available
       if (this.cache.exposures.data) {
-        console.log('Using cached exposure data');
         return this.cache.exposures.data;
       }
       return { team: {}, position: {} };
@@ -169,10 +145,8 @@ class DataSyncService {
       }
       throw new Error('Failed to fetch contest data');
     } catch (error) {
-      console.error('Error fetching contest:', error.message);
       // Return cached data if available
       if (this.cache.contest.data) {
-        console.log('Using cached contest data');
         return this.cache.contest.data;
       }
       return { metadata: null, teamStacks: [], settings: {} };

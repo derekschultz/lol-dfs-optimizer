@@ -29,6 +29,13 @@ The LoL DFS Optimizer now includes comprehensive AI-powered features that enhanc
 - **Rising/declining picks**: Identifies trending champions by fantasy value
 - **Team strategy analysis**: Late game scaling vs early aggression trends
 
+### 5. Background Data Collection
+- **Automated collection**: Runs every 30 minutes to keep data fresh
+- **Smart caching**: Stores results with 30-minute TTL for instant access
+- **Progress tracking**: Real-time progress updates via Server-Sent Events
+- **Error handling**: Graceful fallbacks and detailed error reporting
+- **Rate limiting**: Intelligent API usage to respect Riot Games limits
+
 ## 📊 API Endpoints
 
 ### Health & Status
@@ -36,6 +43,8 @@ The LoL DFS Optimizer now includes comprehensive AI-powered features that enhanc
 GET /health                    # Service health check
 GET /api/ai/player-mappings    # Player mapping status
 GET /api/ai/champion-stats     # Champion performance data
+GET /api/ai/collection-status  # Background collection status and progress
+GET /api/ai/collect-data       # Get cached data (GET) or trigger collection (POST)
 ```
 
 ### Player Analysis
@@ -151,11 +160,13 @@ Score = (Avg Fantasy Points / 25) × 0.4 + Win Rate × 0.3 + (Avg KDA / 4) × 0.
 }
 ```
 
-### Auto-Discovery
-- **Riot ID support**: Tests multiple taglines (LEC, LCS, team names)
-- **Fallback names**: Tries alternative summoner names
-- **Rate limiting**: 1.5s delays between requests
-- **Caching**: Saves successful mappings to `/data/player-mappings.json`
+### Dynamic Discovery System
+- **Intelligent discovery**: Automatically discovers player mappings from current roster
+- **Team prefix generation**: Creates multiple team name variations for mapping attempts
+- **Riot ID support**: Tests multiple taglines (LEC, LCS, team names) with automated fallbacks
+- **Rate limiting**: 1.2s delays between requests with exponential backoff
+- **Smart caching**: Saves successful mappings and avoids redundant API calls
+- **Background collection**: Automated data collection every 30 minutes with progress tracking
 
 ## 🚨 Error Handling
 
@@ -172,12 +183,13 @@ Score = (Avg Fantasy Points / 25) × 0.4 + Win Rate × 0.3 + (Avg KDA / 4) × 0.
 
 ## 🔄 Data Flow
 
-1. **Initialization**: Load player mappings and fetch PUUIDs
-2. **Data Collection**: Pull last 20 games per player from Riot API
-3. **Analysis**: Calculate form trends, streaks, champion performance
-4. **ML Training**: Train models on historical performance data
-5. **Insights Generation**: Combine all analysis for recommendations
-6. **API Serving**: Provide real-time insights via REST endpoints
+1. **Initialization**: Dynamic player mapping discovery from current roster
+2. **Background Collection**: Automated data collection every 30 minutes with caching
+3. **Data Processing**: Pull recent matches per player from Riot API with smart rate limiting
+4. **Analysis**: Calculate form trends, streaks, champion performance with progress tracking
+5. **ML Training**: Train models on historical performance data
+6. **Insights Generation**: Combine all analysis for recommendations
+7. **API Serving**: Provide real-time insights via REST endpoints with cached fallbacks
 
 ## 📋 Usage Examples
 

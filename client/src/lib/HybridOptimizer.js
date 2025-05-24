@@ -212,9 +212,6 @@ class HybridOptimizer {
         throw new Error(`Data validation failed: ${validationResult.errors.join(', ')}`);
       }
       
-      if (validationResult.warnings.length > 0) {
-        console.warn('Data validation warnings:', validationResult.warnings);
-      }
       
       this.updateProgress(20, "analyzing_constraints");
       this.updateStatus("Analyzing optimization constraints...");

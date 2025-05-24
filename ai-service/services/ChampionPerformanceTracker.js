@@ -6,6 +6,7 @@
 const RiotGamesAPI = require('./RiotGamesAPI');
 const fs = require('fs').promises;
 const path = require('path');
+const axios = require('axios');
 
 class ChampionPerformanceTracker {
     constructor(riotApiKey) {
@@ -16,8 +17,9 @@ class ChampionPerformanceTracker {
         this.recentFormData = new Map(); // Player -> recent game trends
         this.matchHistory = [];
         this.lastUpdate = null;
+        this.mainServerUrl = 'http://127.0.0.1:3001';
         
-        // Pro player mappings will be loaded from configuration
+        // Pro player mappings will be loaded dynamically
         this.proPlayerMappings = new Map();
         
         // Initialize with empty data
@@ -33,126 +35,23 @@ class ChampionPerformanceTracker {
     }
     
     /**
-     * Load pro player mappings from configuration
+     * Load and discover player mappings dynamically
      */
     async loadProPlayerMappings(mappingsFile = null) {
         try {
-            if (mappingsFile && await this.fileExists(mappingsFile)) {
-                // Load from provided file
-                const mappings = JSON.parse(await fs.readFile(mappingsFile, 'utf8'));
+            // Try to load existing mappings from cache file first
+            const cacheFile = path.join(__dirname, '../cache/player-mappings.json');
+            if (await this.fileExists(cacheFile)) {
+                const mappings = JSON.parse(await fs.readFile(cacheFile, 'utf8'));
                 this.proPlayerMappings = new Map(Object.entries(mappings));
+                console.log(`📋 Loaded ${this.proPlayerMappings.size} cached player mappings`);
             } else {
-                // Default mappings for common pro players
-                // Format: DFS Name -> { puuid, summonerName, region, team }
-                this.proPlayerMappings = new Map([
-                    // LCK Teams
-                    ['Faker', { summonerName: 'Hide on bush', region: 'KR', team: 'T1' }],
-                    ['Zeus', { summonerName: 'T1 Zeus', region: 'KR', team: 'T1' }],
-                    ['Oner', { summonerName: 'T1 Oner', region: 'KR', team: 'T1' }],
-                    ['Gumayusi', { summonerName: 'T1 Gumayusi', region: 'KR', team: 'T1' }],
-                    ['Keria', { summonerName: 'T1 Keria', region: 'KR', team: 'T1' }],
-                    ['Chovy', { summonerName: 'Gen G Chovy', region: 'KR', team: 'GEN' }],
-                    ['Peanut', { summonerName: 'Gen G Peanut', region: 'KR', team: 'GEN' }],
-                    ['Doran', { summonerName: 'Gen G Doran', region: 'KR', team: 'GEN' }],
-                    ['Peyz', { summonerName: 'Gen G Peyz', region: 'KR', team: 'GEN' }],
-                    ['Lehends', { summonerName: 'Gen G Lehends', region: 'KR', team: 'GEN' }],
-                    
-                    // LEC Teams - Using professional in-game names
-                    ['Caps', { summonerName: 'G2 Caps', region: 'EUW', team: 'G2', altNames: ['Caps', 'FNC Caps'] }],
-                    ['BrokenBlade', { summonerName: 'G2 BrokenBlade', region: 'EUW', team: 'G2', altNames: ['BrokenBlade', 'TSM BrokenBlade'] }],
-                    ['Yike', { summonerName: 'G2 Yike', region: 'EUW', team: 'G2', altNames: ['Yike'] }],
-                    ['Hans sama', { summonerName: 'G2 Hans sama', region: 'EUW', team: 'G2', altNames: ['Hans sama', 'TL Hans sama'] }],
-                    ['Mikyx', { summonerName: 'G2 Mikyx', region: 'EUW', team: 'G2', altNames: ['Mikyx', 'MSF Mikyx'] }],
-                    
-                    // Fnatic
-                    ['Razork', { summonerName: 'FNC Razork', region: 'EUW', team: 'FNC', altNames: ['Razork'] }],
-                    ['Humanoid', { summonerName: 'FNC Humanoid', region: 'EUW', team: 'FNC', altNames: ['Humanoid', 'MAD Humanoid'] }],
-                    ['Noah', { summonerName: 'FNC Noah', region: 'EUW', team: 'FNC', altNames: ['Noah'] }],
-                    ['Jun', { summonerName: 'FNC Jun', region: 'EUW', team: 'FNC', altNames: ['Jun'] }],
-                    
-                    // Team Heretics
-                    ['Jankos', { summonerName: 'TH Jankos', region: 'EUW', team: 'TH', altNames: ['Jankos', 'G2 Jankos'] }],
-                    
-                    // LCS Teams
-                    ['Blaber', { summonerName: 'C9 Blaber', region: 'NA', team: 'C9' }],
-                    ['Jensen', { summonerName: 'C9 Jensen', region: 'NA', team: 'C9' }],
-                    ['Berserker', { summonerName: 'C9 Berserker', region: 'NA', team: 'C9' }],
-                    
-                    // LPL Teams (harder to track due to server restrictions)
-                    // Add more mappings as needed
-                ]);
+                this.proPlayerMappings = new Map();
+                console.log(`📋 Starting with empty player mappings - will discover dynamically`);
             }
             
-            // Fetch PUUIDs for players
-            let fetchedCount = 0;
-            for (const [dfsName, mapping] of this.proPlayerMappings) {
-                if (!mapping.puuid && mapping.summonerName) {
-                    try {
-                        let summoner;
-                        let attemptedNames = [mapping.summonerName];
-                        
-                        // Add alternative names if available
-                        if (mapping.altNames) {
-                            attemptedNames = attemptedNames.concat(mapping.altNames);
-                        }
-                        
-                        // Try each summoner name
-                        for (const nameToTry of attemptedNames) {
-                            try {
-                                // Try with tagline first (new Riot ID system)
-                                if (mapping.region === 'EUW' || mapping.region === 'NA') {
-                                    const taglines = ['EUW', 'EUNE', 'NA1', 'LEC', 'LCS', mapping.region, 'G2', 'FNC', 'TH'];
-                                    for (const tag of taglines) {
-                                        try {
-                                            summoner = await this.riotAPI.getSummonerByName(nameToTry, mapping.region, tag);
-                                            console.log(`✅ Found ${dfsName} (${nameToTry}) with tag: ${tag}`);
-                                            break;
-                                        } catch (tagError) {
-                                            // Try next tag
-                                        }
-                                    }
-                                }
-                                
-                                // If Riot ID approach failed, try old summoner name method
-                                if (!summoner) {
-                                    summoner = await this.riotAPI.getSummonerByName(nameToTry, mapping.region);
-                                    console.log(`✅ Found ${dfsName} (${nameToTry}) with legacy API`);
-                                }
-                                
-                                if (summoner) break; // Success, exit name loop
-                                
-                            } catch (nameError) {
-                                // Try next name
-                                console.log(`⚠️ Failed ${nameToTry} for ${dfsName}: ${nameError.response?.status || nameError.message}`);
-                            }
-                        }
-                        
-                        if (summoner) {
-                            mapping.puuid = summoner.puuid;
-                            mapping.accountId = summoner.accountId;
-                            mapping.id = summoner.id;
-                            mapping.resolvedName = summoner.name; // Store what actually worked
-                            fetchedCount++;
-                            console.log(`✅ Successfully mapped ${dfsName} -> ${summoner.name}`);
-                        }
-                        
-                        // Rate limit respect
-                        await new Promise(resolve => setTimeout(resolve, 1500));
-                    } catch (error) {
-                        console.warn(`❌ Failed to get PUUID for ${dfsName} (${mapping.summonerName}):`, error.response?.status || error.message);
-                        
-                        // For 403 errors, suggest the player might need a different approach
-                        if (error.response?.status === 403) {
-                            console.warn(`   💡 ${dfsName} might need manual PUUID lookup or different summoner name`);
-                        }
-                    }
-                }
-            }
-            
-            console.log(`✅ Loaded ${this.proPlayerMappings.size} player mappings, fetched ${fetchedCount} PUUIDs`);
-            
-            // Save mappings with PUUIDs for future use
-            await this.savePlayerMappings();
+            // Get current players that need mapping
+            await this.discoverPlayerMappings();
         } catch (error) {
             console.error('Error loading player mappings:', error);
         }
@@ -163,7 +62,7 @@ class ChampionPerformanceTracker {
      */
     async savePlayerMappings() {
         try {
-            const mappingsPath = path.join(__dirname, '../../data/player-mappings.json');
+            const mappingsPath = path.join(__dirname, '../cache/player-mappings.json');
             const mappingsObj = {};
             
             for (const [name, data] of this.proPlayerMappings) {
@@ -174,6 +73,163 @@ class ChampionPerformanceTracker {
             await fs.writeFile(mappingsPath, JSON.stringify(mappingsObj, null, 2));
         } catch (error) {
             console.warn('Failed to save player mappings:', error.message);
+        }
+    }
+
+    /**
+     * Dynamically discover player mappings for current imported players
+     */
+    async discoverPlayerMappings() {
+        try {
+            // Get current players from main server
+            let currentPlayers = [];
+            try {
+                const playersResponse = await axios.get(`${this.mainServerUrl}/api/data/players`);
+                if (playersResponse.data.success && playersResponse.data.data) {
+                    currentPlayers = playersResponse.data.data.map(p => p.name);
+                }
+            } catch (error) {
+                console.warn('Could not fetch current players from main server');
+                return;
+            }
+
+            if (currentPlayers.length === 0) {
+                console.log('📋 No players found to map');
+                return;
+            }
+
+            console.log(`🔍 Discovering mappings for ${currentPlayers.length} players...`);
+            let discoveredCount = 0;
+            let cachedCount = 0;
+
+            // Process each player that needs mapping
+            for (const playerName of currentPlayers) {
+                // Skip if we already have this player mapped with PUUID
+                if (this.proPlayerMappings.has(playerName) && this.proPlayerMappings.get(playerName).puuid) {
+                    cachedCount++;
+                    continue;
+                }
+
+                // Try to discover this player dynamically
+                const mapping = await this.discoverPlayerMapping(playerName);
+                if (mapping) {
+                    this.proPlayerMappings.set(playerName, mapping);
+                    discoveredCount++;
+                    console.log(`✅ Discovered ${playerName} -> ${mapping.resolvedName}`);
+                }
+
+                // Rate limit respect
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+
+            console.log(`📋 Discovery complete: ${cachedCount} cached, ${discoveredCount} discovered`);
+            
+            // Save updated mappings to cache
+            await this.savePlayerMappings();
+        } catch (error) {
+            console.error('Error in player discovery:', error);
+        }
+    }
+
+    /**
+     * Discover a single player's Riot account mapping
+     */
+    async discoverPlayerMapping(playerName) {
+        // Generate possible summoner names to try
+        const possibleNames = this.generatePossibleSummonerNames(playerName);
+        
+        // Try each possible name
+        for (const nameToTry of possibleNames) {
+            try {
+                let summoner = await this.tryFindSummoner(nameToTry, 'KR'); // Default to KR region
+                if (summoner) {
+                    return {
+                        summonerName: nameToTry,
+                        region: 'KR',
+                        tagLine: 'KR1',
+                        puuid: summoner.puuid,
+                        accountId: summoner.accountId,
+                        id: summoner.id,
+                        resolvedName: summoner.gameName || nameToTry,
+                        discoveredAt: new Date().toISOString()
+                    };
+                }
+            } catch (error) {
+                // Continue to next name
+                continue;
+            }
+        }
+
+        console.log(`⚠️ Could not discover mapping for ${playerName}`);
+        return null;
+    }
+
+    /**
+     * Generate possible summoner names for a player
+     */
+    generatePossibleSummonerNames(playerName) {
+        const teamPrefixes = ['T1', 'Gen G', 'DK', 'HLE', 'KT', 'NS', 'DRX', 'BRO', 'KDF', 'FOX', 'DNF'];
+        const names = [
+            playerName, // Try exact name first
+            ...teamPrefixes.map(prefix => `${prefix} ${playerName}`), // Team prefixed names
+            playerName.toLowerCase(), // lowercase
+            playerName.toUpperCase(), // uppercase
+        ];
+        
+        // Remove duplicates and return
+        return [...new Set(names)];
+    }
+
+    /**
+     * Try to find summoner with different API approaches
+     */
+    async tryFindSummoner(summonerName, region) {
+        // Try new Riot ID system first
+        try {
+            return await this.riotAPI.getSummonerByName(summonerName, region, 'KR1');
+        } catch (error) {
+            // Try legacy API
+            try {
+                return await this.riotAPI.getSummonerByName(summonerName, region);
+            } catch (legacyError) {
+                return null;
+            }
+        }
+    }
+    
+    /**
+     * Fetch player mappings from main server (deprecated - keeping for compatibility)
+     */
+    async fetchMappingsFromMainServer() {
+        try {
+            console.log('📡 Fetching player mappings from main server...');
+            const response = await axios.get(`${this.mainServerUrl}/api/player-summoner-mappings`);
+            
+            if (response.data.success && response.data.mappings) {
+                // Convert server mappings format to our format
+                const mappings = response.data.mappings;
+                this.proPlayerMappings = new Map();
+                
+                for (const [playerName, mapping] of Object.entries(mappings)) {
+                    // Server format has summonerName, region, tagLine
+                    // We need to convert to our format
+                    this.proPlayerMappings.set(playerName, {
+                        summonerName: mapping.summonerName,
+                        region: mapping.region,
+                        team: mapping.team || 'Unknown',
+                        tagLine: mapping.tagLine,
+                        altNames: [mapping.summonerName]
+                    });
+                }
+                
+                console.log(`✅ Loaded ${this.proPlayerMappings.size} player mappings from main server`);
+            } else {
+                console.log('⚠️ No player mappings available from main server');
+                this.proPlayerMappings = new Map();
+            }
+        } catch (error) {
+            console.error('❌ Failed to fetch player mappings from main server:', error.message);
+            this.proPlayerMappings = new Map();
         }
     }
     
