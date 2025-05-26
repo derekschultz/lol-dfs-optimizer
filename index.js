@@ -204,8 +204,8 @@ async loadData(playerDataFile, teamDataFile) {
       fantasy: team.Fantasy,
       avgValue: team["Avg Value"],
       stackPlus: team["Stack+"],
-      stackPlusWins: team["Stack+ All Wins"],
-      stackPlusLosses: team["Stack+ All Losses"],
+      stackPlusAllWins: team["Stack+ All Wins"],
+      stackPlusAllLosses: team["Stack+ All Losses"],
       oppKillsAllowed: team["Opp Kills Allowed"]
     };
   });

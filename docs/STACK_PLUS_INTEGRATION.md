@@ -2,27 +2,37 @@
 
 ## Overview
 
-Stack+ is a proprietary rating system that evaluates the historical performance of team stack combinations in DFS contests. This document outlines the integration of Stack+ ratings into the LoL DFS Optimizer to improve team synergy evaluation and stack selection while preserving individual player projection integrity.
+Stack+ is a proprietary rating system that evaluates team performance in League of Legends matches and their corresponding fantasy scoring patterns. This document outlines the integration of Stack+ ratings into the LoL DFS Optimizer to improve team stack evaluation based on match outcome scenarios.
 
 ## Core Principle
 
-**Stack+ enhances team synergy evaluation only - individual player projections remain unchanged.**
+**Stack+ enhances team synergy evaluation based on match outcomes - individual player projections remain unchanged.**
 
-Player projections already factor in individual performance. Stack+ provides additional insight into how well players perform together as a team unit, capturing chemistry and coordination effects that individual projections cannot measure.
+Player projections already factor in individual performance. Stack+ provides additional insight into how teams perform in different match scenarios (sweeps vs competitive series), capturing the fantasy scoring patterns that emerge from different game states.
 
 ## Understanding Stack+ Ratings
 
-### Rating Scale
-- **Elite Tier (200+)**: Exceptional team synergy (e.g., T1: 205.68)
-- **Strong Tier (100-199)**: Above-average team coordination (e.g., HLE: 145.46)
-- **Average Tier (10-99)**: Standard team performance (e.g., DK: 12.51)
-- **Below Average (0-9)**: Poor team synergy (e.g., DNF: 9.65)
-
 ### Rating Components
-- **Stack+**: Overall team synergy rating
-- **Stack+ All Wins**: Team performance in winning lineups
-- **Stack+ All Losses**: Team performance in losing lineups
-- **Win/Loss Differential**: Indicates team consistency and reliability
+- **Stack+**: Overall team performance rating across all match outcomes
+- **Stack+ All Wins**: Team performance when winning all games (2-0 in Bo3, 3-0 in Bo5)
+- **Stack+ All Losses**: Team performance when losing all games (0-2 in Bo3, 0-3 in Bo5)
+
+### Match Outcome Context
+In League of Legends, match outcomes significantly impact fantasy scoring:
+- **Sweeps (2-0, 3-0)**: Often produce higher fantasy scores due to:
+  - Shorter game times leading to higher kills per minute
+  - Snowball victories with stat padding
+  - Clean games with bonus objectives
+- **Getting Swept (0-2, 0-3)**: Typically results in very low fantasy scores
+- **Competitive Series**: More balanced scoring but less upside
+
+### Example Ratings
+- **T1**: Stack+ 205.68, All Wins 211.60, All Losses 3.18
+  - Elite performance when sweeping opponents
+  - Minimal fantasy value when swept
+- **DK**: Stack+ 12.51, All Wins 195.51, All Losses 2.70
+  - Strong sweep potential despite lower base rating
+  - Also collapses when swept
 
 ## Implementation Strategy
 
@@ -42,25 +52,48 @@ function getStackRatingModifier(stackPlus) {
 }
 ```
 
-#### Team Consistency Analysis
+#### Match Dominance Analysis
 ```javascript
-function getTeamConsistency(stackPlusWins, stackPlusLosses) {
-  const differential = stackPlusWins - stackPlusLosses;
+function getMatchDominanceFactor(stackPlusAllWins, stackPlusAllLosses) {
+  // High sweep rating indicates exceptional performance when dominant
+  if (stackPlusAllWins >= 200) return 1.10;  // Elite sweep teams
+  if (stackPlusAllWins >= 180) return 1.07;  // Strong sweep teams
+  if (stackPlusAllWins >= 150) return 1.04;  // Above average sweeps
   
-  if (differential > 200) return 1.05;  // Very consistent - 5% bonus
-  if (differential > 150) return 1.03;  // Consistent - 3% bonus
-  if (differential > 100) return 1.01;  // Slight bonus - 1% bonus
-  return 1.00;                          // No consistency bonus
+  // Most teams score poorly when swept (this is normal)
+  if (stackPlusAllLosses < 5) return 1.00;   // Expected pattern
+  
+  // Unusual: teams that maintain decent scores even when swept
+  if (stackPlusAllLosses > 50) return 1.05;  // Resilient teams
+  
+  return 1.00;
 }
 ```
 
 #### Combined Team Modifier
 ```javascript
-function getStackModifier(teamStack) {
-  const synergyModifier = getStackRatingModifier(teamStack.stackPlus);
-  const consistencyBonus = getTeamConsistency(teamStack.stackPlusWins, teamStack.stackPlusLosses);
+function getStackModifier(teamStack, contestType = null) {
+  // GPP/Tournament: Emphasize sweep potential
+  if (contestType === 'gpp' || contestType === 'tournament') {
+    const sweepRating = teamStack.stackPlusAllWins || teamStack.stackPlus;
+    const sweepModifier = getStackRatingModifier(sweepRating);
+    const dominanceFactor = getMatchDominanceFactor(
+      teamStack.stackPlusAllWins, 
+      teamStack.stackPlusAllLosses
+    );
+    return sweepModifier * dominanceFactor;
+  }
   
-  return synergyModifier * consistencyBonus;
+  // Cash games: Focus on consistency
+  if (contestType === 'cash') {
+    const baseModifier = getStackRatingModifier(teamStack.stackPlus);
+    const resilienceFactor = teamStack.stackPlusAllLosses > 10 ? 1.02 : 1.00;
+    return baseModifier * resilienceFactor;
+  }
+  
+  // Default: Balanced approach
+  return getStackRatingModifier(teamStack.stackPlus) * 
+         getMatchDominanceFactor(teamStack.stackPlusAllWins, teamStack.stackPlusAllLosses);
 }
 ```
 
@@ -114,29 +147,23 @@ function calculateStackExposureTarget(teamStack, baseExposure = 25) {
 }
 ```
 
-### 3. Contest-Type Adjustments
+### 3. Contest-Type Strategy
 
-#### GPP (Tournament) Mode
-Emphasize upside potential using Stack+ All Wins:
-```javascript
-function getGPPStackModifier(teamStack) {
-  const winSynergy = teamStack.stackPlusWins;
-  const winModifier = Math.min(1.2, winSynergy / 200); // Cap at 20% boost
-  return Math.max(0.9, winModifier); // Floor at 10% penalty
-}
-```
+#### GPP/Tournament Mode
+For tournaments, we prioritize teams with high sweep potential:
+- **Focus on Stack+ All Wins rating** - Teams that dominate when winning 2-0/3-0
+- **Reward match dominance** - Bonus for teams with elite sweep ratings (200+)
+- **Accept volatility** - These teams may score poorly when swept, but upside matters more
+
+Example: T1 with 211.60 All Wins rating gets maximum boost in GPPs
 
 #### Cash Game Mode
-Focus on consistency using base Stack+ and loss performance:
-```javascript
-function getCashStackModifier(teamStack) {
-  const baseSynergy = teamStack.stackPlus;
-  const lossPerformance = teamStack.stackPlusLosses;
-  const consistencyFactor = Math.min(1.0, lossPerformance / 50); // Higher losses = more consistent floor
-  
-  return (baseSynergy / 150) * (1 + consistencyFactor * 0.1);
-}
-```
+For cash games, we prioritize consistency:
+- **Use base Stack+ rating** - Overall performance across all match outcomes
+- **Small resilience bonus** - Teams that don't completely collapse when swept
+- **Avoid extreme volatility** - Prefer steady performers over boom/bust teams
+
+Example: Teams with Stack+ All Losses > 10 get a small bonus for maintaining some floor
 
 ### 4. Stack Size Scaling
 
@@ -205,16 +232,22 @@ function identifyPrimaryStack(lineup) {
 ## Expected Impact
 
 ### Positive Outcomes
-- **Better Team Selection**: Favor teams with proven synergy
-- **Improved Stack Quality**: Higher-performing team combinations
-- **Risk Management**: Avoid teams with poor coordination
-- **Strategic Edge**: Leverage team chemistry data competitors miss
+- **Better Match Outcome Prediction**: Favor teams likely to sweep in GPPs
+- **Improved Stack Quality**: Select teams based on contest-appropriate metrics
+- **Risk Management**: Avoid teams that collapse when losing
+- **Strategic Edge**: Leverage match outcome patterns competitors may miss
+
+### Key Insights from Stack+ Data
+1. **Most teams score poorly when swept** - Stack+ All Losses < 5 is normal
+2. **Elite teams dominate when sweeping** - Stack+ All Wins > 200 indicates exceptional sweep performance
+3. **Contest type matters** - GPPs benefit from sweep upside, cash games need consistency
+4. **Stack size scaling preserves balance** - 4-stacks get full effect, 2-stacks get 50%
 
 ### Metrics to Track
-- Synergy bonus impact on lineup scores
-- Win rate by Stack+ tier
-- Exposure accuracy to synergy-based targets
-- Team correlation effectiveness
+- Sweep rate correlation with Stack+ All Wins rating
+- Fantasy scoring in 2-0 vs 2-1 vs 0-2 scenarios
+- ROI improvement by contest type
+- Exposure optimization based on match outcome probability
 
 ## Testing Strategy
 

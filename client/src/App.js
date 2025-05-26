@@ -1189,6 +1189,85 @@ const App = () => {
                 </div>
               </div>
             </div>
+            
+            {/* Stack+ Ratings Display */}
+            {stackData.length > 0 && (
+              <div style={{ marginTop: '2rem' }}>
+                <h3 style={{ color: '#90cdf4', marginBottom: '1rem' }}>Stack+ Ratings</h3>
+                <div className="table-container" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #4a5568' }}>
+                        <th style={{ padding: '12px', textAlign: 'left', color: '#90cdf4' }}>Team</th>
+                        <th style={{ padding: '12px', textAlign: 'center', color: '#90cdf4' }}>Stack+</th>
+                        <th style={{ padding: '12px', textAlign: 'center', color: '#90cdf4' }}>Stack+ All Wins</th>
+                        <th style={{ padding: '12px', textAlign: 'center', color: '#90cdf4' }}>Stack+ All Losses</th>
+                        <th style={{ padding: '12px', textAlign: 'center', color: '#90cdf4' }}>Rating Tier</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stackData
+                        .sort((a, b) => (b.stackPlus || 0) - (a.stackPlus || 0))
+                        .map((stack, index) => {
+                          const rating = stack.stackPlus || 0;
+                          let tier = 'Poor';
+                          let tierColor = '#ef4444';
+                          
+                          if (rating >= 200) {
+                            tier = 'Elite';
+                            tierColor = '#10b981';
+                          } else if (rating >= 150) {
+                            tier = 'Very Strong';
+                            tierColor = '#34d399';
+                          } else if (rating >= 100) {
+                            tier = 'Strong';
+                            tierColor = '#60a5fa';
+                          } else if (rating >= 50) {
+                            tier = 'Above Average';
+                            tierColor = '#93c5fd';
+                          } else if (rating >= 20) {
+                            tier = 'Slightly Above';
+                            tierColor = '#cbd5e1';
+                          } else if (rating >= 10) {
+                            tier = 'Average';
+                            tierColor = '#94a3b8';
+                          } else if (rating >= 5) {
+                            tier = 'Below Average';
+                            tierColor = '#f59e0b';
+                          }
+                          
+                          return (
+                            <tr key={index} style={{ borderBottom: '1px solid #4a5568' }}>
+                              <td style={{ padding: '12px', color: '#e2e8f0' }}>{stack.team}</td>
+                              <td style={{ padding: '12px', textAlign: 'center', color: '#e2e8f0' }}>
+                                {stack.stackPlus?.toFixed(2) || '0.00'}
+                              </td>
+                              <td style={{ padding: '12px', textAlign: 'center', color: '#10b981' }}>
+                                {stack.stackPlusAllWins?.toFixed(2) || '0.00'}
+                              </td>
+                              <td style={{ padding: '12px', textAlign: 'center', color: '#ef4444' }}>
+                                {stack.stackPlusAllLosses?.toFixed(2) || '0.00'}
+                              </td>
+                              <td style={{ padding: '12px', textAlign: 'center' }}>
+                                <span style={{ 
+                                  backgroundColor: tierColor + '20',
+                                  color: tierColor,
+                                  padding: '4px 12px',
+                                  borderRadius: '12px',
+                                  fontSize: '0.875rem',
+                                  fontWeight: '500'
+                                }}>
+                                  {tier}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

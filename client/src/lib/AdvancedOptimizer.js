@@ -94,6 +94,195 @@ class AdvancedOptimizer {
   }
 
   /**
+   * Stack+ Integration Functions
+   * These functions enhance team synergy evaluation using historical Stack+ ratings
+   */
+
+  /**
+   * Get Stack+ synergy modifier based on team rating
+   * @param {number} stackPlus - The Stack+ rating for the team
+   * @returns {number} Synergy modifier (0.95 to 1.15)
+   */
+  getStackRatingModifier(stackPlus) {
+    if (stackPlus >= 200) return 1.15;  // Elite synergy - 15% boost
+    if (stackPlus >= 150) return 1.10;  // Very Strong - 10% boost
+    if (stackPlus >= 100) return 1.07;  // Strong - 7% boost
+    if (stackPlus >= 50) return 1.04;   // Above Average - 4% boost
+    if (stackPlus >= 20) return 1.02;   // Slightly Above - 2% boost
+    if (stackPlus >= 10) return 1.00;   // Average - No modification
+    if (stackPlus >= 5) return 0.98;    // Below Average - 2% penalty
+    return 0.95;                         // Poor synergy - 5% penalty
+  }
+
+  /**
+   * Calculate match dominance factor based on sweep vs swept ratings
+   * Teams that perform well in sweeps (2-0, 3-0) get bonuses
+   * @param {number} stackPlusAllWins - Stack+ rating when team wins all games (2-0/3-0)
+   * @param {number} stackPlusAllLosses - Stack+ rating when team loses all games (0-2/0-3)
+   * @returns {number} Match dominance factor (0.95 to 1.10)
+   */
+  getMatchDominanceFactor(stackPlusAllWins, stackPlusAllLosses) {
+    // High sweep rating indicates team performs exceptionally when dominant
+    if (stackPlusAllWins >= 200) {
+      // Elite sweep performance
+      return 1.10;
+    } else if (stackPlusAllWins >= 180) {
+      return 1.07;
+    } else if (stackPlusAllWins >= 150) {
+      return 1.04;
+    }
+    
+    // Low swept rating indicates team struggles badly when losing
+    // This is actually common (most teams score poorly when swept)
+    if (stackPlusAllLosses < 5) {
+      // Very low fantasy points when swept - typical pattern
+      return 1.00;
+    }
+    
+    // If team maintains decent score even when swept, that's unusual and good
+    if (stackPlusAllLosses > 50) {
+      return 1.05; // Resilient team
+    }
+    
+    return 1.00;
+  }
+
+  /**
+   * Get combined Stack+ modifier for a team stack
+   * @param {Object} teamStack - Team stack object with stackPlus, stackPlusAllWins, stackPlusAllLosses
+   * @param {string} contestType - Contest type ('gpp', 'cash', or undefined for default)
+   * @returns {number} Combined synergy modifier
+   */
+  getStackModifier(teamStack, contestType = null) {
+    if (!teamStack || typeof teamStack.stackPlus !== 'number') {
+      return 1.00; // No modifier if no valid Stack+ data
+    }
+
+    // For GPP/tournaments, emphasize sweep potential
+    if (contestType === 'gpp' || contestType === 'tournament') {
+      // Use sweep rating more heavily for GPPs
+      const sweepRating = teamStack.stackPlusAllWins || teamStack.stackPlus;
+      const sweepModifier = this.getStackRatingModifier(sweepRating);
+      const dominanceFactor = this.getMatchDominanceFactor(
+        teamStack.stackPlusAllWins || 0,
+        teamStack.stackPlusAllLosses || 0
+      );
+      return sweepModifier * dominanceFactor;
+    }
+    
+    // For cash games, use base rating for consistency
+    if (contestType === 'cash') {
+      const baseModifier = this.getStackRatingModifier(teamStack.stackPlus);
+      // Small bonus for teams that don't completely collapse when swept
+      const resilienceFactor = teamStack.stackPlusAllLosses > 10 ? 1.02 : 1.00;
+      return baseModifier * resilienceFactor;
+    }
+    
+    // Default: balanced approach
+    const synergyModifier = this.getStackRatingModifier(teamStack.stackPlus);
+    const dominanceFactor = this.getMatchDominanceFactor(
+      teamStack.stackPlusAllWins || 0, 
+      teamStack.stackPlusAllLosses || 0
+    );
+    
+    return synergyModifier * dominanceFactor;
+  }
+
+  /**
+   * Apply Stack+ scaling based on stack size
+   * @param {Object} teamStack - Team stack object
+   * @param {number} stackSize - Number of players from this team in the lineup
+   * @param {string} contestType - Contest type for context-aware scaling
+   * @returns {number} Scaled Stack+ modifier
+   */
+  getScaledStackModifier(teamStack, stackSize, contestType = null) {
+    const baseModifier = this.getStackModifier(teamStack, contestType);
+    const scaleFactors = { 
+      4: 1.0,   // Full team synergy effect
+      3: 0.75,  // Reduced synergy with missing players
+      2: 0.5    // Minimal synergy effect
+    };
+    
+    const scaleFactor = scaleFactors[stackSize] || 1.0;
+    return 1 + (baseModifier - 1) * scaleFactor;
+  }
+
+  /**
+   * Identify the primary team stack in a lineup
+   * @param {Object} lineup - Lineup object with cpt and players
+   * @returns {Object|null} Primary team stack object or null
+   */
+  identifyPrimaryStack(lineup) {
+    const teamCounts = {};
+    
+    // Count captain's team
+    if (lineup.cpt?.team) {
+      teamCounts[lineup.cpt.team] = (teamCounts[lineup.cpt.team] || 0) + 1;
+    }
+    
+    // Count players' teams
+    if (lineup.players) {
+      lineup.players.forEach(player => {
+        if (player?.team) {
+          teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+        }
+      });
+    }
+    
+    // Find team with most players
+    const teamEntries = Object.entries(teamCounts);
+    if (teamEntries.length === 0) return null;
+    
+    const [primaryTeam, stackSize] = teamEntries
+      .sort(([,a], [,b]) => b - a)[0];
+    
+    // Only consider it a stack if 2+ players
+    if (stackSize < 2) return null;
+    
+    // Find the team stack data
+    const teamStack = this.teamStacks?.find(stack => stack.team === primaryTeam);
+    if (teamStack) {
+      return { ...teamStack, stackSize };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Calculate Stack+ enhanced exposure targets
+   * Teams with higher Stack+ ratings should get proportionally higher exposure
+   * @param {Object} baseExposure - Base exposure settings for the team
+   * @param {Object} teamStack - Team stack data with Stack+ ratings
+   * @returns {Object} Enhanced exposure settings
+   */
+  calculateStackEnhancedExposure(baseExposure, teamStack) {
+    if (!teamStack || typeof teamStack.stackPlus !== 'number') {
+      return baseExposure; // No enhancement if no Stack+ data
+    }
+    
+    const contestType = this.config.contestType || null;
+    const stackModifier = this.getStackModifier(teamStack, contestType);
+    
+    // Apply modifier to exposure targets
+    const enhancedExposure = {
+      ...baseExposure,
+      target: baseExposure.target ? Math.round(baseExposure.target * stackModifier * 100) / 100 : null,
+      max: baseExposure.max ? Math.min(1, baseExposure.max * stackModifier) : 1,
+      min: baseExposure.min || 0 // Keep minimum unchanged
+    };
+    
+    // Cap exposure between reasonable bounds
+    if (enhancedExposure.target !== null) {
+      enhancedExposure.target = Math.max(0.05, Math.min(0.5, enhancedExposure.target));
+    }
+    enhancedExposure.max = Math.max(0.1, Math.min(0.6, enhancedExposure.max));
+    
+    this.debugLog(`Stack+ Enhanced Exposure: ${teamStack.team} - Base target: ${baseExposure.target}, Enhanced: ${enhancedExposure.target}, Modifier: ${stackModifier.toFixed(3)}`);
+    
+    return enhancedExposure;
+  }
+
+  /**
    * Debug logging helper - only logs if debugMode is enabled
    */
   debugLog(message, data = null) {
@@ -198,7 +387,7 @@ class AdvancedOptimizer {
   /**
    * Initialize the optimizer with player pool and exposure settings
    */
-  async initialize(playerPool, exposureSettings = {}, existingLineups = []) {
+  async initialize(playerPool, exposureSettings = {}, existingLineups = [], teamStacks = []) {
     this.resetCancel();
     this.updateStatus("Initializing optimizer...");
     this.updateProgress(5, "initialization");
@@ -225,6 +414,7 @@ class AdvancedOptimizer {
       // First set playerPool temporarily so methods can use it during preprocessing
       this.playerPool = playerPool;
       this.existingLineups = existingLineups || [];
+      this.teamStacks = teamStacks || [];
 
       // Process exposure settings
       this._processExposureSettings(exposureSettings);
@@ -479,6 +669,31 @@ class AdvancedOptimizer {
       });
       
       this.debugLog("Final team stack exposures:", this.teamStackExposures);
+    }
+    
+    // Apply Stack+ enhancements to exposure targets
+    if (this.teamStacks && this.teamStacks.length > 0) {
+      this.debugLog("Applying Stack+ enhancements to exposure targets");
+      
+      // Enhance team stack exposures
+      this.teamStackExposures = this.teamStackExposures.map(exposure => {
+        const teamStack = this.teamStacks.find(stack => stack.team === exposure.team);
+        if (teamStack) {
+          return this.calculateStackEnhancedExposure(exposure, teamStack);
+        }
+        return exposure;
+      });
+      
+      // Enhance regular team exposures
+      this.teamExposures = this.teamExposures.map(exposure => {
+        const teamStack = this.teamStacks.find(stack => stack.team === exposure.team);
+        if (teamStack) {
+          return this.calculateStackEnhancedExposure(exposure, teamStack);
+        }
+        return exposure;
+      });
+      
+      this.debugLog("Stack+ enhanced exposures applied");
     }
 
     // Process position exposure settings
@@ -1069,6 +1284,17 @@ class AdvancedOptimizer {
           if (player1.position === player2.position) {
             correlation += this.config.correlation.sameTeamSamePosition;
           }
+          
+          // Apply Stack+ synergy modifier to same-team correlations
+          const teamStack = this.teamStacks?.find(stack => stack.team === player1.team);
+          if (teamStack) {
+            const contestType = this.config.contestType || null;
+            const stackModifier = this.getStackModifier(teamStack, contestType);
+            // Enhance correlation based on Stack+ (subtract 1 to get the modifier amount)
+            correlation *= stackModifier;
+            
+            this.debugLog(`Stack+ Correlation Enhancement: ${player1.team} - Base correlation: ${this.config.correlation.sameTeam}, Modified: ${correlation.toFixed(3)}`);
+          }
         }
         // Opposing team
         else {
@@ -1615,13 +1841,26 @@ class AdvancedOptimizer {
       }
     }
 
-    // Calculate stack bonus
+    // Calculate stack bonus with Stack+ enhancement
     let stackBonus = 0;
+    let stackPlusModifier = 1.0;
+    
     for (const [team, count] of Object.entries(teamCounts)) {
       // Exponential bonus for larger stacks
       if (count >= 3) {
         stackBonus += Math.pow(count - 2, 1.5) * 3;
       }
+    }
+    
+    // Apply Stack+ synergy modifier to the primary stack
+    const primaryStack = this.identifyPrimaryStack(lineup);
+    if (primaryStack) {
+      // Determine contest type from config if available
+      const contestType = this.config.contestType || null;
+      stackPlusModifier = this.getScaledStackModifier(primaryStack, primaryStack.stackSize, contestType);
+      stackBonus *= stackPlusModifier;
+      
+      this.debugLog(`Stack+ Enhancement: ${primaryStack.team} (${primaryStack.stackSize}-stack) - Base: ${primaryStack.stackPlus}, All Wins: ${primaryStack.stackPlusAllWins}, All Losses: ${primaryStack.stackPlusAllLosses}, Modifier: ${stackPlusModifier.toFixed(3)}`);
     }
 
     // 4. Position impact weighting
@@ -1676,6 +1915,8 @@ class AdvancedOptimizer {
       stackBonus,
       positionBonus,
       consistencyFactor,
+      stackPlusModifier,
+      primaryStackRating: primaryStack?.stackPlus || 0,
       teamStacks: Object.entries(teamCounts)
         .filter(([_, count]) => count >= 2)
         .map(([team, count]) => `${team} (${count})`)

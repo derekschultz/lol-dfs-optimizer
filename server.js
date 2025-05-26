@@ -248,7 +248,8 @@ const generateOptimalLineups = async (count, options = {}) => {
     const initSuccess = await optimizer.initialize(
       playerProjections,
       {},
-      lineups // Existing lineups to consider
+      lineups, // Existing lineups to consider
+      teamStacks // Team stacks for Stack+ ratings
     );
 
     if (!initSuccess) {
@@ -376,13 +377,15 @@ const parseStacksCSV = (filePath) => {
           })
         )
         .on("data", (data) => {
-          // We know the exact column names: Team and Stack+
+          // Parse all Stack+ columns
           const stack = {
             id: generateRandomId(),
             team: data.Team || "",
             stack: [], // Will be populated below
             stackPlus: parseFloat(data["Stack+"] || 0) || 0,
             stackPlusValue: parseFloat(data["Stack+"] || 0) || 0,
+            stackPlusAllWins: parseFloat(data["Stack+ All Wins"] || 0) || 0,
+            stackPlusAllLosses: parseFloat(data["Stack+ All Losses"] || 0) || 0,
           };
 
           // If no team found, skip this row
@@ -1702,7 +1705,7 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
     lineupOptimizer.setStatusCallback(statusCallback);
 
     // Initialize the lineup optimizer
-    await lineupOptimizer.initialize(playerProjections, exposureSettings, []);
+    await lineupOptimizer.initialize(playerProjections, exposureSettings, [], teamStacks);
     
     // Generate lineups using the working runSimulation method
     const result = await lineupOptimizer.runSimulation(candidateCount);
