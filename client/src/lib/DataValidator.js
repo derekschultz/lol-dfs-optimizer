@@ -1,6 +1,6 @@
 /**
  * Comprehensive Data Validation Layer for LoL DFS Optimizer
- * 
+ *
  * Validates player projections, team stacks, and lineup data for:
  * - DraftKings format compliance
  * - Mathematical consistency
@@ -43,7 +43,7 @@ class DataValidator {
    */
   validatePlayerPool(players) {
     this.resetValidation();
-    
+
     if (!Array.isArray(players) || players.length === 0) {
       this.addError('Player pool must be a non-empty array');
       return this.getResults();
@@ -51,28 +51,28 @@ class DataValidator {
 
     // Basic structure validation
     this.validatePlayerStructures(players);
-    
+
     // Position requirements validation
     this.validatePositions(players);
-    
+
     // Team balance validation
     this.validateTeamBalance(players);
-    
+
     // Salary validation
     this.validateSalaries(players);
-    
+
     // Projection validation
     this.validateProjections(players);
-    
+
     // Ownership validation
     this.validateOwnership(players);
-    
+
     // Cross-validation checks
     this.validateCrossConsistency(players);
-    
+
     // Calculate summary statistics
     this.calculateStats(players);
-    
+
     this.validationResults.isValid = this.validationResults.errors.length === 0;
     return this.getResults();
   }
@@ -121,10 +121,10 @@ class DataValidator {
       // Validate stack positions
       if (stack.stack && Array.isArray(stack.stack)) {
         const invalidPositions = stack.stack.filter(
-          pos => !this.config.requiredPositions.includes(pos) && 
+          pos => !this.config.requiredPositions.includes(pos) &&
                  !this.config.optionalPositions.includes(pos)
         );
-        
+
         if (invalidPositions.length > 0) {
           results.errors.push(
             `Stack ${index}: Invalid positions [${invalidPositions.join(', ')}]`
@@ -155,7 +155,7 @@ class DataValidator {
    */
   validateLineup(lineup) {
     const errors = [];
-    
+
     if (!lineup) {
       errors.push('Lineup is null or undefined');
       return { isValid: false, errors };
@@ -180,7 +180,7 @@ class DataValidator {
       // Check position requirements
       const positions = lineup.players.map(p => p.position);
       const positionCounts = {};
-      
+
       positions.forEach(pos => {
         positionCounts[pos] = (positionCounts[pos] || 0) + 1;
       });
@@ -222,28 +222,28 @@ class DataValidator {
       if (!player.name || typeof player.name !== 'string') {
         this.addError(`Player ${index}: Missing or invalid name`);
       }
-      
+
       if (!player.id) {
         this.addError(`Player ${index}: Missing player ID`);
       }
-      
+
       if (!player.position || typeof player.position !== 'string') {
         this.addError(`Player ${index}: Missing or invalid position`);
       }
-      
+
       if (!player.team || typeof player.team !== 'string') {
         this.addError(`Player ${index}: Missing or invalid team`);
       }
-      
+
       // Numeric fields
       if (player.projectedPoints === undefined || player.projectedPoints === null) {
         this.addError(`Player ${player.name}: Missing projected points`);
       }
-      
+
       if (player.salary === undefined || player.salary === null) {
         this.addError(`Player ${player.name}: Missing salary`);
       }
-      
+
       if (player.ownership === undefined || player.ownership === null) {
         this.addWarning(`Player ${player.name}: Missing ownership data`);
       }
@@ -252,7 +252,7 @@ class DataValidator {
 
   validatePositions(players) {
     const positionCounts = {};
-    
+
     players.forEach(player => {
       if (player.position) {
         positionCounts[player.position] = (positionCounts[player.position] || 0) + 1;
@@ -271,7 +271,7 @@ class DataValidator {
 
     // Check for invalid positions
     Object.keys(positionCounts).forEach(position => {
-      if (!this.config.requiredPositions.includes(position) && 
+      if (!this.config.requiredPositions.includes(position) &&
           !this.config.optionalPositions.includes(position)) {
         this.addWarning(`Unknown position found: ${position}`);
       }
@@ -283,7 +283,7 @@ class DataValidator {
   validateTeamBalance(players) {
     const teamCounts = {};
     const teams = new Set();
-    
+
     players.forEach(player => {
       if (player.team) {
         teams.add(player.team);
@@ -311,16 +311,16 @@ class DataValidator {
   validateSalaries(players) {
     players.forEach(player => {
       const salary = parseFloat(player.salary);
-      
+
       if (isNaN(salary)) {
         this.addError(`Player ${player.name}: Invalid salary value (${player.salary})`);
         return;
       }
-      
+
       if (salary < this.config.minSalary) {
         this.addWarning(`Player ${player.name}: Unusually low salary ($${salary})`);
       }
-      
+
       if (salary > this.config.maxSalary) {
         this.addWarning(`Player ${player.name}: Unusually high salary ($${salary})`);
       }
@@ -335,23 +335,23 @@ class DataValidator {
 
   validateProjections(players) {
     const projections = [];
-    
+
     players.forEach(player => {
       const projection = parseFloat(player.projectedPoints);
-      
+
       if (isNaN(projection)) {
         this.addError(`Player ${player.name}: Invalid projection value (${player.projectedPoints})`);
         return;
       }
-      
+
       if (projection < this.config.minProjection) {
         this.addWarning(`Player ${player.name}: Negative projection (${projection})`);
       }
-      
+
       if (projection > this.config.maxProjection) {
         this.addWarning(`Player ${player.name}: Unusually high projection (${projection})`);
       }
-      
+
       projections.push(projection);
     });
 
@@ -370,23 +370,23 @@ class DataValidator {
   validateOwnership(players) {
     const ownerships = [];
     let totalOwnership = 0;
-    
+
     players.forEach(player => {
       const ownership = parseFloat(player.ownership);
-      
+
       if (isNaN(ownership)) {
         this.addWarning(`Player ${player.name}: Invalid ownership value (${player.ownership})`);
         return;
       }
-      
+
       if (ownership < this.config.minOwnership) {
         this.addWarning(`Player ${player.name}: Negative ownership (${ownership}%)`);
       }
-      
+
       if (ownership > this.config.maxOwnership) {
         this.addWarning(`Player ${player.name}: Ownership over 100% (${ownership}%)`);
       }
-      
+
       ownerships.push(ownership);
       totalOwnership += ownership;
     });
@@ -395,7 +395,7 @@ class DataValidator {
     if (ownerships.length > 0) {
       ownerships.sort((a, b) => a - b);
       const avgOwnership = totalOwnership / ownerships.length;
-      
+
       this.validationResults.ownershipStats = {
         min: ownerships[0],
         max: ownerships[ownerships.length - 1],
@@ -418,11 +418,11 @@ class DataValidator {
     players.forEach(player => {
       const projection = parseFloat(player.projectedPoints);
       const salary = parseFloat(player.salary);
-      
+
       if (!isNaN(projection) && !isNaN(salary) && salary > 0) {
         const calculatedValue = (projection / (salary / 1000));
         const providedValue = parseFloat(player.value);
-        
+
         if (!isNaN(providedValue)) {
           const valueDiff = Math.abs(calculatedValue - providedValue);
           if (valueDiff > 0.1) {
@@ -445,7 +445,7 @@ class DataValidator {
 
   calculateMinimumSalaryLineup(players) {
     const byPosition = {};
-    
+
     // Group players by position
     players.forEach(player => {
       if (!byPosition[player.position]) {
@@ -461,7 +461,7 @@ class DataValidator {
 
     // Calculate minimum possible lineup
     let minSalary = 0;
-    
+
     // Add cheapest player from each required position
     this.config.requiredPositions.forEach(position => {
       if (byPosition[position] && byPosition[position].length > 0) {
@@ -474,13 +474,13 @@ class DataValidator {
     // Add cheapest captain (1.5x multiplier)
     const captainEligible = ['TOP', 'JNG', 'MID', 'ADC', 'SUP'];
     let cheapestCaptain = Infinity;
-    
+
     captainEligible.forEach(position => {
       if (byPosition[position] && byPosition[position].length > 0) {
         cheapestCaptain = Math.min(cheapestCaptain, byPosition[position][0] * 1.5);
       }
     });
-    
+
     minSalary += cheapestCaptain === Infinity ? this.config.maxSalary * 1.5 : cheapestCaptain;
 
     // Add TEAM player if available
@@ -534,7 +534,7 @@ class DataValidator {
     if (!results.isValid) {
       return `Validation failed: ${results.errors.length} error(s) found`;
     }
-    
+
     const warnings = results.warnings.length > 0 ? ` (${results.warnings.length} warnings)` : '';
     return `✓ Data validated: ${results.playerCount} players from ${results.teamCount} teams${warnings}`;
   }

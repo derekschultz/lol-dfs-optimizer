@@ -24,14 +24,14 @@ const LineupList = ({
   // Close export menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (showExportMenu && !event.target.closest('[data-export-menu]')) {
+      if (showExportMenu && !event.target.closest("[data-export-menu]")) {
         setShowExportMenu(false);
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [showExportMenu]);
 
@@ -56,7 +56,13 @@ const LineupList = ({
     if (currentPage > 1) {
       setCurrentPage(1);
     }
-  }, [lineups.length, itemsPerPage, showStarredOnly, starredLineups, currentPage]);
+  }, [
+    lineups.length,
+    itemsPerPage,
+    showStarredOnly,
+    starredLineups,
+    currentPage,
+  ]);
 
   // Calculate and process lineup metrics
   const lineupsWithMetrics = useMemo(() => {
@@ -328,13 +334,13 @@ const LineupList = ({
   // Handle export functionality
   const handleExport = async (format) => {
     setShowExportMenu(false);
-    
+
     try {
       // Get selected lineups (starred ones if filtering is enabled, otherwise all current filtered lineups)
-      const lineupsToExport = showStarredOnly 
-        ? filteredAndSortedLineups.filter(lineup => starredLineups[lineup.id])
+      const lineupsToExport = showStarredOnly
+        ? filteredAndSortedLineups.filter((lineup) => starredLineups[lineup.id])
         : filteredAndSortedLineups;
-      
+
       if (lineupsToExport.length === 0) {
         alert("No lineups to export");
         return;
@@ -342,42 +348,41 @@ const LineupList = ({
 
       const exportData = {
         format: format,
-        lineupIds: lineupsToExport.map(lineup => lineup.id)
+        lineupIds: lineupsToExport.map((lineup) => lineup.id),
       };
 
-      const response = await fetch('/lineups/export', {
-        method: 'POST',
+      const response = await fetch("/lineups/export", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify(exportData)
+        body: JSON.stringify(exportData),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Export failed');
+        throw new Error(error.error || "Export failed");
       }
 
       // Get the filename from the response headers
-      const contentDisposition = response.headers.get('Content-Disposition');
-      const filename = contentDisposition 
-        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
+      const contentDisposition = response.headers.get("Content-Disposition");
+      const filename = contentDisposition
+        ? contentDisposition.split("filename=")[1]?.replace(/"/g, "")
         : `lineups_${format}_${Date.now()}`;
 
       // Create download link
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
+      const a = document.createElement("a");
+      a.style.display = "none";
       a.href = url;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-
     } catch (error) {
-      console.error('Export error:', error);
+      console.error("Export error:", error);
       alert(`Export failed: ${error.message}`);
     }
   };
@@ -412,7 +417,6 @@ const LineupList = ({
       className="lineup-list"
       style={{ fontFamily: "Inter, system-ui, sans-serif" }}
     >
-
       {/* Global Stats Overview */}
       <div
         id="global-stats-panel"
@@ -550,7 +554,13 @@ const LineupList = ({
             />
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", marginLeft: "20px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              marginLeft: "20px",
+            }}
+          >
             <span
               style={{
                 color: "#a0aec0",
@@ -684,12 +694,14 @@ const LineupList = ({
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                style={{ transform: showExportMenu ? "rotate(180deg)" : "rotate(0deg)" }}
+                style={{
+                  transform: showExportMenu ? "rotate(180deg)" : "rotate(0deg)",
+                }}
               >
                 <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
             </button>
-            
+
             {showExportMenu && (
               <div
                 style={{
@@ -717,8 +729,12 @@ const LineupList = ({
                     textAlign: "left",
                     fontSize: "0.875rem",
                   }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = "#2d3748"}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = "transparent"}
+                  onMouseEnter={(e) =>
+                    (e.target.style.backgroundColor = "#2d3748")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.target.style.backgroundColor = "transparent")
+                  }
                 >
                   DraftKings Format
                 </button>
@@ -734,8 +750,12 @@ const LineupList = ({
                     textAlign: "left",
                     fontSize: "0.875rem",
                   }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = "#2d3748"}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = "transparent"}
+                  onMouseEnter={(e) =>
+                    (e.target.style.backgroundColor = "#2d3748")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.target.style.backgroundColor = "transparent")
+                  }
                 >
                   CSV Format
                 </button>
@@ -751,8 +771,12 @@ const LineupList = ({
                     textAlign: "left",
                     fontSize: "0.875rem",
                   }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = "#2d3748"}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = "transparent"}
+                  onMouseEnter={(e) =>
+                    (e.target.style.backgroundColor = "#2d3748")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.target.style.backgroundColor = "transparent")
+                  }
                 >
                   JSON Format
                 </button>

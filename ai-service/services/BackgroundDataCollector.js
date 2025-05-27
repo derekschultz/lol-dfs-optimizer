@@ -130,7 +130,7 @@ class BackgroundDataCollector {
       if (!liveData.success || !liveData.players) {
         throw new Error("Failed to get player data from main server");
       }
-      
+
       // Trigger player discovery if needed
       if (this.championTracker) {
         this.updateProgress(
@@ -142,23 +142,23 @@ class BackgroundDataCollector {
 
       // Get player mappings from champion tracker
       const mappings = this.championTracker?.proPlayerMappings || new Map();
-      
+
       // Enhance players with summoner info from mappings
       const playersWithSummoners = liveData.players
-        .map(player => {
+        .map((player) => {
           const mapping = mappings.get(player.name);
           if (mapping) {
             return {
               ...player,
               summonerName: mapping.summonerName,
               region: mapping.region,
-              tagLine: mapping.tagLine
+              tagLine: mapping.tagLine,
             };
           }
           return null;
         })
-        .filter(p => p !== null);
-      
+        .filter((p) => p !== null);
+
       this.updateProgress(
         "players_found",
         `Found ${playersWithSummoners.length} players with summoner info`
@@ -642,12 +642,20 @@ class BackgroundDataCollector {
       try {
         // Check if we have player data from main server
         const liveData = await this.dataCollector.fetchLiveData();
-        if (liveData.success && liveData.players && liveData.players.length > 0) {
-          console.log(`📊 Found ${liveData.players.length} players - starting initial collection`);
+        if (
+          liveData.success &&
+          liveData.players &&
+          liveData.players.length > 0
+        ) {
+          console.log(
+            `📊 Found ${liveData.players.length} players - starting initial collection`
+          );
           await this.collectAllData();
           return true;
         } else {
-          console.log("⏳ No player data available yet for background collection - waiting...");
+          console.log(
+            "⏳ No player data available yet for background collection - waiting..."
+          );
           return false;
         }
       } catch (error) {
@@ -659,16 +667,22 @@ class BackgroundDataCollector {
     // Try initial collection with retries
     let retryCount = 0;
     const maxRetries = 10; // Try for up to 5 minutes (10 * 30s)
-    
+
     const tryInitialCollection = async () => {
       const success = await checkAndCollect();
       if (!success && retryCount < maxRetries) {
         retryCount++;
-        console.log(`⏳ Background data collection retry ${retryCount}/${maxRetries} in 30 seconds...`);
+        console.log(
+          `⏳ Background data collection retry ${retryCount}/${maxRetries} in 30 seconds...`
+        );
         setTimeout(tryInitialCollection, 30000); // Retry every 30 seconds
       } else if (!success) {
-        console.log("⚠️ No player data after 5 minutes - skipping initial collection");
-        console.log("💡 Upload player data and use manual trigger or wait for scheduled collection");
+        console.log(
+          "⚠️ No player data after 5 minutes - skipping initial collection"
+        );
+        console.log(
+          "💡 Upload player data and use manual trigger or wait for scheduled collection"
+        );
       }
     };
 
@@ -680,7 +694,11 @@ class BackgroundDataCollector {
       if (this.needsCollection()) {
         // Also check for data before scheduled collection
         const liveData = await this.dataCollector.fetchLiveData();
-        if (liveData.success && liveData.players && liveData.players.length > 0) {
+        if (
+          liveData.success &&
+          liveData.players &&
+          liveData.players.length > 0
+        ) {
           console.log("⏰ Starting scheduled data collection...");
           await this.collectAllData();
         } else {

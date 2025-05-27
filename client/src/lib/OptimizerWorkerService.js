@@ -7,7 +7,7 @@ class OptimizerWorkerService {
       onError: null,
       onCompleted: null,
       onInitialized: null,
-      onCancelled: null
+      onCancelled: null,
     };
     this.isInitialized = false;
     this.isRunning = false;
@@ -20,33 +20,35 @@ class OptimizerWorkerService {
     if (this.worker) {
       this.terminate();
     }
-    
+
     try {
       // Create a new worker
-      this.worker = new Worker(new URL('./optimizer.worker.js', import.meta.url));
-      
+      this.worker = new Worker(
+        new URL("./optimizer.worker.js", import.meta.url)
+      );
+
       // Set up message handler
       this.worker.onmessage = this.handleWorkerMessage.bind(this);
-      
+
       // Set up error handler
       this.worker.onerror = (error) => {
-        console.error('Worker error:', error);
+        console.error("Worker error:", error);
         if (this.callbacks.onError) {
           this.callbacks.onError({
-            message: error.message || 'Unknown worker error',
-            phase: 'worker'
+            message: error.message || "Unknown worker error",
+            phase: "worker",
           });
         }
         this.isRunning = false;
       };
-      
-      console.log('Optimizer worker initialized successfully');
+
+      console.log("Optimizer worker initialized successfully");
     } catch (error) {
-      console.error('Failed to initialize worker:', error);
+      console.error("Failed to initialize worker:", error);
       if (this.callbacks.onError) {
         this.callbacks.onError({
           message: `Failed to initialize worker: ${error.message}`,
-          phase: 'initialization'
+          phase: "initialization",
         });
       }
     }
@@ -57,51 +59,51 @@ class OptimizerWorkerService {
    */
   handleWorkerMessage(event) {
     const { type, data } = event.data;
-    
+
     switch (type) {
-      case 'progress':
+      case "progress":
         if (this.callbacks.onProgress) {
           this.callbacks.onProgress(data.percent, data.stage);
         }
         break;
-        
-      case 'status':
+
+      case "status":
         if (this.callbacks.onStatus) {
           this.callbacks.onStatus(data.status);
         }
         break;
-        
-      case 'initialized':
+
+      case "initialized":
         this.isInitialized = true;
         if (this.callbacks.onInitialized) {
           this.callbacks.onInitialized(data);
         }
         break;
-        
-      case 'completed':
+
+      case "completed":
         this.isRunning = false;
         if (this.callbacks.onCompleted) {
           this.callbacks.onCompleted(data.results);
         }
         break;
-        
-      case 'cancelled':
+
+      case "cancelled":
         this.isRunning = false;
         if (this.callbacks.onCancelled) {
           this.callbacks.onCancelled();
         }
         break;
-        
-      case 'error':
+
+      case "error":
         this.isRunning = false;
-        console.error('Optimizer worker error:', data);
+        console.error("Optimizer worker error:", data);
         if (this.callbacks.onError) {
           this.callbacks.onError(data);
         }
         break;
-        
+
       default:
-        console.warn('Unknown message from worker:', type, data);
+        console.warn("Unknown message from worker:", type, data);
     }
   }
 
@@ -113,14 +115,14 @@ class OptimizerWorkerService {
     if (!this.worker) {
       this.init();
     }
-    
+
     this.isInitialized = false;
-    
+
     // Return a promise that resolves when initialization is complete
     return new Promise((resolve, reject) => {
       // Store the original callbacks
       const originalCallbacks = { ...this.callbacks };
-      
+
       // Set up temporary callbacks for this initialization
       this.setCallbacks({
         ...this.callbacks,
@@ -129,7 +131,7 @@ class OptimizerWorkerService {
           if (originalCallbacks.onInitialized) {
             originalCallbacks.onInitialized(data);
           }
-          
+
           // Resolve the promise
           resolve(data);
         },
@@ -138,21 +140,21 @@ class OptimizerWorkerService {
           if (originalCallbacks.onError) {
             originalCallbacks.onError(error);
           }
-          
+
           // Reject the promise
           reject(error);
-        }
+        },
       });
-      
+
       // Send the initialization message
       this.worker.postMessage({
-        type: 'initialize',
+        type: "initialize",
         data: {
           playerData,
           exposureSettings,
           existingLineups,
-          config
-        }
+          config,
+        },
       });
     });
   }
@@ -164,24 +166,24 @@ class OptimizerWorkerService {
    */
   runOptimizer(count) {
     if (!this.worker) {
-      throw new Error('Worker not initialized');
+      throw new Error("Worker not initialized");
     }
-    
+
     if (!this.isInitialized) {
-      throw new Error('Optimizer not initialized');
+      throw new Error("Optimizer not initialized");
     }
-    
+
     if (this.isRunning) {
-      throw new Error('Optimizer is already running');
+      throw new Error("Optimizer is already running");
     }
-    
+
     this.isRunning = true;
-    
+
     // Return a promise that resolves when optimization is complete
     return new Promise((resolve, reject) => {
       // Store the original callbacks
       const originalCallbacks = { ...this.callbacks };
-      
+
       // Set up temporary callbacks for this run
       this.setCallbacks({
         ...this.callbacks,
@@ -190,7 +192,7 @@ class OptimizerWorkerService {
           if (originalCallbacks.onCompleted) {
             originalCallbacks.onCompleted(results);
           }
-          
+
           // Resolve the promise
           resolve(results);
         },
@@ -199,7 +201,7 @@ class OptimizerWorkerService {
           if (originalCallbacks.onError) {
             originalCallbacks.onError(error);
           }
-          
+
           // Reject the promise
           reject(error);
         },
@@ -208,16 +210,16 @@ class OptimizerWorkerService {
           if (originalCallbacks.onCancelled) {
             originalCallbacks.onCancelled();
           }
-          
+
           // Resolve with cancelled status
           resolve({ cancelled: true });
-        }
+        },
       });
-      
+
       // Send the run message
       this.worker.postMessage({
-        type: 'run',
-        data: { count }
+        type: "run",
+        data: { count },
       });
     });
   }
@@ -227,7 +229,7 @@ class OptimizerWorkerService {
    */
   cancelOptimization() {
     if (this.worker && this.isRunning) {
-      this.worker.postMessage({ type: 'cancel' });
+      this.worker.postMessage({ type: "cancel" });
     }
   }
 
@@ -236,7 +238,7 @@ class OptimizerWorkerService {
    */
   terminate() {
     if (this.worker) {
-      this.worker.postMessage({ type: 'terminate' });
+      this.worker.postMessage({ type: "terminate" });
       this.worker = null;
       this.isInitialized = false;
       this.isRunning = false;

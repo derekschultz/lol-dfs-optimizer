@@ -337,7 +337,8 @@ const HybridOptimizerUI = ({
               },
               saveToLineups: true,
               exposureSettings: exposureSettings || {},
-              stackExposureTargets: exposureSettings?.stackExposureTargets || {},
+              stackExposureTargets:
+                exposureSettings?.stackExposureTargets || {},
             }
           : {
               count: lineupCount,
@@ -346,9 +347,9 @@ const HybridOptimizerUI = ({
               customConfig,
               saveToLineups: true,
               exposureSettings: exposureSettings || {},
-              stackExposureTargets: exposureSettings?.stackExposureTargets || {},
+              stackExposureTargets:
+                exposureSettings?.stackExposureTargets || {},
             };
-
 
       const response = await fetch(`${API_BASE_URL}/lineups/generate-hybrid`, {
         method: "POST",
@@ -455,7 +456,7 @@ const HybridOptimizerUI = ({
   const renderContestSelector = () => (
     <div className="contest-selector">
       <h4>Contest Information</h4>
-      <div className="contest-controls" style={{ paddingRight: '20px' }}>
+      <div className="contest-controls" style={{ paddingRight: "20px" }}>
         <div className="form-group">
           <label>Contest Type:</label>
           <select
@@ -491,7 +492,7 @@ const HybridOptimizerUI = ({
           />
         </div>
 
-        <div className="form-group" style={{ marginLeft: '20px' }}>
+        <div className="form-group" style={{ marginLeft: "20px" }}>
           <label>Entry Fee:</label>
           <input
             type="number"
@@ -1361,7 +1362,9 @@ const HybridOptimizerUI = ({
             className="btn btn-primary btn-large"
             onClick={generateLineups}
             disabled={isOptimizing || !playerProjections?.length}
-            style={{ marginLeft: optimizationMode === "standard" ? "20px" : "0" }}
+            style={{
+              marginLeft: optimizationMode === "standard" ? "20px" : "0",
+            }}
           >
             {isOptimizing
               ? optimizationMode === "portfolio"

@@ -1,13 +1,13 @@
-const axios = require('axios');
+const axios = require("axios");
 
 class DataSyncService {
   constructor() {
-    this.mainServerUrl = 'http://127.0.0.1:3001';
+    this.mainServerUrl = "http://127.0.0.1:3001";
     this.cache = {
       players: { data: null, timestamp: null },
       lineups: { data: null, timestamp: null },
       exposures: { data: null, timestamp: null },
-      contest: { data: null, timestamp: null }
+      contest: { data: null, timestamp: null },
     };
     this.cacheTTL = 30000; // 30 seconds TTL
     this.syncInterval = null;
@@ -19,44 +19,46 @@ class DataSyncService {
   // Helper method for retry logic
   async fetchWithRetry(url, dataType) {
     let lastError = null;
-    
+
     for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {
       try {
         const response = await axios.get(url, {
-          timeout: 5000 // 5 second timeout
+          timeout: 5000, // 5 second timeout
         });
-        
+
         if (response.data.success) {
           return response.data;
         }
         throw new Error(`Failed to fetch ${dataType}`);
       } catch (error) {
         lastError = error;
-        
+
         if (attempt < this.retryAttempts) {
-          await new Promise(resolve => setTimeout(resolve, this.retryDelay * attempt));
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.retryDelay * attempt)
+          );
         }
       }
     }
-    
+
     throw lastError;
   }
 
   async initialize() {
-    console.log('📊 Initializing Data Sync Service...');
-    
+    console.log("📊 Initializing Data Sync Service...");
+
     // Initial sync
     await this.syncAllData();
-    
+
     // Set up periodic sync every 30 seconds
     this.syncInterval = setInterval(() => {
-      this.syncAllData().catch(err => {
-        console.error('❌ Periodic sync failed:', err.message);
+      this.syncAllData().catch((err) => {
+        console.error("❌ Periodic sync failed:", err.message);
       });
     }, this.cacheTTL);
-    
+
     this.isRunning = true;
-    console.log('✅ Data Sync Service initialized');
+    console.log("✅ Data Sync Service initialized");
   }
 
   async syncAllData() {
@@ -66,24 +68,27 @@ class DataSyncService {
         this.fetchPlayers(),
         this.fetchLineups(),
         this.fetchExposures(),
-        this.fetchContest()
+        this.fetchContest(),
       ]);
-      
-      console.log('✅ Data sync completed');
+
+      console.log("✅ Data sync completed");
       return { players, lineups, exposures, contest };
     } catch (error) {
-      console.error('❌ Data sync failed:', error.message);
+      console.error("❌ Data sync failed:", error.message);
       throw error;
     }
   }
 
   async fetchPlayers() {
     try {
-      const response = await this.fetchWithRetry(`${this.mainServerUrl}/api/data/players`, 'players');
-      
+      const response = await this.fetchWithRetry(
+        `${this.mainServerUrl}/api/data/players`,
+        "players"
+      );
+
       this.cache.players = {
         data: response.data,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
       return response.data;
     } catch (error) {
@@ -97,11 +102,14 @@ class DataSyncService {
 
   async fetchLineups() {
     try {
-      const response = await this.fetchWithRetry(`${this.mainServerUrl}/api/data/lineups`, 'lineups');
-      
+      const response = await this.fetchWithRetry(
+        `${this.mainServerUrl}/api/data/lineups`,
+        "lineups"
+      );
+
       this.cache.lineups = {
         data: response.data,
-        timestamp: new Date()
+        timestamp: new Date(),
       };
       return response.data;
     } catch (error) {
@@ -115,15 +123,17 @@ class DataSyncService {
 
   async fetchExposures() {
     try {
-      const response = await axios.get(`${this.mainServerUrl}/api/data/exposures`);
+      const response = await axios.get(
+        `${this.mainServerUrl}/api/data/exposures`
+      );
       if (response.data.success) {
         this.cache.exposures = {
           data: response.data.data,
-          timestamp: new Date()
+          timestamp: new Date(),
         };
         return response.data.data;
       }
-      throw new Error('Failed to fetch exposure data');
+      throw new Error("Failed to fetch exposure data");
     } catch (error) {
       // Return cached data if available
       if (this.cache.exposures.data) {
@@ -135,15 +145,17 @@ class DataSyncService {
 
   async fetchContest() {
     try {
-      const response = await axios.get(`${this.mainServerUrl}/api/data/contest`);
+      const response = await axios.get(
+        `${this.mainServerUrl}/api/data/contest`
+      );
       if (response.data.success) {
         this.cache.contest = {
           data: response.data.data,
-          timestamp: new Date()
+          timestamp: new Date(),
         };
         return response.data.data;
       }
-      throw new Error('Failed to fetch contest data');
+      throw new Error("Failed to fetch contest data");
     } catch (error) {
       // Return cached data if available
       if (this.cache.contest.data) {
@@ -159,7 +171,7 @@ class DataSyncService {
     if (!cacheEntry || !cacheEntry.data) {
       return null;
     }
-    
+
     // Check if cache is still fresh
     const age = Date.now() - cacheEntry.timestamp.getTime();
     if (age > this.cacheTTL) {
@@ -167,36 +179,42 @@ class DataSyncService {
       // Trigger async refresh but return stale data for now
       this[`fetch${dataType.charAt(0).toUpperCase() + dataType.slice(1)}`]();
     }
-    
+
     return cacheEntry.data;
   }
 
   getPlayers() {
-    return this.getCachedData('players') || [];
+    return this.getCachedData("players") || [];
   }
 
   getLineups() {
-    return this.getCachedData('lineups') || [];
+    return this.getCachedData("lineups") || [];
   }
 
   getExposures() {
-    return this.getCachedData('exposures') || { team: {}, position: {} };
+    return this.getCachedData("exposures") || { team: {}, position: {} };
   }
 
   getContest() {
-    return this.getCachedData('contest') || { metadata: null, teamStacks: [], settings: {} };
+    return (
+      this.getCachedData("contest") || {
+        metadata: null,
+        teamStacks: [],
+        settings: {},
+      }
+    );
   }
 
   // Force refresh of specific data type
   async refreshData(dataType) {
     switch (dataType) {
-      case 'players':
+      case "players":
         return await this.fetchPlayers();
-      case 'lineups':
+      case "lineups":
         return await this.fetchLineups();
-      case 'exposures':
+      case "exposures":
         return await this.fetchExposures();
-      case 'contest':
+      case "contest":
         return await this.fetchContest();
       default:
         throw new Error(`Unknown data type: ${dataType}`);
@@ -205,19 +223,19 @@ class DataSyncService {
 
   // Clear all cached data
   clearCache() {
-    console.log('🗑️  Clearing all cached data...');
+    console.log("🗑️  Clearing all cached data...");
     this.cache = {
       players: { data: null, timestamp: null },
       lineups: { data: null, timestamp: null },
       exposures: { data: null, timestamp: null },
-      contest: { data: null, timestamp: null }
+      contest: { data: null, timestamp: null },
     };
-    console.log('✅ Cache cleared');
+    console.log("✅ Cache cleared");
   }
 
   // Force refresh all data
   async forceRefreshAll() {
-    console.log('🔄 Force refreshing all data...');
+    console.log("🔄 Force refreshing all data...");
     this.clearCache();
     return await this.syncAllData();
   }
@@ -229,7 +247,7 @@ class DataSyncService {
       this.syncInterval = null;
     }
     this.isRunning = false;
-    console.log('Data Sync Service stopped');
+    console.log("Data Sync Service stopped");
   }
 }
 

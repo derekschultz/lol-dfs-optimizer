@@ -1,4 +1,4 @@
-const MLModelService = require('./MLModelService');
+const MLModelService = require("./MLModelService");
 
 class RiskAssessor {
   constructor(mlService = null) {
@@ -7,7 +7,7 @@ class RiskAssessor {
       player_exposure: { low: 15, medium: 25, high: 35 },
       team_exposure: { low: 20, medium: 35, high: 50 },
       correlation: { low: 0.3, medium: 0.6, high: 0.8 },
-      variance: { low: 0.8, medium: 1.2, high: 1.8 }
+      variance: { low: 0.8, medium: 1.2, high: 1.8 },
     };
     this.mlService = mlService || new MLModelService();
     this.initialize();
@@ -15,11 +15,11 @@ class RiskAssessor {
 
   async initialize() {
     try {
-      console.log('⚖️ Initializing Risk Assessor...');
+      console.log("⚖️ Initializing Risk Assessor...");
       this.ready = true;
-      console.log('✅ Risk Assessor ready');
+      console.log("✅ Risk Assessor ready");
     } catch (error) {
-      console.error('❌ Failed to initialize Risk Assessor:', error);
+      console.error("❌ Failed to initialize Risk Assessor:", error);
     }
   }
 
@@ -29,13 +29,13 @@ class RiskAssessor {
 
   async assessPortfolioRisk(lineups, exposureData = {}) {
     if (!this.ready) {
-      throw new Error('Risk Assessor not ready');
+      throw new Error("Risk Assessor not ready");
     }
 
-    console.log('🔍 Assessing portfolio risk...');
+    console.log("🔍 Assessing portfolio risk...");
 
     const analysis = {
-      overall_risk: 'medium',
+      overall_risk: "medium",
       risk_score: 0,
       max_risk_score: 100,
       risk_factors: [],
@@ -45,10 +45,10 @@ class RiskAssessor {
         correlation_risk: this.assessCorrelationRisk(lineups),
         variance_risk: this.assessVarianceRisk(lineups),
         meta_risk: this.assessMetaRisk(lineups),
-        ownership_risk: this.assessOwnershipRisk(lineups, exposureData)
+        ownership_risk: this.assessOwnershipRisk(lineups, exposureData),
       },
       risk_distribution: this.calculateRiskDistribution(lineups),
-      generated_at: new Date().toISOString()
+      generated_at: new Date().toISOString(),
     };
 
     // Add ML-based risk assessment if available
@@ -56,36 +56,47 @@ class RiskAssessor {
       try {
         const riskFeatures = this.mlService.extractRiskFeatures(lineups);
         const mlRiskAssessment = await this.mlService.assessRisk(riskFeatures);
-        
+
         analysis.ml_risk_assessment = {
           concentration_risk: mlRiskAssessment.concentrationRisk,
           variance_risk: mlRiskAssessment.varianceRisk,
           meta_risk: mlRiskAssessment.metaRisk,
           overall_risk: mlRiskAssessment.overallRisk,
           confidence: mlRiskAssessment.confidence,
-          model_used: 'ml_neural_network'
+          model_used: "ml_neural_network",
         };
 
         // Blend ML and traditional risk scores
         const mlWeight = 0.4; // 40% ML, 60% traditional
-        const traditionalScore = this.calculateOverallRiskScore(analysis.detailed_analysis);
+        const traditionalScore = this.calculateOverallRiskScore(
+          analysis.detailed_analysis
+        );
         const mlScore = mlRiskAssessment.overallRisk * 100;
-        
-        analysis.risk_score = (traditionalScore * (1 - mlWeight)) + (mlScore * mlWeight);
+
+        analysis.risk_score =
+          traditionalScore * (1 - mlWeight) + mlScore * mlWeight;
       } catch (error) {
-        console.warn('ML risk assessment failed:', error.message);
-        analysis.risk_score = this.calculateOverallRiskScore(analysis.detailed_analysis);
+        console.warn("ML risk assessment failed:", error.message);
+        analysis.risk_score = this.calculateOverallRiskScore(
+          analysis.detailed_analysis
+        );
       }
     } else {
       // Calculate overall risk score using traditional methods
-      analysis.risk_score = this.calculateOverallRiskScore(analysis.detailed_analysis);
+      analysis.risk_score = this.calculateOverallRiskScore(
+        analysis.detailed_analysis
+      );
     }
-    
+
     analysis.overall_risk = this.categorizeRisk(analysis.risk_score);
 
     // Generate risk factors and recommendations
-    analysis.risk_factors = this.identifyRiskFactors(analysis.detailed_analysis);
-    analysis.recommendations = this.generateRiskRecommendations(analysis.detailed_analysis);
+    analysis.risk_factors = this.identifyRiskFactors(
+      analysis.detailed_analysis
+    );
+    analysis.recommendations = this.generateRiskRecommendations(
+      analysis.detailed_analysis
+    );
 
     return analysis;
   }
@@ -103,23 +114,23 @@ class RiskAssessor {
     // Check player concentration
     Object.entries(playerExposure).forEach(([player, exposure]) => {
       maxPlayerExposure = Math.max(maxPlayerExposure, exposure);
-      
+
       if (exposure > this.riskThresholds.player_exposure.high) {
         highExposurePlayers++;
         risks.push({
-          type: 'high_player_exposure',
+          type: "high_player_exposure",
           player: player,
           exposure: exposure,
           threshold: this.riskThresholds.player_exposure.high,
-          severity: 'high'
+          severity: "high",
         });
       } else if (exposure > this.riskThresholds.player_exposure.medium) {
         risks.push({
-          type: 'medium_player_exposure',
+          type: "medium_player_exposure",
           player: player,
           exposure: exposure,
           threshold: this.riskThresholds.player_exposure.medium,
-          severity: 'medium'
+          severity: "medium",
         });
       }
     });
@@ -127,88 +138,95 @@ class RiskAssessor {
     // Check team concentration
     Object.entries(teamExposure).forEach(([team, exposure]) => {
       maxTeamExposure = Math.max(maxTeamExposure, exposure);
-      
+
       if (exposure > this.riskThresholds.team_exposure.high) {
         highExposureTeams++;
         risks.push({
-          type: 'high_team_exposure',
+          type: "high_team_exposure",
           team: team,
           exposure: exposure,
           threshold: this.riskThresholds.team_exposure.high,
-          severity: 'high'
+          severity: "high",
         });
       }
     });
 
     return {
-      type: 'concentration_risk',
+      type: "concentration_risk",
       risks: risks,
       metrics: {
         max_player_exposure: maxPlayerExposure,
         max_team_exposure: maxTeamExposure,
         high_exposure_players: highExposurePlayers,
-        high_exposure_teams: highExposureTeams
+        high_exposure_teams: highExposureTeams,
       },
-      score: this.scoreConcentrationRisk(maxPlayerExposure, maxTeamExposure, highExposurePlayers, highExposureTeams)
+      score: this.scoreConcentrationRisk(
+        maxPlayerExposure,
+        maxTeamExposure,
+        highExposurePlayers,
+        highExposureTeams
+      ),
     };
   }
 
   assessCorrelationRisk(lineups) {
     // Calculate correlation between players/teams in portfolio
     const correlations = this.calculatePortfolioCorrelations(lineups);
-    
+
     const risks = [];
     let highCorrelationPairs = 0;
 
-    correlations.forEach(correlation => {
+    correlations.forEach((correlation) => {
       if (correlation.value > this.riskThresholds.correlation.high) {
         highCorrelationPairs++;
         risks.push({
-          type: 'high_correlation',
+          type: "high_correlation",
           pair: correlation.pair,
           correlation: correlation.value,
-          severity: 'high'
+          severity: "high",
         });
       } else if (correlation.value > this.riskThresholds.correlation.medium) {
         risks.push({
-          type: 'medium_correlation',
+          type: "medium_correlation",
           pair: correlation.pair,
           correlation: correlation.value,
-          severity: 'medium'
+          severity: "medium",
         });
       }
     });
 
     return {
-      type: 'correlation_risk',
+      type: "correlation_risk",
       risks: risks,
       metrics: {
-        avg_correlation: correlations.reduce((sum, c) => sum + c.value, 0) / correlations.length,
-        max_correlation: Math.max(...correlations.map(c => c.value)),
-        high_correlation_pairs: highCorrelationPairs
+        avg_correlation:
+          correlations.reduce((sum, c) => sum + c.value, 0) /
+          correlations.length,
+        max_correlation: Math.max(...correlations.map((c) => c.value)),
+        high_correlation_pairs: highCorrelationPairs,
       },
-      score: this.scoreCorrelationRisk(correlations)
+      score: this.scoreCorrelationRisk(correlations),
     };
   }
 
   assessVarianceRisk(lineups) {
     // Assess portfolio variance and boom/bust potential
     const playerVariances = this.calculatePlayerVariances(lineups);
-    
+
     const risks = [];
     let highVariancePlayers = 0;
     let totalVariance = 0;
 
     Object.entries(playerVariances).forEach(([player, variance]) => {
       totalVariance += variance;
-      
+
       if (variance > this.riskThresholds.variance.high) {
         highVariancePlayers++;
         risks.push({
-          type: 'high_variance_player',
+          type: "high_variance_player",
           player: player,
           variance: variance,
-          severity: 'medium' // High variance can be good or bad
+          severity: "medium", // High variance can be good or bad
         });
       }
     });
@@ -216,35 +234,35 @@ class RiskAssessor {
     const avgVariance = totalVariance / Object.keys(playerVariances).length;
 
     return {
-      type: 'variance_risk',
+      type: "variance_risk",
       risks: risks,
       metrics: {
         avg_portfolio_variance: avgVariance,
         high_variance_players: highVariancePlayers,
-        total_variance: totalVariance
+        total_variance: totalVariance,
       },
-      score: this.scoreVarianceRisk(avgVariance, highVariancePlayers)
+      score: this.scoreVarianceRisk(avgVariance, highVariancePlayers),
     };
   }
 
   assessMetaRisk(lineups) {
     // Assess risk from meta shifts
     const metaFits = this.calculateMetaFits(lineups);
-    
+
     const risks = [];
     let poorMetaFitPlayers = 0;
     let totalMetaFit = 0;
 
     Object.entries(metaFits).forEach(([player, metaFit]) => {
       totalMetaFit += metaFit;
-      
+
       if (metaFit < 0.6) {
         poorMetaFitPlayers++;
         risks.push({
-          type: 'poor_meta_fit',
+          type: "poor_meta_fit",
           player: player,
           meta_fit: metaFit,
-          severity: 'medium'
+          severity: "medium",
         });
       }
     });
@@ -252,46 +270,49 @@ class RiskAssessor {
     const avgMetaFit = totalMetaFit / Object.keys(metaFits).length;
 
     return {
-      type: 'meta_risk',
+      type: "meta_risk",
       risks: risks,
       metrics: {
         avg_meta_fit: avgMetaFit,
-        poor_meta_fit_players: poorMetaFitPlayers
+        poor_meta_fit_players: poorMetaFitPlayers,
       },
-      score: this.scoreMetaRisk(avgMetaFit, poorMetaFitPlayers)
+      score: this.scoreMetaRisk(avgMetaFit, poorMetaFitPlayers),
     };
   }
 
   assessOwnershipRisk(lineups, exposureData) {
     // Assess risk from ownership levels
     const ownershipLevels = this.calculateOwnershipLevels(lineups);
-    
+
     const risks = [];
     let highOwnershipPlayers = 0;
     let chalkiness = 0;
 
     Object.entries(ownershipLevels).forEach(([player, ownership]) => {
-      if (ownership > 30) { // High ownership threshold
+      if (ownership > 30) {
+        // High ownership threshold
         highOwnershipPlayers++;
         chalkiness += ownership;
         risks.push({
-          type: 'high_ownership',
+          type: "high_ownership",
           player: player,
           ownership: ownership,
-          severity: 'low' // High ownership reduces upside but is safer
+          severity: "low", // High ownership reduces upside but is safer
         });
       }
     });
 
     return {
-      type: 'ownership_risk',
+      type: "ownership_risk",
       risks: risks,
       metrics: {
-        avg_ownership: Object.values(ownershipLevels).reduce((a, b) => a + b, 0) / Object.values(ownershipLevels).length,
+        avg_ownership:
+          Object.values(ownershipLevels).reduce((a, b) => a + b, 0) /
+          Object.values(ownershipLevels).length,
         high_ownership_players: highOwnershipPlayers,
-        chalkiness_score: chalkiness
+        chalkiness_score: chalkiness,
       },
-      score: this.scoreOwnershipRisk(chalkiness, highOwnershipPlayers)
+      score: this.scoreOwnershipRisk(chalkiness, highOwnershipPlayers),
     };
   }
 
@@ -299,7 +320,7 @@ class RiskAssessor {
     const exposure = {};
     const totalLineups = lineups.length;
 
-    lineups.forEach(lineup => {
+    lineups.forEach((lineup) => {
       // Count captain
       if (lineup.cpt || lineup.captain) {
         const captain = lineup.cpt || lineup.captain;
@@ -309,7 +330,7 @@ class RiskAssessor {
 
       // Count regular players
       if (lineup.players) {
-        lineup.players.forEach(player => {
+        lineup.players.forEach((player) => {
           const key = `${player.name} (${player.team})`;
           exposure[key] = (exposure[key] || 0) + 1;
         });
@@ -317,7 +338,7 @@ class RiskAssessor {
     });
 
     // Convert to percentages
-    Object.keys(exposure).forEach(player => {
+    Object.keys(exposure).forEach((player) => {
       exposure[player] = (exposure[player] / totalLineups) * 100;
     });
 
@@ -328,9 +349,9 @@ class RiskAssessor {
     const exposure = {};
     const totalLineups = lineups.length;
 
-    lineups.forEach(lineup => {
+    lineups.forEach((lineup) => {
       const teamsInLineup = new Set();
-      
+
       // Add captain team
       if (lineup.cpt || lineup.captain) {
         const captain = lineup.cpt || lineup.captain;
@@ -339,19 +360,19 @@ class RiskAssessor {
 
       // Add player teams
       if (lineup.players) {
-        lineup.players.forEach(player => {
+        lineup.players.forEach((player) => {
           teamsInLineup.add(player.team);
         });
       }
 
       // Count each team once per lineup
-      teamsInLineup.forEach(team => {
+      teamsInLineup.forEach((team) => {
         exposure[team] = (exposure[team] || 0) + 1;
       });
     });
 
     // Convert to percentages
-    Object.keys(exposure).forEach(team => {
+    Object.keys(exposure).forEach((team) => {
       exposure[team] = (exposure[team] / totalLineups) * 100;
     });
 
@@ -362,20 +383,20 @@ class RiskAssessor {
     // Simplified correlation calculation
     // In production, this would use historical performance data
     const correlations = [];
-    
+
     // Simulate some correlations
-    correlations.push({ pair: 'T1 Players', value: 0.75 });
-    correlations.push({ pair: 'GEN Players', value: 0.68 });
-    correlations.push({ pair: 'Mid-ADC Same Team', value: 0.45 });
-    
+    correlations.push({ pair: "T1 Players", value: 0.75 });
+    correlations.push({ pair: "GEN Players", value: 0.68 });
+    correlations.push({ pair: "Mid-ADC Same Team", value: 0.45 });
+
     return correlations;
   }
 
   calculatePlayerVariances(lineups) {
     // Simulate player variance data
     const variances = {};
-    
-    lineups.forEach(lineup => {
+
+    lineups.forEach((lineup) => {
       if (lineup.cpt || lineup.captain) {
         const captain = lineup.cpt || lineup.captain;
         const key = `${captain.name} (${captain.team})`;
@@ -383,7 +404,7 @@ class RiskAssessor {
       }
 
       if (lineup.players) {
-        lineup.players.forEach(player => {
+        lineup.players.forEach((player) => {
           const key = `${player.name} (${player.team})`;
           variances[key] = this.getPlayerVariance(player.name);
         });
@@ -396,8 +417,8 @@ class RiskAssessor {
   calculateMetaFits(lineups) {
     // Simulate meta fit data
     const metaFits = {};
-    
-    lineups.forEach(lineup => {
+
+    lineups.forEach((lineup) => {
       if (lineup.cpt || lineup.captain) {
         const captain = lineup.cpt || lineup.captain;
         const key = `${captain.name} (${captain.team})`;
@@ -405,7 +426,7 @@ class RiskAssessor {
       }
 
       if (lineup.players) {
-        lineup.players.forEach(player => {
+        lineup.players.forEach((player) => {
           const key = `${player.name} (${player.team})`;
           metaFits[key] = this.getPlayerMetaFit(player.name);
         });
@@ -418,8 +439,8 @@ class RiskAssessor {
   calculateOwnershipLevels(lineups) {
     // Simulate ownership data
     const ownership = {};
-    
-    lineups.forEach(lineup => {
+
+    lineups.forEach((lineup) => {
       if (lineup.cpt || lineup.captain) {
         const captain = lineup.cpt || lineup.captain;
         const key = `${captain.name} (${captain.team})`;
@@ -427,7 +448,7 @@ class RiskAssessor {
       }
 
       if (lineup.players) {
-        lineup.players.forEach(player => {
+        lineup.players.forEach((player) => {
           const key = `${player.name} (${player.team})`;
           ownership[key] = this.getPlayerOwnership(player.name);
         });
@@ -439,105 +460,111 @@ class RiskAssessor {
 
   getPlayerVariance(playerName) {
     const variances = {
-      'Faker': 0.8,
-      'Zeus': 1.4,
-      'Chovy': 0.6,
-      'Ruler': 1.0,
-      'Canyon': 1.2
+      Faker: 0.8,
+      Zeus: 1.4,
+      Chovy: 0.6,
+      Ruler: 1.0,
+      Canyon: 1.2,
     };
     return variances[playerName] || 1.0;
   }
 
   getPlayerMetaFit(playerName) {
     const metaFits = {
-      'Faker': 0.88,
-      'Chovy': 0.92,
-      'Zeus': 0.75,
-      'Ruler': 0.85,
-      'Canyon': 0.80
+      Faker: 0.88,
+      Chovy: 0.92,
+      Zeus: 0.75,
+      Ruler: 0.85,
+      Canyon: 0.8,
     };
     return metaFits[playerName] || 0.75;
   }
 
   getPlayerOwnership(playerName) {
     const ownership = {
-      'Faker': 45,
-      'Chovy': 38,
-      'Zeus': 25,
-      'Ruler': 32,
-      'Canyon': 28
+      Faker: 45,
+      Chovy: 38,
+      Zeus: 25,
+      Ruler: 32,
+      Canyon: 28,
     };
     return ownership[playerName] || 20;
   }
 
-  scoreConcentrationRisk(maxPlayerExp, maxTeamExp, highExpPlayers, highExpTeams) {
+  scoreConcentrationRisk(
+    maxPlayerExp,
+    maxTeamExp,
+    highExpPlayers,
+    highExpTeams
+  ) {
     let score = 0;
-    
+
     // Player concentration score (0-40 points)
     if (maxPlayerExp > 50) score += 40;
     else if (maxPlayerExp > 35) score += 25;
     else if (maxPlayerExp > 25) score += 10;
-    
+
     // Team concentration score (0-30 points)
     if (maxTeamExp > 60) score += 30;
     else if (maxTeamExp > 45) score += 20;
     else if (maxTeamExp > 30) score += 10;
-    
+
     // Multiple high exposure penalties (0-30 points)
-    score += Math.min(30, (highExpPlayers * 5) + (highExpTeams * 10));
-    
+    score += Math.min(30, highExpPlayers * 5 + highExpTeams * 10);
+
     return Math.min(100, score);
   }
 
   scoreCorrelationRisk(correlations) {
-    const avgCorrelation = correlations.reduce((sum, c) => sum + c.value, 0) / correlations.length;
-    const maxCorrelation = Math.max(...correlations.map(c => c.value));
-    
+    const avgCorrelation =
+      correlations.reduce((sum, c) => sum + c.value, 0) / correlations.length;
+    const maxCorrelation = Math.max(...correlations.map((c) => c.value));
+
     let score = 0;
-    
+
     // Average correlation penalty
     if (avgCorrelation > 0.7) score += 30;
     else if (avgCorrelation > 0.5) score += 15;
-    
+
     // Max correlation penalty
     if (maxCorrelation > 0.8) score += 25;
     else if (maxCorrelation > 0.6) score += 10;
-    
+
     return Math.min(100, score);
   }
 
   scoreVarianceRisk(avgVariance, highVariancePlayers) {
     let score = 0;
-    
+
     // High variance can be good (upside) or bad (inconsistency)
     // We score it as moderate risk
     if (avgVariance > 1.5) score += 20;
     else if (avgVariance < 0.8) score += 15; // Too low variance also risky (low ceiling)
-    
+
     score += Math.min(25, highVariancePlayers * 5);
-    
+
     return Math.min(100, score);
   }
 
   scoreMetaRisk(avgMetaFit, poorMetaPlayers) {
     let score = 0;
-    
+
     if (avgMetaFit < 0.6) score += 40;
     else if (avgMetaFit < 0.75) score += 20;
-    
+
     score += Math.min(30, poorMetaPlayers * 8);
-    
+
     return Math.min(100, score);
   }
 
   scoreOwnershipRisk(chalkiness, highOwnershipPlayers) {
     let score = 0;
-    
+
     // High ownership reduces upside but increases safety
     // We score it as low-medium risk
     if (chalkiness > 200) score += 15;
     else if (chalkiness > 150) score += 10;
-    
+
     return Math.min(100, score);
   }
 
@@ -547,7 +574,7 @@ class RiskAssessor {
       correlation_risk: 0.25,
       variance_risk: 0.15,
       meta_risk: 0.15,
-      ownership_risk: 0.10
+      ownership_risk: 0.1,
     };
 
     let totalScore = 0;
@@ -559,17 +586,17 @@ class RiskAssessor {
   }
 
   categorizeRisk(score) {
-    if (score < 25) return 'low';
-    if (score < 50) return 'medium';
-    if (score < 75) return 'high';
-    return 'very_high';
+    if (score < 25) return "low";
+    if (score < 50) return "medium";
+    if (score < 75) return "high";
+    return "very_high";
   }
 
   calculateRiskDistribution(lineups) {
     return {
       low_risk_lineups: Math.round(lineups.length * 0.3),
       medium_risk_lineups: Math.round(lineups.length * 0.5),
-      high_risk_lineups: Math.round(lineups.length * 0.2)
+      high_risk_lineups: Math.round(lineups.length * 0.2),
     };
   }
 
@@ -580,9 +607,9 @@ class RiskAssessor {
       if (analysis.score > 30) {
         factors.push({
           type: riskType,
-          severity: analysis.score > 60 ? 'high' : 'medium',
+          severity: analysis.score > 60 ? "high" : "medium",
           score: analysis.score,
-          description: this.getRiskDescription(riskType, analysis)
+          description: this.getRiskDescription(riskType, analysis),
         });
       }
     });
@@ -596,30 +623,31 @@ class RiskAssessor {
     // Concentration risk recommendations
     if (detailedAnalysis.concentration_risk.score > 40) {
       recommendations.push({
-        type: 'reduce_concentration',
-        priority: 'high',
-        message: 'Reduce player/team concentration to minimize portfolio risk',
-        action: 'Diversify exposure across more players and teams'
+        type: "reduce_concentration",
+        priority: "high",
+        message: "Reduce player/team concentration to minimize portfolio risk",
+        action: "Diversify exposure across more players and teams",
       });
     }
 
     // Correlation risk recommendations
     if (detailedAnalysis.correlation_risk.score > 35) {
       recommendations.push({
-        type: 'reduce_correlation',
-        priority: 'medium',
-        message: 'High correlation between players increases portfolio volatility',
-        action: 'Mix players from different teams and game styles'
+        type: "reduce_correlation",
+        priority: "medium",
+        message:
+          "High correlation between players increases portfolio volatility",
+        action: "Mix players from different teams and game styles",
       });
     }
 
     // Meta risk recommendations
     if (detailedAnalysis.meta_risk.score > 30) {
       recommendations.push({
-        type: 'improve_meta_fit',
-        priority: 'medium',
-        message: 'Some players poorly aligned with current meta',
-        action: 'Focus on players who excel in current patch/meta'
+        type: "improve_meta_fit",
+        priority: "medium",
+        message: "Some players poorly aligned with current meta",
+        action: "Focus on players who excel in current patch/meta",
       });
     }
 
@@ -628,14 +656,24 @@ class RiskAssessor {
 
   getRiskDescription(riskType, analysis) {
     const descriptions = {
-      concentration_risk: `High exposure to individual players/teams (max: ${analysis.metrics.max_player_exposure?.toFixed(1)}%)`,
-      correlation_risk: `Players moving together reduces diversification (avg correlation: ${analysis.metrics.avg_correlation?.toFixed(2)})`,
-      variance_risk: `Portfolio variance level affects consistency (avg: ${analysis.metrics.avg_portfolio_variance?.toFixed(2)})`,
-      meta_risk: `Some players misaligned with current meta (avg fit: ${analysis.metrics.avg_meta_fit?.toFixed(2)})`,
-      ownership_risk: `High ownership reduces tournament upside (avg: ${analysis.metrics.avg_ownership?.toFixed(1)}%)`
+      concentration_risk: `High exposure to individual players/teams (max: ${analysis.metrics.max_player_exposure?.toFixed(
+        1
+      )}%)`,
+      correlation_risk: `Players moving together reduces diversification (avg correlation: ${analysis.metrics.avg_correlation?.toFixed(
+        2
+      )})`,
+      variance_risk: `Portfolio variance level affects consistency (avg: ${analysis.metrics.avg_portfolio_variance?.toFixed(
+        2
+      )})`,
+      meta_risk: `Some players misaligned with current meta (avg fit: ${analysis.metrics.avg_meta_fit?.toFixed(
+        2
+      )})`,
+      ownership_risk: `High ownership reduces tournament upside (avg: ${analysis.metrics.avg_ownership?.toFixed(
+        1
+      )}%)`,
     };
-    
-    return descriptions[riskType] || 'Risk factor identified';
+
+    return descriptions[riskType] || "Risk factor identified";
   }
 }
 

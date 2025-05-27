@@ -233,7 +233,7 @@ const NexusScoreLineup = ({
           <div style={{ fontSize: "14px", color: "#cbd5e0" }}>
             {lineup.name || `Lineup ${lineup.id}`}
           </div>
-          
+
           {/* AI Modification Indicators */}
           <div style={{ display: "flex", marginLeft: "12px", gap: "4px" }}>
             {lineup.exposureWarning && (
@@ -245,7 +245,7 @@ const NexusScoreLineup = ({
                   color: "white",
                   fontSize: "10px",
                   borderRadius: "4px",
-                  fontWeight: "500"
+                  fontWeight: "500",
                 }}
               >
                 ⚠️ EXPOSURE
@@ -253,14 +253,16 @@ const NexusScoreLineup = ({
             )}
             {lineup.metaScore !== undefined && (
               <div
-                title={`Meta Score: ${lineup.metaScore} - ${lineup.metaAligned ? 'Aligned' : 'Not Aligned'}`}
+                title={`Meta Score: ${lineup.metaScore} - ${
+                  lineup.metaAligned ? "Aligned" : "Not Aligned"
+                }`}
                 style={{
                   padding: "2px 6px",
                   backgroundColor: lineup.metaAligned ? "#059669" : "#d97706",
                   color: "white",
                   fontSize: "10px",
                   borderRadius: "4px",
-                  fontWeight: "500"
+                  fontWeight: "500",
                 }}
               >
                 🧠 META {lineup.metaScore}
@@ -275,7 +277,7 @@ const NexusScoreLineup = ({
                   color: "white",
                   fontSize: "10px",
                   borderRadius: "4px",
-                  fontWeight: "500"
+                  fontWeight: "500",
                 }}
               >
                 💰 SALARY
@@ -290,7 +292,7 @@ const NexusScoreLineup = ({
                   color: "white",
                   fontSize: "10px",
                   borderRadius: "4px",
-                  fontWeight: "500"
+                  fontWeight: "500",
                 }}
               >
                 🤖 AI
