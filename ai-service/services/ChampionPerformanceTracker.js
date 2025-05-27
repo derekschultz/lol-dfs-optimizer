@@ -129,7 +129,9 @@ class ChampionPerformanceTracker {
         }
 
         // Try to discover this player dynamically
-        const mapping = await this.discoverPlayerMapping(playerName);
+        // For now, default to KR region, but this could be detected from team data
+        const region = this.detectPlayerRegion(playerName);
+        const mapping = await this.discoverPlayerMapping(playerName, region);
         if (mapping) {
           this.proPlayerMappings.set(playerName, mapping);
           discoveredCount++;
@@ -152,21 +154,33 @@ class ChampionPerformanceTracker {
   }
 
   /**
+   * Detect player region based on available data
+   */
+  detectPlayerRegion(playerName) {
+    // This could be enhanced to check team data, league info, etc.
+    // For now, default to KR for League of Legends esports
+    return "KR";
+  }
+
+  /**
    * Discover a single player's Riot account mapping
    */
-  async discoverPlayerMapping(playerName) {
+  async discoverPlayerMapping(playerName, region = "KR") {
     // Generate possible summoner names to try
-    const possibleNames = this.generatePossibleSummonerNames(playerName);
+    const possibleNames = this.generatePossibleSummonerNames(
+      playerName,
+      region
+    );
 
     // Try each possible name
     for (const nameToTry of possibleNames) {
       try {
-        let summoner = await this.tryFindSummoner(nameToTry, "KR"); // Default to KR region
+        let summoner = await this.tryFindSummoner(nameToTry, region);
         if (summoner) {
           return {
             summonerName: nameToTry,
-            region: "KR",
-            tagLine: "KR1",
+            region: region,
+            tagLine: this.getRegionTagLine(region),
             puuid: summoner.puuid,
             accountId: summoner.accountId,
             id: summoner.id,
@@ -180,36 +194,325 @@ class ChampionPerformanceTracker {
       }
     }
 
+    // If all attempts failed, try native language name as last resort
+    const nativeLanguage = this.getRegionLanguage(region);
+    console.log(
+      `⚠️ Could not discover mapping for ${playerName} - trying ${nativeLanguage} name`
+    );
+    const nativeName = await this.getNativeLanguageName(playerName, region);
+    if (nativeName && nativeName !== playerName) {
+      try {
+        let summoner = await this.tryFindSummoner(nativeName, region);
+        if (summoner) {
+          console.log(
+            `✅ Found ${playerName} using ${nativeLanguage} name: ${nativeName}`
+          );
+          return {
+            summonerName: nativeName,
+            region: region,
+            tagLine: this.getRegionTagLine(region),
+            puuid: summoner.puuid,
+            accountId: summoner.accountId,
+            id: summoner.id,
+            resolvedName: summoner.gameName || nativeName,
+            discoveredAt: new Date().toISOString(),
+          };
+        }
+      } catch (error) {
+        // Final attempt failed
+      }
+    }
+
     console.log(`⚠️ Could not discover mapping for ${playerName}`);
     return null;
   }
 
   /**
+   * Get region-specific tag line
+   */
+  getRegionTagLine(region) {
+    const tagLines = {
+      KR: "KR1",
+      CN: "CN1",
+      EUW: "EUW1",
+      NA: "NA1",
+      EUNE: "EUN1",
+      BR: "BR1",
+      LAN: "LA1",
+      LAS: "LA2",
+      OCE: "OC1",
+      RU: "RU",
+      TR: "TR1",
+      JP: "JP1",
+    };
+    return tagLines[region] || region;
+  }
+
+  /**
+   * Get native language for region
+   */
+  getRegionLanguage(region) {
+    const languages = {
+      KR: "Korean",
+      CN: "Chinese",
+      EUW: "English",
+      NA: "English",
+      EUNE: "English",
+      BR: "Portuguese",
+      LAN: "Spanish",
+      LAS: "Spanish",
+      OCE: "English",
+      RU: "Russian",
+      TR: "Turkish",
+      JP: "Japanese",
+    };
+    return languages[region] || "English";
+  }
+
+  /**
+   * Get native language name for a player based on region
+   */
+  async getNativeLanguageName(playerName, region) {
+    switch (region) {
+      case "KR":
+        return this.getKoreanPlayerNameSync(playerName);
+      case "CN":
+        return this.getChinesePlayerNameSync(playerName);
+      default:
+        return null; // No native language conversion for other regions
+    }
+  }
+
+  /**
+   * Get team prefixes for a specific region
+   */
+  getRegionTeamPrefixes(region) {
+    // Try to get current team data from main server first
+    const currentTeams = this.getCurrentTeamsForRegion(region);
+    if (currentTeams && currentTeams.length > 0) {
+      return currentTeams;
+    }
+
+    // Fallback to common team prefixes by region
+    const commonPrefixes = {
+      KR: [
+        "T1",
+        "Gen G",
+        "DK",
+        "HLE",
+        "KT",
+        "NS",
+        "DRX",
+        "BRO",
+        "KDF",
+        "FOX",
+        "DNF",
+      ],
+      CN: ["BLG", "JDG", "WBG", "LNG", "TES", "EDG", "FPX", "IG", "WE", "RNG"],
+    };
+
+    return commonPrefixes[region] || [];
+  }
+
+  /**
+   * Get current teams for a region from live data
+   */
+  getCurrentTeamsForRegion(region) {
+    // This could fetch from the main server's current player data
+    // and extract unique team names dynamically
+    // For now, return null to use fallback
+    return null;
+  }
+
+  /**
+   * Get Korean name for a player (synchronous version)
+   */
+  getKoreanPlayerNameSync(playerName) {
+    // First try cached mappings from file
+    const cachedKoreanName = this.getCachedKoreanName(playerName);
+    if (cachedKoreanName) {
+      return cachedKoreanName;
+    }
+
+    // Generate Korean transliteration dynamically
+    return this.generateKoreanTransliteration(playerName);
+  }
+
+  /**
+   * Get Chinese name for a player (basic implementation)
+   */
+  getChinesePlayerNameSync(playerName) {
+    // This could be loaded from an external API or database
+    // For now, return null - Chinese transliteration is complex
+    return null;
+  }
+
+  /**
+   * Get cached Korean name from known mappings (using external source)
+   */
+  getCachedKoreanName(playerName) {
+    // This could be loaded from an external API or database
+    // For now, return null to always use dynamic generation
+    return null;
+  }
+
+  /**
+   * Generate Korean transliteration using improved syllable mapping
+   */
+  generateKoreanTransliteration(name) {
+    if (!name || typeof name !== "string") return null;
+
+    const lowerName = name.toLowerCase();
+
+    // Complete word mappings for common gaming names (from your working script)
+    const completeWordMap = {
+      pungyeon: "풍연",
+      pung: "풍",
+      yeon: "연",
+      gyeon: "견",
+    };
+
+    // Try complete word first
+    if (completeWordMap[lowerName]) {
+      return completeWordMap[lowerName];
+    }
+
+    // Enhanced syllable mapping for better results
+    const syllableMap = {
+      // Specific patterns found in your working script
+      pungyeon: "풍연",
+      pung: "풍",
+      yeon: "연",
+      gyeon: "견",
+
+      // Common Korean syllable patterns
+      ung: "웅",
+      ong: "옹",
+      ang: "앙",
+      eng: "엥",
+      ing: "잉",
+      pu: "푸",
+      gy: "기",
+      ye: "예",
+      ny: "니",
+
+      // Vowel combinations
+      eo: "어",
+      eon: "언",
+      eor: "어",
+      eong: "엉",
+      ae: "애",
+      ai: "아이",
+      au: "아우",
+      ay: "아이",
+      ea: "이아",
+      ee: "이",
+      ei: "에이",
+      eu: "으",
+      ie: "이에",
+      oa: "오아",
+      oo: "우",
+      ou: "아우",
+      ue: "우에",
+      ui: "우이",
+      ya: "야",
+      yo: "요",
+      yu: "유",
+
+      // Common endings
+      ng: "응",
+      nk: "크",
+      nt: "트",
+      nd: "드",
+      st: "스트",
+      sk: "스크",
+      sp: "스프",
+      ly: "리",
+      ty: "티",
+      ry: "리",
+      er: "어",
+      ar: "아",
+      or: "오",
+      ur: "우",
+      ir: "이",
+      an: "안",
+      en: "엔",
+      in: "인",
+      on: "온",
+      un: "운",
+      el: "엘",
+      al: "알",
+      il: "일",
+      ol: "올",
+      ul: "울",
+
+      // Individual characters (fallback)
+      a: "아",
+      e: "에",
+      i: "이",
+      o: "오",
+      u: "우",
+      p: "프",
+      g: "그",
+      y: "이",
+      n: "느",
+    };
+
+    let result = "";
+    let i = 0;
+
+    while (i < lowerName.length) {
+      let matched = false;
+
+      // Try progressively shorter substrings (up to 8 characters)
+      for (let len = Math.min(8, lowerName.length - i); len >= 1; len--) {
+        const substr = lowerName.substring(i, i + len);
+
+        if (syllableMap[substr]) {
+          result += syllableMap[substr];
+          i += len;
+          matched = true;
+          break;
+        }
+      }
+
+      if (!matched) {
+        // Skip unknown characters
+        i++;
+      }
+    }
+
+    return result || null;
+  }
+
+  /**
+   * Get Korean name for a player (async wrapper)
+   */
+  async getKoreanPlayerName(playerName) {
+    return this.getKoreanPlayerNameSync(playerName);
+  }
+
+  /**
    * Generate possible summoner names for a player
    */
-  generatePossibleSummonerNames(playerName) {
+  generatePossibleSummonerNames(playerName, region = "KR") {
     const names = [];
 
     // 1. Original name variations
     names.push(playerName, playerName.toLowerCase(), playerName.toUpperCase());
 
-    // 2. Team prefix variations
-    const teamPrefixes = [
-      "T1",
-      "Gen G",
-      "DK",
-      "HLE",
-      "KT",
-      "NS",
-      "DRX",
-      "BRO",
-      "KDF",
-      "FOX",
-      "DNF",
-    ];
-    teamPrefixes.forEach((prefix) => {
-      names.push(`${prefix} ${playerName}`);
-    });
+    // 2. Try native language name early if available (region-specific)
+    if (region === "KR") {
+      const koreanName = this.getKoreanPlayerNameSync(playerName);
+      if (koreanName) {
+        names.push(koreanName);
+      }
+    } else if (region === "CN") {
+      const chineseName = this.getChinesePlayerNameSync(playerName);
+      if (chineseName) {
+        names.push(chineseName);
+      }
+    }
 
     // 3. Common patterns
     names.push(
@@ -218,9 +521,17 @@ class ChampionPerformanceTracker {
       `${playerName}01`
     );
 
-    // 4. Try romanization variations (common Korean romanization patterns)
-    const romanVariations = this.generateRomanizationVariations(playerName);
-    names.push(...romanVariations);
+    // 4. Team prefix variations (region-specific)
+    const teamPrefixes = this.getRegionTeamPrefixes(region);
+    teamPrefixes.forEach((prefix) => {
+      names.push(`${prefix} ${playerName}`);
+    });
+
+    // 5. Try romanization variations (only for Korean region)
+    if (region === "KR") {
+      const romanVariations = this.generateRomanizationVariations(playerName);
+      names.push(...romanVariations);
+    }
 
     // Remove duplicates and return
     return [...new Set(names)].filter((name) => name && name.trim());
