@@ -27,6 +27,7 @@ const App = () => {
   const [notificationType, setNotificationType] = useState("success");
 
   // Add exposure settings state to store at App level for persistence
+  const [contestInfo, setContestInfo] = useState(null);
   const [exposureSettings, setExposureSettings] = useState({
     global: {
       globalMinExposure: 0,
@@ -232,7 +233,7 @@ const App = () => {
         if (lineupsRes.ok) {
           const lineupsData = await lineupsRes.json();
 
-          // Add NexusScore and ROI properties to each lineup
+          // Add NexusScore properties to each lineup
           const enhancedLineups = lineupsData.map((lineup) => {
             // Calculate NexusScore based on lineup data
             const allPlayers = lineup.cpt
@@ -280,17 +281,13 @@ const App = () => {
             // Calculate NexusScore
             const ownership = Math.max(0.1, avgOwn / 100);
             const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership));
-            const nexusScore = (totalProj * leverageFactor + stackBonus) / 7;
-
-            // Calculate ROI based on NexusScore
-            const roi = ((nexusScore / 100) * 2 + Math.random() * 0.5).toFixed(
-              2
-            );
+            // Calculate NexusScore - scale to reasonable range (25-65)
+            const baseScore = totalProj / 10;
+            const nexusScore = Math.min(65, Math.max(25, baseScore * leverageFactor + stackBonus / 2));
 
             return {
               ...lineup,
               nexusScore: Math.round(nexusScore * 10) / 10,
-              roi,
             };
           });
 
@@ -452,16 +449,14 @@ const App = () => {
         );
       } else if (endpoint.includes("dkentries") || endpoint.includes("lineups")) {
         if (result.lineups && Array.isArray(result.lineups)) {
-          // Add NexusScore and ROI to lineups
+          // Add NexusScore to lineups
           const enhancedLineups = result.lineups.map((lineup) => {
-            // Simulate NexusScore and ROI calculation
-            const nexusScore = Math.round(Math.random() * 50 + 70); // Random score between 70-120
-            const roi = (Math.random() * 2 + 0.5).toFixed(2); // Random ROI between 0.5-2.5
+            // Simulate NexusScore
+            const nexusScore = Math.round(Math.random() * 50 + 70); // Random score between 70-120  
 
             return {
               ...lineup,
               nexusScore,
-              roi,
             };
           });
 
@@ -635,15 +630,13 @@ const App = () => {
       const result = await response.json();
 
       if (result.lineups && Array.isArray(result.lineups)) {
-        // Add NexusScore and ROI to each lineup
+        // Add NexusScore to each lineup
         const enhancedLineups = result.lineups.map((lineup) => {
           const nexusScore = Math.round(Math.random() * 50 + 70); // Random score between 70-120
-          const roi = (Math.random() * 2 + 0.5).toFixed(2); // Random ROI between 0.5-2.5
 
           return {
             ...lineup,
             nexusScore,
-            roi,
           };
         });
 
@@ -729,7 +722,7 @@ const App = () => {
       const result = await response.json();
 
       if (result.lineups && Array.isArray(result.lineups)) {
-        // Add NexusScore and ROI to each lineup
+        // Add NexusScore to each lineup
         const enhancedLineups = result.lineups.map((lineup) => {
           // Calculate NexusScore based on lineup data
           const allPlayers = lineup.cpt
@@ -777,19 +770,13 @@ const App = () => {
           // Calculate NexusScore
           const ownership = Math.max(0.1, avgOwn / 100);
           const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership));
-          const nexusScore = (totalProj * leverageFactor + stackBonus) / 7;
-
-          // Calculate ROI as a percentage (can be negative)
-          const roi = (
-            (nexusScore / 100) * 200 -
-            100 +
-            Math.random() * 50
-          ).toFixed(2);
+          // Calculate NexusScore - scale to reasonable range (25-65)
+          const baseScore = totalProj / 10;
+          const nexusScore = Math.min(65, Math.max(25, baseScore * leverageFactor + stackBonus / 2));
 
           return {
             ...lineup,
             nexusScore: Math.round(nexusScore * 10) / 10,
-            roi,
           };
         });
 
@@ -1305,6 +1292,7 @@ const App = () => {
                 onEdit={handleEditLineup}
                 onDelete={handleDeleteLineup}
                 onExport={exportLineups}
+                contestInfo={contestInfo}
               />
             ) : (
               <div className="empty-state">
@@ -1374,6 +1362,10 @@ const App = () => {
             onLineupsGenerated={(generatedLineups, result) => {
               // Replace existing lineups with newly generated ones
               setLineups(generatedLineups);
+              // Store contest info if provided
+              if (result.contestInfo) {
+                setContestInfo(result.contestInfo);
+              }
               displayNotification(
                 `Generated ${generatedLineups.length} lineups using ${result.strategy?.name} strategy!`
               );

@@ -339,6 +339,7 @@ const HybridOptimizerUI = ({
               exposureSettings: exposureSettings || {},
               stackExposureTargets:
                 exposureSettings?.stackExposureTargets || {},
+              contestInfo: contestInfo,
             }
           : {
               count: lineupCount,
@@ -349,6 +350,7 @@ const HybridOptimizerUI = ({
               exposureSettings: exposureSettings || {},
               stackExposureTargets:
                 exposureSettings?.stackExposureTargets || {},
+              contestInfo: contestInfo,
             };
 
       const response = await fetch(`${API_BASE_URL}/lineups/generate-hybrid`, {
@@ -367,7 +369,10 @@ const HybridOptimizerUI = ({
 
         // Pass lineups to parent component
         if (onLineupsGenerated) {
-          onLineupsGenerated(data.lineups, data);
+          onLineupsGenerated(data.lineups, {
+            ...data,
+            contestInfo: contestInfo
+          });
         }
 
         // Refresh stats and strategies
@@ -426,16 +431,6 @@ const HybridOptimizerUI = ({
 
         {strategy.performance && strategy.performance.usage > 0 && (
           <div className="strategy-performance">
-            <div className="performance-stat">
-              <span>Avg ROI:</span>
-              <span
-                className={
-                  strategy.performance.averageROI > 0 ? "positive" : "negative"
-                }
-              >
-                {strategy.performance.averageROI.toFixed(1)}%
-              </span>
-            </div>
             <div className="performance-stat">
               <span>Uses:</span>
               <span>{strategy.performance.usage}</span>
@@ -943,16 +938,6 @@ const HybridOptimizerUI = ({
             <span className="stat-value">{summary.algorithm}</span>
           </div>
 
-          <div className="result-stat">
-            <span className="stat-label">Avg ROI:</span>
-            <span
-              className={`stat-value ${
-                summary.averageROI > 0 ? "positive" : "negative"
-              }`}
-            >
-              {summary.averageROI?.toFixed(1)}%
-            </span>
-          </div>
 
           <div className="result-stat">
             <span className="stat-label">Avg NexusScore:</span>

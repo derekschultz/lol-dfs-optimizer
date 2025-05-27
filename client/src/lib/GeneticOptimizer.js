@@ -142,7 +142,6 @@ class GeneticOptimizer extends AdvancedOptimizer {
         const nexusResult = this._calculateNexusScore(result);
         result.nexusScore = nexusResult.score;
         result.scoreComponents = nexusResult.components;
-        result.roi = (result.nexusScore / 100) * 200 - 50;
       });
 
       // Sort by combined genetic fitness and simulation results
@@ -954,3 +953,4 @@ class GeneticOptimizer extends AdvancedOptimizer {
 }
 
 module.exports = GeneticOptimizer;
+

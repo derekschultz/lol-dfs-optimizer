@@ -11,7 +11,6 @@ const AdvancedOptimizer = require("./client/src/lib/AdvancedOptimizer");
 const HybridOptimizer = require("./client/src/lib/HybridOptimizer");
 const DataValidator = require("./client/src/lib/DataValidator");
 
-
 // Create Express app
 const app = express();
 const PORT = 3001;
@@ -137,36 +136,24 @@ const simulateLineups = (lineupIds, simSettings) => {
       }
     });
 
-    // Add some variance to the projection
-    const minCashPct = 20 + Math.random() * 15;
-    const top10Pct = 5 + Math.random() * 10;
-    const firstPlacePct = Math.random() * 3;
-
-    // Calculate ROI based on placement chances
-    const minCashMultiplier = 2;
-    const top10Multiplier = 5;
-    const firstPlaceMultiplier = 100;
-
-    const roi = (
-      (minCashPct / 100) * minCashMultiplier +
-      (top10Pct / 100) * top10Multiplier +
-      (firstPlacePct / 100) * firstPlaceMultiplier
-    ).toFixed(2);
+    // Calculate placement chances based on projected points
+    const minCashPct = Math.max(0, Math.min(100, 20 + baseProjection * 0.1));
+    const top10Pct = Math.max(0, Math.min(50, 5 + baseProjection * 0.05));
+    const firstPlacePct = Math.max(0, Math.min(10, baseProjection * 0.02));
 
     return {
       id: lineup.id,
       name: lineup.name,
-      roi: roi,
       firstPlace: firstPlacePct.toFixed(2),
       top10: top10Pct.toFixed(2),
       minCash: minCashPct.toFixed(2),
-      averagePayout: (roi * simSettings.entryFee).toFixed(2),
+      averagePayout: (baseProjection * 0.1).toFixed(2),
       projectedPoints: baseProjection.toFixed(1),
     };
   });
 
-  // Sort by ROI descending
-  lineupPerformance.sort((a, b) => parseFloat(b.roi) - parseFloat(a.roi));
+  // Sort by projected points descending
+  lineupPerformance.sort((a, b) => parseFloat(b.projectedPoints) - parseFloat(a.projectedPoints));
 
   // Generate score distributions based on projected points
   const scoreDistributions = lineupPerformance.map((perf) => {
@@ -204,22 +191,30 @@ const generateOptimalLineups = async (count, options = {}) => {
     // Extract stack exposure targets from options
     const stackExposureTargets = options.stackExposureTargets || {};
     console.log("==== STACK EXPOSURE DEBUGGING ====");
-    console.log("Raw stack exposure targets received:", JSON.stringify(stackExposureTargets, null, 2));
-    console.log("Number of stack targets:", Object.keys(stackExposureTargets).length);
-    
+    console.log(
+      "Raw stack exposure targets received:",
+      JSON.stringify(stackExposureTargets, null, 2)
+    );
+    console.log(
+      "Number of stack targets:",
+      Object.keys(stackExposureTargets).length
+    );
+
     // Debug: Log available teams to check if KT exists
-    const availableTeams = [...new Set(playerProjections.map(p => p.team))].filter(Boolean);
-    
+    const availableTeams = [
+      ...new Set(playerProjections.map((p) => p.team)),
+    ].filter(Boolean);
+
     // Log each target individually for debugging
     Object.entries(stackExposureTargets).forEach(([key, value]) => {
-      const parts = key.split('_');
+      const parts = key.split("_");
       console.log(`Stack target: ${key} = ${value}%`, {
-        team: parts.slice(0, -2).join('_'),
+        team: parts.slice(0, -2).join("_"),
         stackSize: parts[parts.length - 2],
-        type: parts[parts.length - 1]
+        type: parts[parts.length - 1],
       });
     });
-    
+
     // Create an instance of the advanced optimizer with settings
     const optimizer = new AdvancedOptimizer({
       salaryCap: 50000,
@@ -321,6 +316,7 @@ const parsePlayersCSV = (filePath) => {
             ) || 0,
           salary: parseInt(data.salary || data.Salary || data.SALARY || 0) || 0,
           value: 0, // Calculate value
+          opp: data.opp || data.OPP || data.Opp || data.opponent || data.Opponent || "",
         };
 
         // Only add valid players with a name and projectedPoints > 0
@@ -635,18 +631,19 @@ function extractPlayerId(playerStr) {
 // Helper function to format player for DraftKings export
 function formatPlayerForDraftKings(player) {
   if (!player) return "";
-  
+
   // Format: "Player Name (Player ID)"
   const name = player.name || "";
-  
+
   // Look up DraftKings ID from stored mapping if not present on player object
   let id = player.draftKingsId || player.id || "";
-  
+
   if (!player.draftKingsId && playerIdMapping && playerIdMapping.size > 0) {
     // Try to find DraftKings ID by name and position (trim whitespace)
     const cleanName = name.trim();
-    const mappedId = playerIdMapping.get(`${cleanName}_${player.position}`) || 
-                     playerIdMapping.get(cleanName);
+    const mappedId =
+      playerIdMapping.get(`${cleanName}_${player.position}`) ||
+      playerIdMapping.get(cleanName);
     if (mappedId) {
       id = mappedId;
       // Debug: Log when we successfully map an ID
@@ -655,12 +652,12 @@ function formatPlayerForDraftKings(player) {
       }
     }
   }
-  
+
   // Debug: Log what IDs are being used
   if (player.name === "Doran" || player.name === "Faker") {
     console.log(`Formatting ${player.name}: final ID=${id}`);
   }
-  
+
   if (id) {
     return `${name} (${id})`;
   }
@@ -673,60 +670,72 @@ function generateDraftKingsCSV(lineupsToExport) {
     throw new Error("No lineups provided for export");
   }
 
-  console.log("Generating DraftKings CSV with contest metadata:", contestMetadata);
+  console.log(
+    "Generating DraftKings CSV with contest metadata:",
+    contestMetadata
+  );
 
   // CSV header for DraftKings format
   const headers = [
     "Entry ID",
-    "Contest Name", 
+    "Contest Name",
     "Contest ID",
     "Entry Fee",
     "CPT",
-    "TOP", 
+    "TOP",
     "JNG",
     "MID",
-    "ADC", 
+    "ADC",
     "SUP",
-    "TEAM"
+    "TEAM",
   ];
 
   // Generate CSV rows
   const rows = [headers.join(",")];
-  
+
   lineupsToExport.forEach((lineup, index) => {
     // Use actual Entry IDs from imported contest data if available
     let entryId;
-    if (contestEntryIds && contestEntryIds.length > 0 && index < contestEntryIds.length) {
+    if (
+      contestEntryIds &&
+      contestEntryIds.length > 0 &&
+      index < contestEntryIds.length
+    ) {
       entryId = contestEntryIds[index];
     } else {
       // Fallback to sequential generation if no Entry IDs available
       const baseEntryId = 4732704849;
       entryId = baseEntryId + index;
     }
-    
+
     // Use stored contest metadata if available
     const contestName = contestMetadata?.contestName || "";
     const contestId = contestMetadata?.contestId || "";
     const entryFee = contestMetadata?.entryFee || "";
-    
+
     // Debug logging for first lineup
     if (index === 0) {
       console.log("Export - Contest Name:", contestName);
       console.log("Export - Contest ID:", contestId);
       console.log("Export - Entry Fee:", entryFee);
     }
-    
+
     // Format captain
     const cpt = formatPlayerForDraftKings(lineup.cpt);
-    
+
     // Initialize position slots
-    let top = "", jng = "", mid = "", adc = "", sup = "", team = "";
-    
+    let top = "",
+      jng = "",
+      mid = "",
+      adc = "",
+      sup = "",
+      team = "";
+
     // Fill position slots from players array
     if (lineup.players) {
-      lineup.players.forEach(player => {
+      lineup.players.forEach((player) => {
         const formattedPlayer = formatPlayerForDraftKings(player);
-        
+
         switch (player.position) {
           case "TOP":
             top = formattedPlayer;
@@ -749,7 +758,7 @@ function generateDraftKingsCSV(lineupsToExport) {
         }
       });
     }
-    
+
     // Create CSV row
     const row = [
       entryId,
@@ -762,12 +771,12 @@ function generateDraftKingsCSV(lineupsToExport) {
       `"${mid}"`,
       `"${adc}"`,
       `"${sup}"`,
-      `"${team}"`
+      `"${team}"`,
     ];
-    
+
     rows.push(row.join(","));
   });
-  
+
   return rows.join("\n");
 }
 
@@ -776,35 +785,39 @@ function generateDraftKingsCSV(lineupsToExport) {
 // Server-Sent Events endpoint for real-time progress updates
 app.get("/optimizer/progress/:sessionId", (req, res) => {
   const sessionId = req.params.sessionId;
-  
+
   // Set SSE headers
   res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Cache-Control'
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Cache-Control",
   });
 
   // Store the session
   progressSessions.set(sessionId, {
     res: res,
     progress: 0,
-    status: 'Connecting...',
-    isActive: true
+    status: "Connecting...",
+    isActive: true,
   });
-  
 
   // Send initial connection message
-  res.write(`data: ${JSON.stringify({ progress: 0, status: 'Connected to progress stream' })}\n\n`);
+  res.write(
+    `data: ${JSON.stringify({
+      progress: 0,
+      status: "Connected to progress stream",
+    })}\n\n`
+  );
 
   // Handle client disconnect
-  req.on('close', () => {
+  req.on("close", () => {
     progressSessions.delete(sessionId);
     progressCallbacks.delete(sessionId);
   });
 
-  req.on('end', () => {
+  req.on("end", () => {
     console.log(`SSE session ${sessionId} ended`);
     progressSessions.delete(sessionId);
     progressCallbacks.delete(sessionId);
@@ -929,19 +942,21 @@ app.get("/lineups", (req, res) => {
 app.post("/lineups/export", (req, res) => {
   try {
     const { format = "csv", lineupIds = [] } = req.body;
-    
+
     // If no specific lineup IDs provided, export all lineups
     let lineupsToExport = lineups;
     if (lineupIds && lineupIds.length > 0) {
-      lineupsToExport = lineups.filter(lineup => lineupIds.includes(lineup.id));
+      lineupsToExport = lineups.filter((lineup) =>
+        lineupIds.includes(lineup.id)
+      );
     }
-    
+
     if (lineupsToExport.length === 0) {
       return res.status(400).json({ error: "No lineups found to export" });
     }
-    
+
     let content, filename, contentType;
-    
+
     switch (format.toLowerCase()) {
       case "draftkings":
       case "dk":
@@ -949,51 +964,67 @@ app.post("/lineups/export", (req, res) => {
         filename = `lineups_draftkings_${Date.now()}.csv`;
         contentType = "text/csv";
         break;
-        
+
       case "csv":
         // Generate simple CSV format
-        const csvHeaders = ["ID", "Name", "CPT", "TOP", "JNG", "MID", "ADC", "SUP", "TEAM", "Total Salary"];
+        const csvHeaders = [
+          "ID",
+          "Name",
+          "CPT",
+          "TOP",
+          "JNG",
+          "MID",
+          "ADC",
+          "SUP",
+          "TEAM",
+          "Total Salary",
+        ];
         const csvRows = [csvHeaders.join(",")];
-        
-        lineupsToExport.forEach(lineup => {
+
+        lineupsToExport.forEach((lineup) => {
           const players = lineup.players || [];
-          const totalSalary = (lineup.cpt?.salary || 0) + players.reduce((sum, p) => sum + (p.salary || 0), 0);
-          
+          const totalSalary =
+            (lineup.cpt?.salary || 0) +
+            players.reduce((sum, p) => sum + (p.salary || 0), 0);
+
           const row = [
             lineup.id || "",
             `"${lineup.name || ""}"`,
             `"${lineup.cpt?.name || ""}"`,
-            `"${players.find(p => p.position === "TOP")?.name || ""}"`,
-            `"${players.find(p => p.position === "JNG")?.name || ""}"`,
-            `"${players.find(p => p.position === "MID")?.name || ""}"`,
-            `"${players.find(p => p.position === "ADC")?.name || ""}"`,
-            `"${players.find(p => p.position === "SUP")?.name || ""}"`,
-            `"${players.find(p => p.position === "TEAM")?.name || ""}"`,
-            totalSalary
+            `"${players.find((p) => p.position === "TOP")?.name || ""}"`,
+            `"${players.find((p) => p.position === "JNG")?.name || ""}"`,
+            `"${players.find((p) => p.position === "MID")?.name || ""}"`,
+            `"${players.find((p) => p.position === "ADC")?.name || ""}"`,
+            `"${players.find((p) => p.position === "SUP")?.name || ""}"`,
+            `"${players.find((p) => p.position === "TEAM")?.name || ""}"`,
+            totalSalary,
           ];
           csvRows.push(row.join(","));
         });
-        
+
         content = csvRows.join("\n");
         filename = `lineups_${Date.now()}.csv`;
         contentType = "text/csv";
         break;
-        
+
       case "json":
         content = JSON.stringify(lineupsToExport, null, 2);
         filename = `lineups_${Date.now()}.json`;
         contentType = "application/json";
         break;
-        
+
       default:
-        return res.status(400).json({ error: "Unsupported export format. Use: csv, json, or draftkings" });
+        return res
+          .status(400)
+          .json({
+            error: "Unsupported export format. Use: csv, json, or draftkings",
+          });
     }
-    
+
     // Set headers for file download
     res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(content);
-    
   } catch (error) {
     console.error("Export error:", error.message);
     res.status(500).json({ error: error.message });
@@ -1011,48 +1042,48 @@ app.post("/settings", (req, res) => {
   res.json({ success: true, message: "Settings saved successfully" });
 });
 
-
 // AI Service Data Endpoints
 // Get all player data with calculated exposures for AI analysis
 app.get("/api/data/players", (req, res) => {
   try {
     // Calculate actual exposures for each player
     const playerExposureMap = new Map();
-    
-    lineups.forEach(lineup => {
+
+    lineups.forEach((lineup) => {
       // Count captain
       if (lineup.cpt) {
         const key = `${lineup.cpt.name}_${lineup.cpt.team}`;
         playerExposureMap.set(key, (playerExposureMap.get(key) || 0) + 1);
       }
-      
+
       // Count regular players
       if (lineup.players) {
-        lineup.players.forEach(player => {
+        lineup.players.forEach((player) => {
           const key = `${player.name}_${player.team}`;
           playerExposureMap.set(key, (playerExposureMap.get(key) || 0) + 1);
         });
       }
     });
-    
+
     // Enhance player data with exposure information
-    const enhancedPlayerData = playerProjections.map(player => {
+    const enhancedPlayerData = playerProjections.map((player) => {
       const key = `${player.name}_${player.team}`;
       const exposureCount = playerExposureMap.get(key) || 0;
-      const exposurePercentage = lineups.length > 0 ? (exposureCount / lineups.length) * 100 : 0;
-      
+      const exposurePercentage =
+        lineups.length > 0 ? (exposureCount / lineups.length) * 100 : 0;
+
       return {
         ...player,
         exposure: exposurePercentage,
         exposureCount: exposureCount,
-        totalLineups: lineups.length
+        totalLineups: lineups.length,
       };
     });
-    
+
     res.json({
       success: true,
       data: enhancedPlayerData,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("Error fetching player data for AI:", error);
@@ -1064,34 +1095,36 @@ app.get("/api/data/players", (req, res) => {
 app.get("/api/data/lineups", (req, res) => {
   try {
     // Add metadata to lineups
-    const lineupsWithMetadata = lineups.map(lineup => {
+    const lineupsWithMetadata = lineups.map((lineup) => {
       // Calculate total salary
       const captainSalary = lineup.cpt?.salary || 0;
-      const playersSalary = lineup.players?.reduce((sum, p) => sum + (p.salary || 0), 0) || 0;
+      const playersSalary =
+        lineup.players?.reduce((sum, p) => sum + (p.salary || 0), 0) || 0;
       const totalSalary = captainSalary + playersSalary;
-      
+
       // Get team composition
       const teamComposition = {};
       if (lineup.cpt) {
-        teamComposition[lineup.cpt.team] = (teamComposition[lineup.cpt.team] || 0) + 1;
+        teamComposition[lineup.cpt.team] =
+          (teamComposition[lineup.cpt.team] || 0) + 1;
       }
-      lineup.players?.forEach(player => {
+      lineup.players?.forEach((player) => {
         teamComposition[player.team] = (teamComposition[player.team] || 0) + 1;
       });
-      
+
       return {
         ...lineup,
         totalSalary,
         teamComposition,
-        playerCount: 1 + (lineup.players?.length || 0)
+        playerCount: 1 + (lineup.players?.length || 0),
       };
     });
-    
+
     res.json({
       success: true,
       data: lineupsWithMetadata,
       count: lineups.length,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("Error fetching lineups for AI:", error);
@@ -1103,17 +1136,21 @@ app.get("/api/data/lineups", (req, res) => {
 app.get("/api/data/exposures", (req, res) => {
   try {
     const exposures = calculateExposures(lineups);
-    
+
     res.json({
       success: true,
       data: {
         team: exposures.teamExposure,
         position: exposures.positionExposure,
         totalLineups: lineups.length,
-        averageSalary: lineups.reduce((sum, l) => sum + (l.salary || 0), 0) / (lineups.length || 1),
-        averageProjection: lineups.reduce((sum, l) => sum + (l.projectedPoints || 0), 0) / (lineups.length || 1)
+        averageSalary:
+          lineups.reduce((sum, l) => sum + (l.salary || 0), 0) /
+          (lineups.length || 1),
+        averageProjection:
+          lineups.reduce((sum, l) => sum + (l.projectedPoints || 0), 0) /
+          (lineups.length || 1),
       },
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("Error calculating exposures for AI:", error);
@@ -1130,16 +1167,15 @@ app.get("/api/data/contest", (req, res) => {
         metadata: contestMetadata,
         teamStacks: teamStacks,
         settings: settings,
-        entryIds: contestEntryIds
+        entryIds: contestEntryIds,
       },
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("Error fetching contest data for AI:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 
 // Upload player projections
 app.post(
@@ -1165,36 +1201,37 @@ app.post(
       // Enhanced data validation with new validator
       const validator = new DataValidator();
       const validationResult = validator.validatePlayerPool(parsedPlayers);
-      
+
       if (!validationResult.isValid) {
         return res.status(400).json({
           error: "Data validation failed",
-          message: "The uploaded data contains errors that prevent optimization",
+          message:
+            "The uploaded data contains errors that prevent optimization",
           details: validationResult.errors,
-          warnings: validationResult.warnings
+          warnings: validationResult.warnings,
         });
       }
 
       // Replace playerProjections with new data
       playerProjections = parsedPlayers;
-      
+
       // Reset optimizer when new data is loaded
       optimizerInitialized = false;
       hybridOptimizer = null;
 
       console.log(`Successfully loaded ${playerProjections.length} players`);
-      
+
       const response = {
         success: true,
         message: `Loaded ${playerProjections.length} player projections successfully`,
-        validation: validator.generateReport(validationResult)
+        validation: validator.generateReport(validationResult),
       };
-      
+
       // Include warnings if any
       if (validationResult.warnings.length > 0) {
         response.warnings = validationResult.warnings;
       }
-      
+
       res.json(response);
     } catch (error) {
       console.error("Error processing player projections:", error);
@@ -1307,9 +1344,9 @@ app.post("/draftkings/import", upload.single("file"), async (req, res) => {
 
   try {
     console.log(`Processing DraftKings player pool from: ${req.file.path}`);
-    
+
     const results = [];
-    
+
     // Parse CSV
     await new Promise((resolve, reject) => {
       fs.createReadStream(req.file.path)
@@ -1320,24 +1357,28 @@ app.post("/draftkings/import", upload.single("file"), async (req, res) => {
         .on("end", () => resolve())
         .on("error", reject);
     });
-    
+
     console.log(`Read ${results.length} rows from DraftKings CSV`);
-    
+
     // Extract contest metadata and player ID mapping
     let extractedContestMetadata = null;
     const tempPlayerMapping = new Map();
     const tempEntryIds = [];
-    
+
     for (const row of results) {
       // Store contest metadata from first valid row
-      if (!extractedContestMetadata && row["Contest Name"] && row["Contest ID"]) {
+      if (
+        !extractedContestMetadata &&
+        row["Contest Name"] &&
+        row["Contest ID"]
+      ) {
         extractedContestMetadata = {
           contestName: row["Contest Name"],
           contestId: row["Contest ID"],
-          entryFee: row["Entry Fee"]
+          entryFee: row["Entry Fee"],
         };
       }
-      
+
       // Extract Entry IDs from contest lineup rows
       if (row["Entry ID"] && !isNaN(row["Entry ID"])) {
         const entryId = parseInt(row["Entry ID"]);
@@ -1345,16 +1386,16 @@ app.post("/draftkings/import", upload.single("file"), async (req, res) => {
           tempEntryIds.push(entryId);
         }
       }
-      
+
       const rowIndex = results.indexOf(row);
-      
+
       // Check if this is a DraftKings salaries file format (has Position, Name + ID, Name, ID columns)
       if (row["Position"] && row["Name + ID"] && row["Name"] && row["ID"]) {
         const position = row["Position"];
         const nameAndId = row["Name + ID"];
         const playerName = row["Name"];
         const playerId = row["ID"];
-        
+
         if (playerName && playerId) {
           // Trim whitespace from player names
           const cleanPlayerName = playerName.trim();
@@ -1367,14 +1408,18 @@ app.post("/draftkings/import", upload.single("file"), async (req, res) => {
       // Fall back to extracting from lineup rows if not salaries format
       else if (rowIndex >= 0 && rowIndex < 20 && row["CPT"]) {
         const positions = ["CPT", "TOP", "JNG", "MID", "ADC", "SUP", "TEAM"];
-        
-        positions.forEach(position => {
+
+        positions.forEach((position) => {
           const playerData = row[position];
-          if (playerData && playerData.includes("(") && playerData.includes(")")) {
+          if (
+            playerData &&
+            playerData.includes("(") &&
+            playerData.includes(")")
+          ) {
             // Extract player name and ID from format "PlayerName (PlayerID)"
             const playerName = extractPlayerName(playerData);
             const playerId = extractPlayerId(playerData);
-            
+
             if (playerName && playerId) {
               // Map by name and position for precise matching
               tempPlayerMapping.set(`${playerName}_${position}`, playerId);
@@ -1385,13 +1430,13 @@ app.post("/draftkings/import", upload.single("file"), async (req, res) => {
         });
       }
     }
-    
+
     // Store globally - preserve existing contest metadata if this is a salaries file
     if (extractedContestMetadata) {
       contestMetadata = extractedContestMetadata;
       contestEntryIds = tempEntryIds.sort((a, b) => a - b); // Sort Entry IDs
     }
-    
+
     // Always update player ID mapping
     if (tempPlayerMapping.size > 0) {
       // Merge with existing mapping to preserve previous mappings
@@ -1399,35 +1444,40 @@ app.post("/draftkings/import", upload.single("file"), async (req, res) => {
         playerIdMapping.set(key, value);
       });
     }
-    
+
     // Update existing player projections with DraftKings IDs
     let mappedCount = 0;
-    playerProjections.forEach(player => {
-      const dkId = playerIdMapping.get(`${player.name}_${player.position}`) || 
-                  playerIdMapping.get(player.name);
+    playerProjections.forEach((player) => {
+      const dkId =
+        playerIdMapping.get(`${player.name}_${player.position}`) ||
+        playerIdMapping.get(player.name);
       if (dkId) {
         player.draftKingsId = dkId;
         mappedCount++;
       }
     });
-    
-    console.log(`Mapped ${mappedCount}/${playerProjections.length} players to DraftKings IDs`);
+
+    console.log(
+      `Mapped ${mappedCount}/${playerProjections.length} players to DraftKings IDs`
+    );
     if (extractedContestMetadata) {
-      console.log(`Contest: ${extractedContestMetadata.contestName} (ID: ${extractedContestMetadata.contestId})`);
+      console.log(
+        `Contest: ${extractedContestMetadata.contestName} (ID: ${extractedContestMetadata.contestId})`
+      );
     }
     if (contestEntryIds.length > 0) {
       console.log(`Loaded ${contestEntryIds.length} Entry IDs`);
     }
-    
+
     // Debug: Show which players failed to map
     if (mappedCount < playerProjections.length) {
       console.log("\nPlayers from ROO that couldn't be mapped:");
-      playerProjections.forEach(player => {
+      playerProjections.forEach((player) => {
         if (!player.draftKingsId) {
           console.log(`- ROO: "${player.name}" (${player.position})`);
         }
       });
-      
+
       console.log("\nFirst few DraftKings players found:");
       let count = 0;
       for (const [key, value] of tempPlayerMapping) {
@@ -1437,20 +1487,19 @@ app.post("/draftkings/import", upload.single("file"), async (req, res) => {
         }
       }
     }
-    
+
     res.json({
       success: true,
       message: `Imported DraftKings contest data successfully`,
       contestMetadata: extractedContestMetadata,
       playersWithIds: mappedCount,
-      totalPlayers: playerProjections.length
+      totalPlayers: playerProjections.length,
     });
-    
   } catch (error) {
     console.error("Error processing DraftKings import:", error);
-    res.status(500).json({ 
-      error: "Error processing file", 
-      message: error.message 
+    res.status(500).json({
+      error: "Error processing file",
+      message: error.message,
     });
   }
 });
@@ -1554,12 +1603,13 @@ app.post("/lineups/import", upload.single("file"), (req, res) => {
 app.post("/optimizer/initialize", async (req, res) => {
   try {
     const { exposureSettings = {}, contestInfo = {} } = req.body;
-    
+
     // Check if we have necessary data
     if (playerProjections.length === 0) {
       return res.status(400).json({
         error: "No player projections available",
-        message: "Please upload player projections data before initializing optimizer.",
+        message:
+          "Please upload player projections data before initializing optimizer.",
       });
     }
 
@@ -1571,7 +1621,7 @@ app.post("/optimizer/initialize", async (req, res) => {
         gpp: contestInfo.fieldSize || 1000,
         tournament: contestInfo.fieldSize || 1000,
         single_entry: contestInfo.fieldSize || 150000,
-      }
+      },
     });
 
     // Set up progress callbacks if needed (for WebSocket or Server-Sent Events)
@@ -1596,14 +1646,13 @@ app.post("/optimizer/initialize", async (req, res) => {
     res.json({
       success: true,
       message: "Hybrid optimizer initialized successfully",
-      ...initResult
+      ...initResult,
     });
-
   } catch (error) {
     console.error("Error initializing hybrid optimizer:", error);
     res.status(500).json({
       error: "Error initializing optimizer",
-      message: error.message
+      message: error.message,
     });
   }
 });
@@ -1613,7 +1662,7 @@ app.get("/optimizer/strategies", (req, res) => {
   if (!hybridOptimizer) {
     return res.status(400).json({
       error: "Optimizer not initialized",
-      message: "Please initialize the optimizer first"
+      message: "Please initialize the optimizer first",
     });
   }
 
@@ -1622,69 +1671,75 @@ app.get("/optimizer/strategies", (req, res) => {
     res.json({
       success: true,
       strategies,
-      stats: hybridOptimizer.getStats()
+      stats: hybridOptimizer.getStats(),
     });
   } catch (error) {
     console.error("Error getting strategies:", error);
     res.status(500).json({
       error: "Error retrieving strategies",
-      message: error.message
+      message: error.message,
     });
   }
 });
 
 // Generate lineups with hybrid optimizer
 app.post("/lineups/generate-hybrid", async (req, res) => {
-  const { 
-    count = 5, 
-    strategy = 'recommended', 
+  const {
+    count = 5,
+    strategy = "recommended",
     customConfig = {},
     saveToLineups = true,
-    exposureSettings = {},  // Add exposureSettings from request body
+    exposureSettings = {}, // Add exposureSettings from request body
     stackExposureTargets = {}, // Add stack exposure targets from request body
-    progressSessionId = null  // Session ID for progress updates
+    progressSessionId = null, // Session ID for progress updates
+    contestInfo = { type: "gpp", fieldSize: 1189, entryFee: 5 },
   } = req.body;
-  
-  
+
   // Debug: Log available teams
-  const availableTeams = [...new Set(playerProjections.map(p => p.team))].filter(Boolean);
-  
-  
+  const availableTeams = [
+    ...new Set(playerProjections.map((p) => p.team)),
+  ].filter(Boolean);
 
   try {
     // Check if optimizer is initialized
     if (!hybridOptimizer || !optimizerInitialized) {
       return res.status(400).json({
         error: "Optimizer not initialized",
-        message: "Please initialize the hybrid optimizer first"
+        message: "Please initialize the hybrid optimizer first",
       });
     }
 
     // Calculate actual lineup count for generation (portfolio needs bulk generation)
     const bulkMultiplier = customConfig.bulkGenerationMultiplier || 1;
-    const candidateCount = strategy === 'portfolio' ? count * bulkMultiplier : count;
-    
+    const candidateCount =
+      strategy === "portfolio" ? count * bulkMultiplier : count;
 
     // Use the same method as Advanced Optimizer - runSimulation
     // Create an AdvancedOptimizer instance for lineup generation
-    const AdvancedOptimizer = require("./client/src/lib/AdvancedOptimizer");
     const lineupOptimizer = new AdvancedOptimizer({
       salaryCap: 50000,
       debugMode: true, // Enable debug logging to see alerts
       positionRequirements: {
-        CPT: 1, TOP: 1, JNG: 1, MID: 1, ADC: 1, SUP: 1, TEAM: 1
+        CPT: 1,
+        TOP: 1,
+        JNG: 1,
+        MID: 1,
+        ADC: 1,
+        SUP: 1,
+        TEAM: 1,
       },
       iterations: 10000,
-      randomness: 0.4,  // Higher randomness for uniqueness
+      randomness: 0.4, // Higher randomness for uniqueness
       targetTop: 0.2,
       leverageMultiplier: 1.0,
-      fieldSize: 1000,
-      debugMode: false
+      fieldSize: contestInfo.fieldSize || 1000,
+      contestInfo: contestInfo,
+      debugMode: false,
     });
 
     // Set up progress callbacks - use real SSE if session ID provided
     let progressCallback, statusCallback;
-    
+
     if (progressSessionId && progressSessions.has(progressSessionId)) {
       const callbacks = createProgressCallbacks(progressSessionId);
       progressCallback = callbacks.progressCallback;
@@ -1702,41 +1757,43 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
     lineupOptimizer.setStatusCallback(statusCallback);
 
     // Initialize the lineup optimizer
-    await lineupOptimizer.initialize(playerProjections, exposureSettings, [], teamStacks);
-    
+    await lineupOptimizer.initialize(
+      playerProjections,
+      exposureSettings,
+      [],
+      teamStacks
+    );
+
     // Generate lineups using the working runSimulation method
     const result = await lineupOptimizer.runSimulation(candidateCount);
 
     if (result && result.lineups) {
-      
       // For portfolio strategy, select the best lineups from candidates
       let selectedLineups = result.lineups;
-      
-      
-      if (strategy === 'portfolio' && result.lineups.length > count) {
+
+      if (strategy === "portfolio" && result.lineups.length > count) {
         // Use balanced selection that considers both score and team diversity
         // Use actual stack exposure targets instead of equal distribution
         const teamCounts = {};
         const teamTargets = {};
-        
+
         // Parse stack exposure targets to get team-specific limits
-        Object.keys(stackExposureTargets).forEach(key => {
-          if (key.includes('_target')) {
-            const team = key.split('_')[0];
+        Object.keys(stackExposureTargets).forEach((key) => {
+          if (key.includes("_target")) {
+            const team = key.split("_")[0];
             const targetPct = stackExposureTargets[key] / 100; // Convert percentage to decimal
             teamTargets[team] = Math.round(count * targetPct); // Calculate target lineup count
           }
         });
-        
-        
+
         selectedLineups = result.lineups
           .sort((a, b) => {
-            const scoreA = (a.nexusScore || 0) + (a.roi || 0) * 0.1;
-            const scoreB = (b.nexusScore || 0) + (b.roi || 0) * 0.1;
+            const scoreA = (a.nexusScore || 0);
+            const scoreB = (b.nexusScore || 0);
             return scoreB - scoreA;
           })
-          .filter(lineup => {
-            const team = lineup._primaryStackTeam || 'Unknown';
+          .filter((lineup) => {
+            const team = lineup._primaryStackTeam || "Unknown";
             const target = teamTargets[team] || Math.ceil(count / 4); // Fallback to equal distribution
             if ((teamCounts[team] || 0) < target) {
               teamCounts[team] = (teamCounts[team] || 0) + 1;
@@ -1745,10 +1802,8 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
             return false;
           })
           .slice(0, count);
-        
       }
-      
-      
+
       // Format lineups to match existing structure
       const formattedLineups = selectedLineups.map((lineup) => ({
         id: lineup.id || generateRandomId(),
@@ -1769,9 +1824,8 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
         })),
         // Include optimization metadata
         nexusScore: lineup.nexusScore,
-        roi: lineup.roi,
         sourceAlgorithm: lineup.sourceAlgorithm,
-        projectedPoints: lineup.projectedPoints
+        projectedPoints: lineup.projectedPoints,
       }));
 
       // Add to lineups store if requested
@@ -1780,12 +1834,11 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
         lineups = formattedLineups;
       }
 
-      
       // Send final progress update if using SSE
       if (progressSessionId && progressSessions.has(progressSessionId)) {
-        statusCallback('Completed successfully');
-        progressCallback(100, 'Generation complete');
-        
+        statusCallback("Completed successfully");
+        progressCallback(100, "Generation complete");
+
         // Clean up the session after a short delay
         setTimeout(() => {
           if (progressSessions.has(progressSessionId)) {
@@ -1798,27 +1851,26 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
           }
         }, 1000);
       }
-      
+
       res.json({
         success: true,
         lineups: formattedLineups,
         message: `Generated ${formattedLineups.length} unique lineups successfully`,
-        strategy: { name: strategy, algorithm: 'advanced_optimizer' },
+        strategy: { name: strategy, algorithm: "advanced_optimizer" },
         summary: {
-          algorithm: 'advanced_optimizer',
-          averageROI: result.summary?.averageROI || 0,
+          algorithm: "advanced_optimizer",
           averageNexusScore: result.summary?.averageNexusScore || 0,
           uniqueLineups: formattedLineups.length,
-          diversityScore: result.summary?.diversityScore || 0
+          diversityScore: result.summary?.diversityScore || 0,
         },
-        recommendations: []
+        recommendations: [],
       });
     } else {
       // Handle error case for SSE
       if (progressSessionId && progressSessions.has(progressSessionId)) {
-        statusCallback('Failed - no results generated');
-        progressCallback(0, 'Generation failed');
-        
+        statusCallback("Failed - no results generated");
+        progressCallback(0, "Generation failed");
+
         setTimeout(() => {
           if (progressSessions.has(progressSessionId)) {
             const session = progressSessions.get(progressSessionId);
@@ -1830,20 +1882,20 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
           }
         }, 1000);
       }
-      
+
       res.status(400).json({
         error: "Error generating lineups",
-        message: "Hybrid optimizer returned no results"
+        message: "Hybrid optimizer returned no results",
       });
     }
   } catch (error) {
     console.error("Error generating hybrid lineups:", error);
-    
+
     // Handle error case for SSE
     if (progressSessionId && progressSessions.has(progressSessionId)) {
-      statusCallback('Failed with error');
+      statusCallback("Failed with error");
       progressCallback(0, `Error: ${error.message}`);
-      
+
       setTimeout(() => {
         if (progressSessions.has(progressSessionId)) {
           const session = progressSessions.get(progressSessionId);
@@ -1855,10 +1907,10 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
         }
       }, 1000);
     }
-    
+
     res.status(500).json({
       error: "Error generating lineups",
-      message: error.message
+      message: error.message,
     });
   }
 });
@@ -1868,7 +1920,7 @@ app.get("/optimizer/stats", (req, res) => {
   if (!hybridOptimizer) {
     return res.status(400).json({
       error: "Optimizer not initialized",
-      message: "Please initialize the optimizer first"
+      message: "Please initialize the optimizer first",
     });
   }
 
@@ -1876,13 +1928,13 @@ app.get("/optimizer/stats", (req, res) => {
     const stats = hybridOptimizer.getStats();
     res.json({
       success: true,
-      stats
+      stats,
     });
   } catch (error) {
     console.error("Error getting optimizer stats:", error);
     res.status(500).json({
       error: "Error retrieving stats",
-      message: error.message
+      message: error.message,
     });
   }
 });
@@ -1891,21 +1943,21 @@ app.get("/optimizer/stats", (req, res) => {
 app.post("/data/validate", (req, res) => {
   try {
     const { players, teamStacks } = req.body;
-    
+
     if (!players || !Array.isArray(players)) {
       return res.status(400).json({
         error: "Invalid request",
-        message: "Players array is required"
+        message: "Players array is required",
       });
     }
 
     const validator = new DataValidator();
-    
+
     // Validate player pool
     const playerValidation = validator.validatePlayerPool(players);
     const response = {
       success: playerValidation.isValid,
-      players: validator.generateReport(playerValidation)
+      players: validator.generateReport(playerValidation),
     };
 
     // Validate team stacks if provided
@@ -1919,7 +1971,7 @@ app.post("/data/validate", (req, res) => {
     console.error("Error validating data:", error);
     res.status(500).json({
       error: "Error validating data",
-      message: error.message
+      message: error.message,
     });
   }
 });
@@ -1927,7 +1979,6 @@ app.post("/data/validate", (req, res) => {
 // Generate lineups (legacy endpoint - keep for backward compatibility)
 app.post("/lineups/generate", async (req, res) => {
   const { count = 5, settings: reqSettings = {} } = req.body;
-  
 
   // Check if we have necessary data
   if (playerProjections.length === 0) {
@@ -2068,9 +2119,9 @@ app.delete("/players/bulk", (req, res) => {
   const notFoundIds = [];
 
   // Process each player ID
-  playerIds.forEach(id => {
+  playerIds.forEach((id) => {
     const index = playerProjections.findIndex((player) => player.id == id);
-    
+
     if (index === -1) {
       notFoundIds.push(id);
     } else {
@@ -2079,7 +2130,7 @@ app.delete("/players/bulk", (req, res) => {
         id: player.id,
         name: player.name,
         team: player.team,
-        position: player.position
+        position: player.position,
       });
       playerProjections.splice(index, 1);
     }
@@ -2091,13 +2142,15 @@ app.delete("/players/bulk", (req, res) => {
     hybridOptimizer = null;
   }
 
-  console.log(`Deleted ${deletedPlayers.length} players. Not found: ${notFoundIds.length}`);
-  
+  console.log(
+    `Deleted ${deletedPlayers.length} players. Not found: ${notFoundIds.length}`
+  );
+
   res.json({
     success: true,
     message: `Deleted ${deletedPlayers.length} players successfully`,
     deletedPlayers,
-    notFoundIds: notFoundIds.length > 0 ? notFoundIds : undefined
+    notFoundIds: notFoundIds.length > 0 ? notFoundIds : undefined,
   });
 });
 
@@ -2125,7 +2178,9 @@ app.delete("/players/:id", (req, res) => {
   optimizerInitialized = false;
   hybridOptimizer = null;
 
-  console.log(`Deleted player: ${player.name} (${player.team} - ${player.position})`);
+  console.log(
+    `Deleted player: ${player.name} (${player.team} - ${player.position})`
+  );
   res.json({
     success: true,
     message: "Player deleted successfully",
@@ -2133,8 +2188,8 @@ app.delete("/players/:id", (req, res) => {
       id: player.id,
       name: player.name,
       team: player.team,
-      position: player.position
-    }
+      position: player.position,
+    },
   });
 });
 
@@ -2247,22 +2302,22 @@ app.post("/nexusscore/formula", async (req, res) => {
 
 // Cleanup function
 const cleanup = () => {
-  console.log('\nReceived SIGTERM. Starting cleanup...');
-  
+  console.log("\nReceived SIGTERM. Starting cleanup...");
+
   // Clean up uploads directory
-  const uploadDir = path.join(__dirname, 'uploads');
+  const uploadDir = path.join(__dirname, "uploads");
   if (fs.existsSync(uploadDir)) {
     try {
       const files = fs.readdirSync(uploadDir);
-      files.forEach(file => {
+      files.forEach((file) => {
         fs.unlinkSync(path.join(uploadDir, file));
       });
-      console.log('Cleaning up uploads directory...');
+      console.log("Cleaning up uploads directory...");
     } catch (err) {
-      console.error('Error cleaning uploads:', err.message);
+      console.error("Error cleaning uploads:", err.message);
     }
   }
-  
+
   // Clear in-memory data
   players = [];
   teamStacks = [];
@@ -2272,15 +2327,15 @@ const cleanup = () => {
   customLineups = [];
   lastUploadedCSV = null;
   entryExposures = {};
-  
-  console.log('Upload cleanup completed');
-  console.log('Cleanup completed. Exiting...');
+
+  console.log("Upload cleanup completed");
+  console.log("Cleanup completed. Exiting...");
   process.exit(0);
 };
 
 // Handle termination signals
-process.on('SIGTERM', cleanup);
-process.on('SIGINT', cleanup);
+process.on("SIGTERM", cleanup);
+process.on("SIGINT", cleanup);
 
 // Start the server
 app.listen(PORT, () => {

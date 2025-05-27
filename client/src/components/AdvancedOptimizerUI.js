@@ -574,7 +574,7 @@ const NexusScoreExplainer = ({ isOpen, onClose }) => {
           >
             <p style={{ color: "#e2e8f0", margin: 0 }}>
               <strong style={{ color: "#4fd1c5" }}>Pro Tip:</strong> Use
-              NexusScore alongside ROI and First Place % metrics for a complete
+              NexusScore alongside First Place % metrics for a complete
               view of lineup potential. NexusScore is especially valuable when
               comparing lineups with similar projected points.
             </p>
@@ -755,7 +755,6 @@ const ResultsPaginationControls = ({
                 lineup={{
                   ...lineup,
                   nexusScore: lineup.nexusScore,
-                  roi: lineup.roi,
                 }}
                 playerData={playerData}
                 index={(currentPage - 1) * itemsPerPage + index + 1}
@@ -932,7 +931,7 @@ const AdvancedOptimizerUI = ({
 
   const isInternalTabChange = useRef(false);
   const [showNexusExplainer, setShowNexusExplainer] = useState(false);
-  const [sortBy, setSortBy] = useState("roi");
+  const [sortBy, setSortBy] = useState("nexusScore");
   const [selectedLineups, setSelectedLineups] = useState({});
   const [savedLineups, setSavedLineups] = useState([]);
   const hasInitialized = useRef(false);
@@ -1148,8 +1147,6 @@ const AdvancedOptimizerUI = ({
 
     if (sortBy === "nexusScore") {
       return lineups.sort((a, b) => (b.nexusScore || 0) - (a.nexusScore || 0));
-    } else if (sortBy === "roi") {
-      return lineups.sort((a, b) => parseFloat(b.roi) - parseFloat(a.roi));
     } else if (sortBy === "firstPlace") {
       return lineups.sort(
         (a, b) => parseFloat(b.firstPlace) - parseFloat(a.firstPlace)
@@ -1164,7 +1161,7 @@ const AdvancedOptimizerUI = ({
       );
     }
 
-    return lineups.sort((a, b) => parseFloat(b.roi) - parseFloat(a.roi));
+    return lineups.sort((a, b) => (b.nexusScore || 0) - (a.nexusScore || 0));
   }, [optimizationResults, sortBy]);
 
   useEffect(() => {
@@ -1330,15 +1327,10 @@ const AdvancedOptimizerUI = ({
 
       const formattedLineups = selectedLineupsList.map((lineup) => ({
         id: lineup.id,
-        name: `${sortBy === "nexusScore" ? "NexusScore" : "Optimized"} ${
-          sortBy === "nexusScore"
-            ? Math.round(lineup.nexusScore || 100)
-            : formatNumber(lineup.roi) + "x"
-        } (${formatNumber(lineup.projectedPoints, 1)} pts)`,
+        name: `NexusScore ${Math.round(lineup.nexusScore || 100)} (${formatNumber(lineup.projectedPoints, 1)} pts)`,
         cpt: lineup.cpt,
         players: lineup.players,
         projectedPoints: lineup.projectedPoints,
-        roi: lineup.roi,
         nexusScore: lineup.nexusScore,
         firstPlace: lineup.firstPlace ? Number(lineup.firstPlace) : 0,
         top10: lineup.top10 ? Number(lineup.top10) : 0,
@@ -1384,15 +1376,10 @@ const AdvancedOptimizerUI = ({
 
         const formattedLineups = sortedLineups.map((lineup) => ({
           id: lineup.id,
-          name: `${sortBy === "nexusScore" ? "NexusScore" : "Optimized"} ${
-            sortBy === "nexusScore"
-              ? Math.round(lineup.nexusScore || 100)
-              : formatNumber(lineup.roi) + "x"
-          } (${formatNumber(lineup.projectedPoints, 1)} pts)`,
+          name: `NexusScore ${Math.round(lineup.nexusScore || 100)} (${formatNumber(lineup.projectedPoints, 1)} pts)`,
           cpt: lineup.cpt,
           players: lineup.players,
           projectedPoints: lineup.projectedPoints,
-          roi: lineup.roi,
           nexusScore: lineup.nexusScore,
           firstPlace: lineup.firstPlace ? Number(lineup.firstPlace) : 0,
           top10: lineup.top10 ? Number(lineup.top10) : 0,
@@ -1558,8 +1545,7 @@ const AdvancedOptimizerUI = ({
                   }
                 />
                 <p style={{ color: "#90cdf4", fontSize: "0.875rem" }}>
-                  Number of competitors in the tournament. Affects ROI
-                  calculation.
+                  Number of competitors in the tournament.
                 </p>
               </div>
 
@@ -1780,7 +1766,7 @@ const AdvancedOptimizerUI = ({
               </h4>
               <p style={{ color: "#90cdf4", fontSize: "0.875rem" }}>
                 This optimizer uses advanced Monte Carlo simulation to generate
-                lineups with the highest ROI potential. It considers player
+                lineups with the highest scoring potential. It considers player
                 correlations, ownership leverage, and simulates thousands of
                 potential outcomes to find the best lineups for tournaments.
               </p>
@@ -1827,22 +1813,6 @@ const AdvancedOptimizerUI = ({
                   }}
                 >
                   NexusScore
-                </button>
-                <button
-                  className={`btn ${sortBy === "roi" ? "active" : ""}`}
-                  onClick={() => handleSortChange("roi")}
-                  style={{
-                    backgroundColor:
-                      sortBy === "roi" ? "#3182ce" : "transparent",
-                    color: sortBy === "roi" ? "white" : "#90cdf4",
-                    border: "none",
-                    padding: "0.25rem 0.5rem",
-                    fontSize: "0.875rem",
-                    borderRadius: "0.25rem",
-                    cursor: "pointer",
-                  }}
-                >
-                  ROI
                 </button>
                 <button
                   className={`btn ${sortBy === "projection" ? "active" : ""}`}

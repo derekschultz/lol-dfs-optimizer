@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import AdvancedOptimizer from "../lib/AdvancedOptimizer";
+const AdvancedOptimizer = require("../lib/AdvancedOptimizer");
 
 const PerformanceTest = ({ playerProjections, teamStacks }) => {
   const [results, setResults] = useState(null);

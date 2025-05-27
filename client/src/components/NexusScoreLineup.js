@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { formatROI, getROIColor } from "../utils/roiIntegration";
 
 const NexusScoreLineup = ({
   lineup,
@@ -14,6 +15,7 @@ const NexusScoreLineup = ({
   metaAligned,
   optimizationFlag,
   salaryEfficiency,
+  contestInfo = null,
 }) => {
   // State for lineup metrics
   const [metrics, setMetrics] = useState({
@@ -21,7 +23,6 @@ const NexusScoreLineup = ({
     ownership: 0,
     totalSalary: 0,
     nexusScore: 0,
-    roi: 0,
     stackInfo: "",
   });
 
@@ -45,17 +46,6 @@ const NexusScoreLineup = ({
 
     // Fallback
     return "0.00";
-  };
-
-  // Helper function to format ROI with + or - sign as a percentage
-  const formatROI = (value) => {
-    if (value === undefined || value === null) return "+0.00%";
-
-    // Parse the value to a number if it's a string
-    const numericValue = typeof value === "string" ? parseFloat(value) : value;
-
-    // Format with sign and percentage
-    return (numericValue >= 0 ? "+" : "") + numericValue.toFixed(2) + "%";
   };
 
   // Calculate lineup metrics when lineup or playerData changes
@@ -129,14 +119,12 @@ const NexusScoreLineup = ({
       if (count >= 3) stackBonus += (count - 2) * 3; // Bonus for 3+ stacks
     });
 
-    // Calculate NexusScore
-    const nexusScore = (totalProj * leverageFactor + stackBonus) / 7;
-
-    // Calculate ROI as a percentage with potential negative values
-    const roi =
-      lineup.roi !== undefined
-        ? lineup.roi
-        : (nexusScore / 100) * 200 - 100 + Math.random() * 50;
+    // Calculate NexusScore - scale to reasonable range (25-65)
+    const baseScore = totalProj / 10;
+    const nexusScore = Math.min(
+      65,
+      Math.max(25, baseScore * leverageFactor + stackBonus / 2)
+    );
 
     // Update metrics state with ONLY THIS LINEUP's metrics
     setMetrics({
@@ -145,16 +133,21 @@ const NexusScoreLineup = ({
       totalSalary,
       nexusScore,
       stackInfo: stackString,
-      roi,
     });
   }, [lineup, playerData]);
 
   // Generate opponent display
   const getOpponentDisplay = (player) => {
     if (!player) return "-";
+    
+    // Try to find full player data from playerData prop
+    const fullPlayerData = playerData.find(
+      p => p.id === player.id || p.name === player.name
+    );
 
-    // Try to extract from player data
-    const matchup = player.matchup || player.opponent || player.opp || "";
+    // Try to extract from player data or full data
+    const matchup = player.matchup || player.opponent || player.opp || 
+                   fullPlayerData?.matchup || fullPlayerData?.opponent || fullPlayerData?.opp || "";
 
     // If we have matchup data
     if (matchup) {
@@ -170,8 +163,9 @@ const NexusScoreLineup = ({
     }
 
     // Default opponent display with team colors for prettier display
-    const opponent = player.opponent || player.opp || "";
-    const isAway = player.isAway || false;
+    const opponent = player.opponent || player.opp || 
+                    fullPlayerData?.opponent || fullPlayerData?.opp || "";
+    const isAway = player.isAway || fullPlayerData?.isAway || false;
 
     if (opponent) {
       // Create a colorful display based on opponent team
@@ -390,7 +384,9 @@ const NexusScoreLineup = ({
           alignItems: "center",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center" }}>
+        <div
+          style={{ display: "flex", alignItems: "center", flexWrap: "wrap" }}
+        >
           <span style={{ marginRight: "8px", color: "#a0aec0" }}>
             NexusScore:
           </span>
@@ -399,17 +395,26 @@ const NexusScoreLineup = ({
               ? safeFormatNumber(lineup.nexusScore, 1)
               : safeFormatNumber(metrics.nexusScore, 1)}
           </span>
-          <span style={{ margin: "0 8px", color: "#4a5568" }}>|</span>
-          <span style={{ marginRight: "8px", color: "#a0aec0" }}>ROI:</span>
-          <span
-            style={{
-              color:
-                lineup.roi >= 0 || metrics.roi >= 0 ? "#10b981" : "#f56565",
-              fontWeight: "600",
-            }}
-          >
-            {formatROI(lineup.roi || metrics.roi)}
-          </span>
+          {/* ROI Display */}
+          {(() => {
+            // Use the ROI passed from parent (which uses our new calculation)
+            const roi = lineup.roi;
+
+            if (roi !== null && roi !== undefined) {
+              return (
+                <>
+                  <span style={{ margin: "0 8px", color: "#4a5568" }}>|</span>
+                  <span style={{ marginRight: "8px", color: "#a0aec0" }}>
+                    ROI:
+                  </span>
+                  <span style={{ color: getROIColor(roi), fontWeight: "600" }}>
+                    {formatROI(roi)}
+                  </span>
+                </>
+              );
+            }
+            return null;
+          })()}
           <span style={{ margin: "0 8px", color: "#4a5568" }}>|</span>
           <span style={{ marginRight: "8px", color: "#a0aec0" }}>
             First Place:

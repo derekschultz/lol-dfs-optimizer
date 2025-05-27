@@ -117,7 +117,6 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
         const nexusResult = this._calculateNexusScore(result);
         result.nexusScore = nexusResult.score;
         result.scoreComponents = nexusResult.components;
-        result.roi = (result.nexusScore / 100) * 200 - 50;
       });
 
       // Sort by combined annealing score and simulation results
@@ -900,3 +899,4 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
 }
 
 module.exports = SimulatedAnnealingOptimizer;
+

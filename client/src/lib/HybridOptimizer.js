@@ -209,6 +209,8 @@ class HybridOptimizer {
     existingLineups = [],
     contestInfo = {}
   ) {
+    // Store contest info
+    this.contestInfo = contestInfo;
     this.updateStatus("Initializing hybrid optimizer...");
     this.updateProgress(0, "validation");
 
@@ -470,6 +472,7 @@ class HybridOptimizer {
       },
       fieldSize: constraintAnalysis.fieldSize || 1000,
       debugMode: true, // Enable debug mode to track duplicate issues
+      contestInfo: this.contestInfo || { type: 'gpp', fieldSize: 1189, entryFee: 5 },
     };
 
     const progressStep = 40 / 3; // 40% progress divided by 3 optimizers
@@ -821,9 +824,9 @@ class HybridOptimizer {
     // Sort all results by their best available score
     results.sort((a, b) => {
       const scoreA =
-        a.nexusScore || a.roi || a.geneticFitness || a.annealingScore || 0;
+        a.nexusScore || a.geneticFitness || a.annealingScore || 0;
       const scoreB =
-        b.nexusScore || b.roi || b.geneticFitness || b.annealingScore || 0;
+        b.nexusScore || b.geneticFitness || b.annealingScore || 0;
       return scoreB - scoreA;
     });
 
@@ -856,9 +859,6 @@ class HybridOptimizer {
       algorithmCounts[algo] = (algorithmCounts[algo] || 0) + 1;
     });
 
-    const avgROI =
-      results.reduce((sum, r) => sum + (r.roi || 0), 0) /
-      Math.max(1, results.length);
     const avgNexusScore =
       results.reduce((sum, r) => sum + (r.nexusScore || 0), 0) /
       Math.max(1, results.length);
@@ -867,7 +867,6 @@ class HybridOptimizer {
       algorithm: "hybrid",
       distribution: distribution,
       actualDistribution: algorithmCounts,
-      averageROI: avgROI,
       averageNexusScore: avgNexusScore,
       uniqueLineups: results.length,
       diversityScore: this._calculateDiversityScore(results),
@@ -1171,9 +1170,7 @@ class HybridOptimizer {
       strategy: strategyName,
       algorithm: strategy.algorithm,
       lineupCount: results.lineups.length,
-      averageROI: results.summary?.averageROI || 0,
       averageNexusScore: results.summary?.averageNexusScore || 0,
-      topLineupROI: results.lineups[0]?.roi || 0,
       diversityScore: results.summary?.diversityScore || 0,
       contestType: this.contestInfo?.type || "unknown",
       constraintComplexity: this.constraintAnalysis?.complexityScore || 0,
@@ -1212,13 +1209,11 @@ class HybridOptimizer {
     this.performanceHistory.forEach((record) => {
       if (!algorithmPerformance[record.algorithm]) {
         algorithmPerformance[record.algorithm] = {
-          roi: [],
           nexusScore: [],
           diversity: [],
         };
       }
 
-      algorithmPerformance[record.algorithm].roi.push(record.averageROI);
       algorithmPerformance[record.algorithm].nexusScore.push(
         record.averageNexusScore
       );
@@ -1229,9 +1224,7 @@ class HybridOptimizer {
 
     // Update weights based on performance
     Object.entries(algorithmPerformance).forEach(([algorithm, metrics]) => {
-      if (metrics.roi.length > 0) {
-        const avgROI =
-          metrics.roi.reduce((sum, r) => sum + r, 0) / metrics.roi.length;
+      if (metrics.nexusScore.length > 0) {
         const avgNexus =
           metrics.nexusScore.reduce((sum, n) => sum + n, 0) /
           metrics.nexusScore.length;
@@ -1241,7 +1234,7 @@ class HybridOptimizer {
 
         // Combine metrics into performance score
         const performanceScore =
-          avgROI * 0.4 + avgNexus * 0.4 + avgDiversity * 100 * 0.2;
+          avgNexus * 0.6 + avgDiversity * 100 * 0.4;
 
         // Update weight (slowly adapt)
         const currentWeight = this.config.performanceWeights[algorithm] || 1.0;
@@ -1264,12 +1257,9 @@ class HybridOptimizer {
     );
 
     if (strategyRecords.length === 0) {
-      return { usage: 0, averageROI: 0, averageNexusScore: 0, lastUsed: null };
+      return { usage: 0, averageNexusScore: 0, lastUsed: null };
     }
 
-    const avgROI =
-      strategyRecords.reduce((sum, r) => sum + r.averageROI, 0) /
-      strategyRecords.length;
     const avgNexusScore =
       strategyRecords.reduce((sum, r) => sum + r.averageNexusScore, 0) /
       strategyRecords.length;
@@ -1277,7 +1267,6 @@ class HybridOptimizer {
 
     return {
       usage: strategyRecords.length,
-      averageROI: avgROI,
       averageNexusScore: avgNexusScore,
       lastUsed: new Date(lastUsed).toLocaleDateString(),
     };
@@ -1338,8 +1327,7 @@ class HybridOptimizer {
     }
 
     // Performance-based recommendations
-    const avgROI = results.summary?.averageROI || 0;
-    if (avgROI < 0 && this.contestInfo?.type === "gpp") {
+    if (this.contestInfo?.type === "gpp") {
       recommendations.push({
         type: "performance",
         message:
@@ -1419,3 +1407,4 @@ class HybridOptimizer {
 }
 
 module.exports = HybridOptimizer;
+

@@ -1,5 +1,5 @@
 /* eslint-disable no-restricted-globals */
-import AdvancedOptimizer from "./AdvancedOptimizer";
+const AdvancedOptimizer = require("./AdvancedOptimizer");
 
 let optimizer = null;
 let isRunning = false;

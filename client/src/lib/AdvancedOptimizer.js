@@ -12,6 +12,7 @@
  * - NexusScore comprehensive lineup evaluation
  */
 
+
 // Add a global counter for truly unique lineup IDs
 let lineupCounter = 0;
 
@@ -47,6 +48,7 @@ class AdvancedOptimizer {
       fieldSize: 1000, // Default field size for tournaments
       debugMode: false, // Enable extra logging for debugging
       stackExposureTargets: {}, // Stack exposure targets from UI
+      contestInfo: { type: 'gpp', fieldSize: 1189, entryFee: 5 }, // Default contest info
       ...config,
     };
 
@@ -1934,15 +1936,6 @@ class AdvancedOptimizer {
               lineup.top10 = (top10Count / iterations) * 100;
               lineup.cashRate = (cashCount / iterations) * 100;
 
-              // Calculate ROI based on NexusScore instead
-              // This provides more stable and interpretable results
-              if (lineup.nexusScore) {
-                lineup.roi = (lineup.nexusScore / 100) * 200 - 50;
-              } else {
-                // If NexusScore not calculated yet, use a temporary placeholder
-                // that will be replaced after NexusScore calculation
-                lineup.roi = 0;
-              }
             }
             resolve();
           }, 0);
@@ -1984,8 +1977,6 @@ class AdvancedOptimizer {
               lineup.nexusScore = nexusResult.score;
               lineup.scoreComponents = nexusResult.components;
 
-              // Update ROI calculation after NexusScore is calculated
-              lineup.roi = (lineup.nexusScore / 100) * 200 - 50;
             }
             resolve();
           }, 0);
@@ -1999,14 +1990,9 @@ class AdvancedOptimizer {
 
       if (this.isCancelled) throw new Error("Simulation cancelled");
 
-      // Sort by ROI descending, then by NexusScore for ties
+      // Sort by NexusScore descending
       this.simulationResults.sort((a, b) => {
-        // If ROIs are the same, sort by NexusScore
-        if (b.roi === a.roi) {
-          return b.nexusScore - a.nexusScore;
-        }
-        // Otherwise sort by ROI
-        return b.roi - a.roi;
+        return b.nexusScore - a.nexusScore;
       });
 
       // Final steps
@@ -2175,11 +2161,11 @@ class AdvancedOptimizer {
     }
 
     // 6. Combine all factors for final NexusScore
-    // Scale the base projection by our modifiers
-    const nexusScore =
-      baseProjection * leverageFactor * consistencyFactor +
-      stackBonus +
-      positionBonus;
+    // Scale down to reasonable range (25-65)
+    // Average lineup has ~350 points, divide by 10 for base score of 35
+    const baseScore = baseProjection / 10;
+    const rawScore = baseScore * leverageFactor * consistencyFactor + stackBonus / 2 + positionBonus / 2;
+    const nexusScore = Math.min(65, Math.max(25, rawScore));
 
     // Add component breakdown for UI explanation
     const scoreComponents = {
@@ -4070,7 +4056,6 @@ class AdvancedOptimizer {
       // These will be filled in by the runSimulation global analysis
       cashRate: 0,
       winRate: 0,
-      roi: 0,
       firstPlace: 0,
       top10: 0,
       projectedPoints: Math.round(projectedPoints * 10) / 10,
@@ -4081,14 +4066,6 @@ class AdvancedOptimizer {
    * Get simulation summary stats
    */
   _getSimulationSummary() {
-    // Calculate average ROI across all lineups
-    const avgRoi =
-      this.simulationResults.reduce((sum, r) => sum + r.roi, 0) /
-      Math.max(1, this.simulationResults.length);
-
-    // Get top lineup's ROI
-    const topLineupRoi =
-      this.simulationResults.length > 0 ? this.simulationResults[0].roi : 0;
 
     // Get top lineup's NexusScore
     const topNexusScore =
@@ -4110,8 +4087,6 @@ class AdvancedOptimizer {
     ).size;
 
     return {
-      averageROI: avgRoi,
-      topLineupROI: topLineupRoi,
       averageNexusScore: avgNexusScore,
       topNexusScore: topNexusScore,
       distinctTeams,
@@ -5046,3 +5021,4 @@ class AdvancedOptimizer {
 
 // Export the optimizer class
 module.exports = AdvancedOptimizer;
+

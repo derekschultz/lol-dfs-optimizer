@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import NexusScoreLineup from "./NexusScoreLineup";
+import { calculateLineupROI } from "../utils/roiIntegration";
 
 const LineupList = ({
   lineups = [],
@@ -7,6 +8,7 @@ const LineupList = ({
   onDelete,
   onEdit,
   onExport,
+  contestInfo = null,
 }) => {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -81,7 +83,7 @@ const LineupList = ({
       const endIdx = Math.min(startIdx + batchSize, lineups.length);
       const batchLineups = lineups.slice(startIdx, endIdx);
 
-      const processedBatch = batchLineups.map((lineup) => {
+      const processedBatch = batchLineups.map((lineup, index) => {
         // Get all players in the lineup including CPT
         const allPlayers = lineup.cpt
           ? [lineup.cpt, ...(lineup.players || [])]
@@ -169,13 +171,32 @@ const LineupList = ({
         });
 
         // Calculate NexusScore
-        const nexusScore = (totalProj * leverageFactor + stackBonus) / 7;
+        // Scale down to reasonable range (25-65)
+        // Average lineup has ~350 points, divide by 10 for base score of 35
+        const baseScore = totalProj / 10;
+        const nexusScore = Math.min(65, Math.max(25, baseScore * leverageFactor + stackBonus / 2));
 
-        // Calculate ROI - using formula or real data if available
-        const roi =
-          lineup.roi !== undefined
-            ? lineup.roi
-            : ((nexusScore / 100) * 2 - 1) * 100 + Math.random() * 50; // Modified to be percentage-based with potential negative values
+        // Calculate ROI if contest info is available
+        let roi = null;
+        if (contestInfo && contestInfo.entryFee) {
+          // Create enriched lineup with projected points for ROI calculation
+          const enrichedLineup = {
+            ...lineup,
+            cpt: lineup.cpt ? {
+              ...lineup.cpt,
+              projectedPoints: playersWithData.find(p => p.id === lineup.cpt.id)?.projectedPoints || 0
+            } : null,
+            players: lineup.players?.map(player => ({
+              ...player,
+              projectedPoints: playersWithData.find(p => p.id === player.id)?.projectedPoints || 0
+            }))
+          };
+          const roiResult = calculateLineupROI(enrichedLineup, contestInfo);
+          roi = roiResult.roi;
+        } else {
+          // Use existing ROI if no contest info
+          roi = lineup.roi;
+        }
 
         return {
           ...lineup,
@@ -184,10 +205,10 @@ const LineupList = ({
             avgOwnership: lineupOwnership, // Now represents total lineup ownership
             totalSalary,
             geomean,
-            nexusScore,
+            nexusScore: lineup.nexusScore || nexusScore, // Use original if available
             stackInfo: stackString,
-            roi,
             firstPlace: lineup.firstPlace || (nexusScore / 400).toFixed(2), // Derive from NexusScore if not available
+            roi,
           },
         };
       });
@@ -260,8 +281,8 @@ const LineupList = ({
       filtered = filtered.filter((lineup) => starredLineups[lineup.id]);
     }
 
-    // Sort by selected metric
-    return filtered.sort((a, b) => {
+    // Sort by selected metric - create new array to trigger React re-render
+    return [...filtered].sort((a, b) => {
       let valueA, valueB;
 
       // Determine what values to compare based on sortBy
@@ -282,13 +303,13 @@ const LineupList = ({
           valueA = a.metrics.totalSalary;
           valueB = b.metrics.totalSalary;
           break;
-        case "roi":
-          valueA = a.metrics.roi;
-          valueB = b.metrics.roi;
-          break;
         case "firstPlace":
           valueA = a.metrics.firstPlace;
           valueB = b.metrics.firstPlace;
+          break;
+        case "roi":
+          valueA = a.metrics.roi || 0;
+          valueB = b.metrics.roi || 0;
           break;
         default:
           valueA = a.metrics.nexusScore;
@@ -1002,8 +1023,8 @@ const LineupList = ({
               ...lineup,
               // Pass the calculated metrics
               nexusScore: lineup.metrics.nexusScore,
-              roi: lineup.metrics.roi,
               firstPlace: lineup.metrics.firstPlace,
+              roi: lineup.metrics.roi, // Pass the newly calculated ROI
               // Pass AI modification flags
               exposureWarning: lineup.exposureWarning,
               modificationSuggested: lineup.modificationSuggested,
@@ -1013,6 +1034,7 @@ const LineupList = ({
               salaryEfficiency: lineup.salaryEfficiency,
             }}
             playerData={playerData}
+            contestInfo={contestInfo}
             index={(currentPage - 1) * itemsPerPage + index + 1}
             onEdit={onEdit}
             onStar={() => handleToggleStar(lineup)}
