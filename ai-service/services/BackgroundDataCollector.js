@@ -3,8 +3,9 @@ const path = require("path");
 const DataCollector = require("./DataCollector");
 
 class BackgroundDataCollector {
-  constructor(riotApiKey) {
+  constructor(riotApiKey, championTracker = null) {
     this.dataCollector = new DataCollector(riotApiKey);
+    this.championTracker = championTracker; // Use shared championTracker instance
     this.cacheDir = path.join(__dirname, "../cache");
     this.isCollecting = false;
     this.lastCollection = null;
@@ -129,10 +130,35 @@ class BackgroundDataCollector {
       if (!liveData.success || !liveData.players) {
         throw new Error("Failed to get player data from main server");
       }
+      
+      // Trigger player discovery if needed
+      if (this.championTracker) {
+        this.updateProgress(
+          "discovering_players",
+          "Discovering player mappings..."
+        );
+        await this.championTracker.discoverPlayerMappings();
+      }
 
-      const playersWithSummoners = liveData.players.filter(
-        (p) => p.summonerName && p.region
-      );
+      // Get player mappings from champion tracker
+      const mappings = this.championTracker?.proPlayerMappings || new Map();
+      
+      // Enhance players with summoner info from mappings
+      const playersWithSummoners = liveData.players
+        .map(player => {
+          const mapping = mappings.get(player.name);
+          if (mapping) {
+            return {
+              ...player,
+              summonerName: mapping.summonerName,
+              region: mapping.region,
+              tagLine: mapping.tagLine
+            };
+          }
+          return null;
+        })
+        .filter(p => p !== null);
+      
       this.updateProgress(
         "players_found",
         `Found ${playersWithSummoners.length} players with summoner info`
@@ -609,18 +635,57 @@ class BackgroundDataCollector {
 
   // Start automatic collection (every 30 minutes)
   startAutoCollection() {
-    console.log("🔄 Starting automatic data collection (every 30 minutes)");
+    console.log("🔄 Starting automatic data collection service");
 
-    // Initial collection
-    setTimeout(() => {
-      this.collectAllData();
-    }, 3000); // Start after 3 seconds
+    // Check for data before running initial collection
+    const checkAndCollect = async () => {
+      try {
+        // Check if we have player data from main server
+        const liveData = await this.dataCollector.fetchLiveData();
+        if (liveData.success && liveData.players && liveData.players.length > 0) {
+          console.log(`📊 Found ${liveData.players.length} players - starting initial collection`);
+          await this.collectAllData();
+          return true;
+        } else {
+          console.log("⏳ No player data available yet for background collection - waiting...");
+          return false;
+        }
+      } catch (error) {
+        console.log("⏳ Main server not ready - waiting...");
+        return false;
+      }
+    };
+
+    // Try initial collection with retries
+    let retryCount = 0;
+    const maxRetries = 10; // Try for up to 5 minutes (10 * 30s)
+    
+    const tryInitialCollection = async () => {
+      const success = await checkAndCollect();
+      if (!success && retryCount < maxRetries) {
+        retryCount++;
+        console.log(`⏳ Background data collection retry ${retryCount}/${maxRetries} in 30 seconds...`);
+        setTimeout(tryInitialCollection, 30000); // Retry every 30 seconds
+      } else if (!success) {
+        console.log("⚠️ No player data after 5 minutes - skipping initial collection");
+        console.log("💡 Upload player data and use manual trigger or wait for scheduled collection");
+      }
+    };
+
+    // Start trying after 10 seconds (give servers time to initialize)
+    setTimeout(tryInitialCollection, 10000);
 
     // Set interval for every 30 minutes
     setInterval(async () => {
       if (this.needsCollection()) {
-        console.log("⏰ Starting scheduled data collection...");
-        await this.collectAllData();
+        // Also check for data before scheduled collection
+        const liveData = await this.dataCollector.fetchLiveData();
+        if (liveData.success && liveData.players && liveData.players.length > 0) {
+          console.log("⏰ Starting scheduled data collection...");
+          await this.collectAllData();
+        } else {
+          console.log("⏰ Scheduled collection skipped - no player data");
+        }
       }
     }, 30 * 60 * 1000); // 30 minutes
   }

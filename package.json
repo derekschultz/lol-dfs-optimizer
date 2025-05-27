@@ -4,8 +4,8 @@
   "description": "Advanced Monte Carlo simulation and optimization for League of Legends DFS",
   "main": "index.js",
   "scripts": {
-    "start": "concurrently \"npm run server\" \"npm run client\" \"npm run ai-service\"",
-    "start-basic": "concurrently \"npm run server\" \"npm run client\"",
+    "start": "concurrently --names \"MAIN,CLIENT,AI\" --prefix-colors \"cyan,yellow,magenta\" \"npm run server\" \"npm run client\" \"npm run ai-service\"",
+    "start-basic": "concurrently --names \"MAIN,CLIENT\" --prefix-colors \"cyan,yellow\" \"npm run server\" \"npm run client\"",
     "server": "node server.js",
     "client": "cd client && npm start",
     "ai-service": "cd ai-service && npm start",

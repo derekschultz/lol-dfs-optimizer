@@ -42,7 +42,7 @@ const metaDetector = new MetaDetector(championTracker);
 const playerPredictor = new PlayerPredictor(mlModelService, championTracker);
 const riskAssessor = new RiskAssessor(mlModelService);
 const dataSyncService = new DataSyncService();
-const backgroundDataCollector = new BackgroundDataCollector(process.env.RIOT_API_KEY);
+const backgroundDataCollector = new BackgroundDataCollector(process.env.RIOT_API_KEY, championTracker);
 
 // Start background data collection
 backgroundDataCollector.startAutoCollection();
@@ -810,6 +810,54 @@ app.get('/api/ai/sync-status', (req, res) => {
   }
 });
 
+// Clear cache endpoint
+app.post('/api/ai/clear-cache', (req, res) => {
+  try {
+    console.log('Clearing AI service cache...');
+    dataSyncService.clearCache();
+    
+    res.json({
+      success: true,
+      message: 'Cache cleared successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error clearing cache:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to clear cache',
+      details: error.message
+    });
+  }
+});
+
+// Force refresh endpoint
+app.post('/api/ai/force-refresh', async (req, res) => {
+  try {
+    console.log('Force refreshing all data...');
+    const result = await dataSyncService.forceRefreshAll();
+    
+    res.json({
+      success: true,
+      message: 'Data refreshed successfully',
+      data_summary: {
+        players: result.players?.length || 0,
+        lineups: result.lineups?.length || 0,
+        has_exposures: !!result.exposures,
+        has_contest: !!result.contest
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error force refreshing data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to refresh data',
+      details: error.message
+    });
+  }
+});
+
 // Get cached data (instant response)
 app.get('/api/ai/collect-data', async (req, res) => {
   try {
@@ -879,9 +927,44 @@ app.post('/api/ai/collect-data', async (req, res) => {
       });
     }
     
+    // Check if data collector is ready
+    if (!backgroundDataCollector.dataCollector.isReady()) {
+      console.warn('⚠️ Data collector not ready - may be missing API key');
+      return res.json({
+        success: false,
+        error: 'Data collector not ready',
+        message: 'Data collector is not initialized. Check if RIOT_API_KEY is set.',
+        hasApiKey: !!process.env.RIOT_API_KEY
+      });
+    }
+    
+    // Check for player data
+    try {
+      const liveData = await backgroundDataCollector.dataCollector.fetchLiveData();
+      if (!liveData.success || !liveData.players || liveData.players.length === 0) {
+        return res.json({
+          success: false,
+          error: 'No player data available',
+          message: 'No player data found. Please upload player projections first.',
+          liveData: liveData
+        });
+      }
+      console.log(`📊 Found ${liveData.players.length} players - proceeding with collection`);
+    } catch (checkError) {
+      console.error('❌ Error checking for player data:', checkError);
+      return res.json({
+        success: false,
+        error: 'Failed to check player data',
+        message: checkError.message
+      });
+    }
+    
     // Start collection (non-blocking)
     backgroundDataCollector.collectAllData().then(result => {
-      console.log('✅ Manual collection completed:', result.success);
+      console.log('✅ Manual collection completed:', result.success ? 'SUCCESS' : 'FAILED');
+      if (!result.success) {
+        console.error('Collection error:', result.error);
+      }
     }).catch(error => {
       console.error('❌ Manual collection failed:', error);
     });
@@ -1279,6 +1362,65 @@ const startBackgroundTasks = () => {
     }
   }, 30 * 60 * 1000); // Every 30 minutes
 };
+
+// Cleanup function
+const cleanup = async () => {
+  console.log('\n🔄 AI Service shutting down...');
+  
+  try {
+    // Clear cached data
+    dataSyncService.clearCache();
+    console.log('✅ Cleared data sync cache');
+    
+    // Clear collection cache
+    const fs = require('fs').promises;
+    const path = require('path');
+    const cacheDir = path.join(__dirname, 'cache');
+    
+    // Remove collection-progress.json
+    try {
+      await fs.unlink(path.join(cacheDir, 'collection-progress.json'));
+      console.log('✅ Cleared collection progress cache');
+    } catch (err) {
+      // File might not exist
+    }
+    
+    // Clear latest-data.json but keep player mappings
+    try {
+      const emptyData = {
+        timestamp: new Date().toISOString(),
+        players: [],
+        matches: [],
+        ownership: [],
+        meta: {},
+        collection_summary: { total_matches: 0, total_players: 0 },
+        errors: []
+      };
+      await fs.writeFile(
+        path.join(cacheDir, 'latest-data.json'),
+        JSON.stringify(emptyData, null, 2)
+      );
+      console.log('✅ Reset latest data cache');
+    } catch (err) {
+      console.error('Failed to reset latest data:', err.message);
+    }
+    
+    // Stop background tasks
+    if (dataSyncService.isRunning) {
+      dataSyncService.stop();
+    }
+    
+    console.log('✅ Cleanup completed');
+  } catch (error) {
+    console.error('❌ Cleanup error:', error.message);
+  }
+  
+  process.exit(0);
+};
+
+// Handle termination signals
+process.on('SIGTERM', cleanup);
+process.on('SIGINT', cleanup);
 
 // Start server
 server.listen(PORT, async () => {

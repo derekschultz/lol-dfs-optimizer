@@ -203,6 +203,25 @@ class DataSyncService {
     }
   }
 
+  // Clear all cached data
+  clearCache() {
+    console.log('🗑️  Clearing all cached data...');
+    this.cache = {
+      players: { data: null, timestamp: null },
+      lineups: { data: null, timestamp: null },
+      exposures: { data: null, timestamp: null },
+      contest: { data: null, timestamp: null }
+    };
+    console.log('✅ Cache cleared');
+  }
+
+  // Force refresh all data
+  async forceRefreshAll() {
+    console.log('🔄 Force refreshing all data...');
+    this.clearCache();
+    return await this.syncAllData();
+  }
+
   // Cleanup
   stop() {
     if (this.syncInterval) {

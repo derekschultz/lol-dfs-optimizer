@@ -11,9 +11,6 @@ const AdvancedOptimizer = require("./client/src/lib/AdvancedOptimizer");
 const HybridOptimizer = require("./client/src/lib/HybridOptimizer");
 const DataValidator = require("./client/src/lib/DataValidator");
 
-const initializeUploadCleanup = require("./uploadCleanup");
-// Initialize cleanup utility
-const cleanup = initializeUploadCleanup();
 
 // Create Express app
 const app = express();
@@ -2247,6 +2244,43 @@ app.post("/nexusscore/formula", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Cleanup function
+const cleanup = () => {
+  console.log('\nReceived SIGTERM. Starting cleanup...');
+  
+  // Clean up uploads directory
+  const uploadDir = path.join(__dirname, 'uploads');
+  if (fs.existsSync(uploadDir)) {
+    try {
+      const files = fs.readdirSync(uploadDir);
+      files.forEach(file => {
+        fs.unlinkSync(path.join(uploadDir, file));
+      });
+      console.log('Cleaning up uploads directory...');
+    } catch (err) {
+      console.error('Error cleaning uploads:', err.message);
+    }
+  }
+  
+  // Clear in-memory data
+  players = [];
+  teamStacks = [];
+  playerHash = {};
+  stackHash = {};
+  savedLineups = [];
+  customLineups = [];
+  lastUploadedCSV = null;
+  entryExposures = {};
+  
+  console.log('Upload cleanup completed');
+  console.log('Cleanup completed. Exiting...');
+  process.exit(0);
+};
+
+// Handle termination signals
+process.on('SIGTERM', cleanup);
+process.on('SIGINT', cleanup);
 
 // Start the server
 app.listen(PORT, () => {
