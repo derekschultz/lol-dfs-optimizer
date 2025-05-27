@@ -34,6 +34,7 @@ class AdvancedOptimizer {
       randomness: 0.3, // 0-1 scale of how much to randomize projections
       targetTop: 0.2, // Target top % of simulations
       leverageMultiplier: 1.0, // How much to consider ownership for leverage
+      verboseDebug: false, // Add verbose debugging flag
       correlation: {
         sameTeam: 0.65, // Correlation for players on same team
         opposingTeam: -0.15, // Correlation for players on opposing teams
@@ -56,12 +57,22 @@ class AdvancedOptimizer {
     this.optimizerReady = false;
     this.teamMatchups = new Map(); // Map to store team -> opponent relationships
 
+    // Indexed player pools for O(1) lookups
+    this.playerIndexes = {
+      byId: new Map(), // playerId -> player
+      byPosition: new Map(), // position -> Set<playerId>
+      byTeam: new Map(), // team -> Set<playerId>
+      byPositionAndTeam: new Map(), // "position_team" -> Set<playerId>
+      bySalaryRange: [], // Array of salary buckets for binary search
+      captainEligible: new Set(), // Set of playerIds eligible for captain
+    };
+
     // Initialize exposure tracking
     this.playerExposures = [];
     this.teamExposures = [];
     this.teamStackExposures = []; // Stack-specific exposures
     this.positionExposures = {};
-    
+
     // Enhanced exposure tracking
     this.exposureAccuracy = {
       targetDeviation: new Map(), // Track deviation from targets
@@ -78,7 +89,7 @@ class AdvancedOptimizer {
       teamStacks: new Map(), // "team_stackSize" -> lineup count (lineups with X-stack)
       positions: new Map(),
       stackLineups: new Map(), // stackSize -> lineup count (for overall stack tracking)
-      
+
       // Enhanced tracking
       qualityAdjustedExposures: new Map(), // Exposure weighted by lineup strength
       synergyScores: new Map(), // Track stack synergy effectiveness
@@ -86,11 +97,20 @@ class AdvancedOptimizer {
       exposurePredictions: new Map(), // Predicted exposures for remaining lineups
     };
 
+    // Cached exposure calculations
+    this.exposureCache = {
+      totalLineups: 0,
+      playerExposurePercents: new Map(), // playerId -> exposure %
+      teamExposurePercents: new Map(), // team -> exposure %
+      stackExposurePercents: new Map(), // "team_stackSize" -> exposure %
+      needsUpdate: true, // Flag to trigger recalculation
+      lastUpdateLineupCount: 0,
+    };
+
     // Add progress callback properties
     this.onProgress = null; // Callback for progress updates
     this.onStatusUpdate = null; // Callback for status text updates
     this.isCancelled = false; // Flag to allow cancellation
-
   }
 
   /**
@@ -104,14 +124,14 @@ class AdvancedOptimizer {
    * @returns {number} Synergy modifier (0.95 to 1.15)
    */
   getStackRatingModifier(stackPlus) {
-    if (stackPlus >= 200) return 1.15;  // Elite synergy - 15% boost
-    if (stackPlus >= 150) return 1.10;  // Very Strong - 10% boost
-    if (stackPlus >= 100) return 1.07;  // Strong - 7% boost
-    if (stackPlus >= 50) return 1.04;   // Above Average - 4% boost
-    if (stackPlus >= 20) return 1.02;   // Slightly Above - 2% boost
-    if (stackPlus >= 10) return 1.00;   // Average - No modification
-    if (stackPlus >= 5) return 0.98;    // Below Average - 2% penalty
-    return 0.95;                         // Poor synergy - 5% penalty
+    if (stackPlus >= 200) return 1.15; // Elite synergy - 15% boost
+    if (stackPlus >= 150) return 1.1; // Very Strong - 10% boost
+    if (stackPlus >= 100) return 1.07; // Strong - 7% boost
+    if (stackPlus >= 50) return 1.04; // Above Average - 4% boost
+    if (stackPlus >= 20) return 1.02; // Slightly Above - 2% boost
+    if (stackPlus >= 10) return 1.0; // Average - No modification
+    if (stackPlus >= 5) return 0.98; // Below Average - 2% penalty
+    return 0.95; // Poor synergy - 5% penalty
   }
 
   /**
@@ -125,26 +145,26 @@ class AdvancedOptimizer {
     // High sweep rating indicates team performs exceptionally when dominant
     if (stackPlusAllWins >= 200) {
       // Elite sweep performance
-      return 1.10;
+      return 1.1;
     } else if (stackPlusAllWins >= 180) {
       return 1.07;
     } else if (stackPlusAllWins >= 150) {
       return 1.04;
     }
-    
+
     // Low swept rating indicates team struggles badly when losing
     // This is actually common (most teams score poorly when swept)
     if (stackPlusAllLosses < 5) {
       // Very low fantasy points when swept - typical pattern
-      return 1.00;
+      return 1.0;
     }
-    
+
     // If team maintains decent score even when swept, that's unusual and good
     if (stackPlusAllLosses > 50) {
       return 1.05; // Resilient team
     }
-    
-    return 1.00;
+
+    return 1.0;
   }
 
   /**
@@ -154,12 +174,12 @@ class AdvancedOptimizer {
    * @returns {number} Combined synergy modifier
    */
   getStackModifier(teamStack, contestType = null) {
-    if (!teamStack || typeof teamStack.stackPlus !== 'number') {
-      return 1.00; // No modifier if no valid Stack+ data
+    if (!teamStack || typeof teamStack.stackPlus !== "number") {
+      return 1.0; // No modifier if no valid Stack+ data
     }
 
     // For GPP/tournaments, emphasize sweep potential
-    if (contestType === 'gpp' || contestType === 'tournament') {
+    if (contestType === "gpp" || contestType === "tournament") {
       // Use sweep rating more heavily for GPPs
       const sweepRating = teamStack.stackPlusAllWins || teamStack.stackPlus;
       const sweepModifier = this.getStackRatingModifier(sweepRating);
@@ -169,22 +189,22 @@ class AdvancedOptimizer {
       );
       return sweepModifier * dominanceFactor;
     }
-    
+
     // For cash games, use base rating for consistency
-    if (contestType === 'cash') {
+    if (contestType === "cash") {
       const baseModifier = this.getStackRatingModifier(teamStack.stackPlus);
       // Small bonus for teams that don't completely collapse when swept
-      const resilienceFactor = teamStack.stackPlusAllLosses > 10 ? 1.02 : 1.00;
+      const resilienceFactor = teamStack.stackPlusAllLosses > 10 ? 1.02 : 1.0;
       return baseModifier * resilienceFactor;
     }
-    
+
     // Default: balanced approach
     const synergyModifier = this.getStackRatingModifier(teamStack.stackPlus);
     const dominanceFactor = this.getMatchDominanceFactor(
-      teamStack.stackPlusAllWins || 0, 
+      teamStack.stackPlusAllWins || 0,
       teamStack.stackPlusAllLosses || 0
     );
-    
+
     return synergyModifier * dominanceFactor;
   }
 
@@ -197,12 +217,12 @@ class AdvancedOptimizer {
    */
   getScaledStackModifier(teamStack, stackSize, contestType = null) {
     const baseModifier = this.getStackModifier(teamStack, contestType);
-    const scaleFactors = { 
-      4: 1.0,   // Full team synergy effect
-      3: 0.75,  // Reduced synergy with missing players
-      2: 0.5    // Minimal synergy effect
+    const scaleFactors = {
+      4: 1.0, // Full team synergy effect
+      3: 0.75, // Reduced synergy with missing players
+      2: 0.5, // Minimal synergy effect
     };
-    
+
     const scaleFactor = scaleFactors[stackSize] || 1.0;
     return 1 + (baseModifier - 1) * scaleFactor;
   }
@@ -214,37 +234,40 @@ class AdvancedOptimizer {
    */
   identifyPrimaryStack(lineup) {
     const teamCounts = {};
-    
+
     // Count captain's team
     if (lineup.cpt?.team) {
       teamCounts[lineup.cpt.team] = (teamCounts[lineup.cpt.team] || 0) + 1;
     }
-    
+
     // Count players' teams
     if (lineup.players) {
-      lineup.players.forEach(player => {
+      lineup.players.forEach((player) => {
         if (player?.team) {
           teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
         }
       });
     }
-    
+
     // Find team with most players
     const teamEntries = Object.entries(teamCounts);
     if (teamEntries.length === 0) return null;
-    
-    const [primaryTeam, stackSize] = teamEntries
-      .sort(([,a], [,b]) => b - a)[0];
-    
+
+    const [primaryTeam, stackSize] = teamEntries.sort(
+      ([, a], [, b]) => b - a
+    )[0];
+
     // Only consider it a stack if 2+ players
     if (stackSize < 2) return null;
-    
+
     // Find the team stack data
-    const teamStack = this.teamStacks?.find(stack => stack.team === primaryTeam);
+    const teamStack = this.teamStacks?.find(
+      (stack) => stack.team === primaryTeam
+    );
     if (teamStack) {
       return { ...teamStack, stackSize };
     }
-    
+
     return null;
   }
 
@@ -256,29 +279,40 @@ class AdvancedOptimizer {
    * @returns {Object} Enhanced exposure settings
    */
   calculateStackEnhancedExposure(baseExposure, teamStack) {
-    if (!teamStack || typeof teamStack.stackPlus !== 'number') {
+    if (!teamStack || typeof teamStack.stackPlus !== "number") {
       return baseExposure; // No enhancement if no Stack+ data
     }
-    
+
     const contestType = this.config.contestType || null;
     const stackModifier = this.getStackModifier(teamStack, contestType);
-    
+
     // Apply modifier to exposure targets
     const enhancedExposure = {
       ...baseExposure,
-      target: baseExposure.target ? Math.round(baseExposure.target * stackModifier * 100) / 100 : null,
+      target: baseExposure.target
+        ? Math.round(baseExposure.target * stackModifier * 100) / 100
+        : null,
       max: baseExposure.max ? Math.min(1, baseExposure.max * stackModifier) : 1,
-      min: baseExposure.min || 0 // Keep minimum unchanged
+      min: baseExposure.min || 0, // Keep minimum unchanged
     };
-    
+
     // Cap exposure between reasonable bounds
     if (enhancedExposure.target !== null) {
-      enhancedExposure.target = Math.max(0.05, Math.min(0.5, enhancedExposure.target));
+      enhancedExposure.target = Math.max(
+        0.05,
+        Math.min(0.5, enhancedExposure.target)
+      );
     }
     enhancedExposure.max = Math.max(0.1, Math.min(0.6, enhancedExposure.max));
-    
-    this.debugLog(`Stack+ Enhanced Exposure: ${teamStack.team} - Base target: ${baseExposure.target}, Enhanced: ${enhancedExposure.target}, Modifier: ${stackModifier.toFixed(3)}`);
-    
+
+    this.debugLog(
+      `Stack+ Enhanced Exposure: ${teamStack.team} - Base target: ${
+        baseExposure.target
+      }, Enhanced: ${
+        enhancedExposure.target
+      }, Modifier: ${stackModifier.toFixed(3)}`
+    );
+
     return enhancedExposure;
   }
 
@@ -387,7 +421,12 @@ class AdvancedOptimizer {
   /**
    * Initialize the optimizer with player pool and exposure settings
    */
-  async initialize(playerPool, exposureSettings = {}, existingLineups = [], teamStacks = []) {
+  async initialize(
+    playerPool,
+    exposureSettings = {},
+    existingLineups = [],
+    teamStacks = []
+  ) {
     this.resetCancel();
     this.updateStatus("Initializing optimizer...");
     this.updateProgress(5, "initialization");
@@ -404,8 +443,6 @@ class AdvancedOptimizer {
           "Invalid player pool data. Please make sure player projections are loaded."
         );
       }
-
-
 
       this.updateProgress(10, "processing_players");
       this.updateStatus("Processing player data...");
@@ -459,6 +496,13 @@ class AdvancedOptimizer {
 
       // Initialize player performance simulation map
       await this._initializePlayerPerformanceMap();
+      this.updateProgress(80, "building_indexes");
+      this.updateStatus("Building optimized player indexes...");
+      await this.yieldToUI();
+
+      // Build indexed player pools for O(1) lookups
+      this._buildPlayerIndexes();
+
       this.updateProgress(90, "initializing_exposures");
       this.updateStatus("Initializing exposure tracking...");
       await this.yieldToUI();
@@ -484,7 +528,6 @@ class AdvancedOptimizer {
    * Extract team matchups from player data
    */
   _extractTeamMatchups() {
-
     // First check if players already have opponent information
     const hasOpponentData = this.playerPool.some(
       (player) => player.opponent || player.opp || player.matchup || player.vs
@@ -537,7 +580,6 @@ class AdvancedOptimizer {
         }
       }
     }
-
 
     return this.teamMatchups;
   }
@@ -615,84 +657,104 @@ class AdvancedOptimizer {
     }
 
     // Process stack exposure targets from config
-    if (this.config.stackExposureTargets && Object.keys(this.config.stackExposureTargets).length > 0) {
+    if (
+      this.config.stackExposureTargets &&
+      Object.keys(this.config.stackExposureTargets).length > 0
+    ) {
       this.debugLog("==== OPTIMIZER STACK EXPOSURE PROCESSING ====");
-      this.debugLog("Received stack exposure targets:", this.config.stackExposureTargets);
-      
-      Object.entries(this.config.stackExposureTargets).forEach(([key, value]) => {
-        if (value !== null && value !== undefined) {
-          // Parse the key (format: "team_stackSize_type" like "KT_4_target")
-          const parts = key.split('_');
-          if (parts.length >= 3) {
-            const type = parts[parts.length - 1]; // Last part is type (target/min/max)
-            const stackSize = parts[parts.length - 2]; // Second to last is stack size
-            const team = parts.slice(0, -2).join('_'); // Everything before last 2 parts is team name
-            
-            this.debugLog(`Processing stack target: ${key}`, {
-              team,
-              stackSize,
-              type,
-              value,
-              parsedStackSize: parseInt(stackSize)
-            });
-            
-            if (team && stackSize && type && value !== '') {
-              // Find existing stack exposure or create new one
-              let stackExposure = this.teamStackExposures.find(
-                se => se.team === team && se.stackSize === parseInt(stackSize)
-              );
-              
-              if (!stackExposure) {
-                stackExposure = {
-                  team,
-                  stackSize: parseInt(stackSize),
-                  min: 0,
-                  max: 1,
-                  target: null
-                };
-                this.teamStackExposures.push(stackExposure);
-                this.debugLog(`Created new stack exposure constraint:`, stackExposure);
-              }
-              
-              // Set the appropriate value (convert percentage to decimal)
-              if (type === 'min') {
-                stackExposure.min = parseInt(value) / 100;
-              } else if (type === 'max') {
-                stackExposure.max = parseInt(value) / 100;
-              } else if (type === 'target') {
-                stackExposure.target = parseInt(value) / 100;
-                this.debugLog(`Set target for ${team} ${stackSize}-stack: ${stackExposure.target * 100}%`);
+      this.debugLog(
+        "Received stack exposure targets:",
+        this.config.stackExposureTargets
+      );
+
+      Object.entries(this.config.stackExposureTargets).forEach(
+        ([key, value]) => {
+          if (value !== null && value !== undefined) {
+            // Parse the key (format: "team_stackSize_type" like "KT_4_target")
+            const parts = key.split("_");
+            if (parts.length >= 3) {
+              const type = parts[parts.length - 1]; // Last part is type (target/min/max)
+              const stackSize = parts[parts.length - 2]; // Second to last is stack size
+              const team = parts.slice(0, -2).join("_"); // Everything before last 2 parts is team name
+
+              this.debugLog(`Processing stack target: ${key}`, {
+                team,
+                stackSize,
+                type,
+                value,
+                parsedStackSize: parseInt(stackSize),
+              });
+
+              if (team && stackSize && type && value !== "") {
+                // Find existing stack exposure or create new one
+                let stackExposure = this.teamStackExposures.find(
+                  (se) =>
+                    se.team === team && se.stackSize === parseInt(stackSize)
+                );
+
+                if (!stackExposure) {
+                  stackExposure = {
+                    team,
+                    stackSize: parseInt(stackSize),
+                    min: 0,
+                    max: 1,
+                    target: null,
+                  };
+                  this.teamStackExposures.push(stackExposure);
+                  this.debugLog(
+                    `Created new stack exposure constraint:`,
+                    stackExposure
+                  );
+                }
+
+                // Set the appropriate value (convert percentage to decimal)
+                if (type === "min") {
+                  stackExposure.min = parseInt(value) / 100;
+                } else if (type === "max") {
+                  stackExposure.max = parseInt(value) / 100;
+                } else if (type === "target") {
+                  stackExposure.target = parseInt(value) / 100;
+                  this.debugLog(
+                    `Set target for ${team} ${stackSize}-stack: ${
+                      stackExposure.target * 100
+                    }%`
+                  );
+                }
               }
             }
           }
         }
-      });
-      
+      );
+
       this.debugLog("Final team stack exposures:", this.teamStackExposures);
     }
-    
+
     // Apply Stack+ enhancements to exposure targets
     if (this.teamStacks && this.teamStacks.length > 0) {
       this.debugLog("Applying Stack+ enhancements to exposure targets");
-      
+
       // Enhance team stack exposures
-      this.teamStackExposures = this.teamStackExposures.map(exposure => {
-        const teamStack = this.teamStacks.find(stack => stack.team === exposure.team);
+      this.teamStackExposures = this.teamStackExposures.map((exposure) => {
+        const teamStack = this.teamStacks.find(
+          (stack) => stack.team === exposure.team
+        );
         if (teamStack) {
           return this.calculateStackEnhancedExposure(exposure, teamStack);
         }
         return exposure;
       });
-      
+
       // Enhance regular team exposures
-      this.teamExposures = this.teamExposures.map(exposure => {
-        const teamStack = this.teamStacks.find(stack => stack.team === exposure.team);
+      this.teamExposures = this.teamExposures.map((exposure) => {
+        const teamStack = this.teamStacks.find(
+          (stack) => stack.team === exposure.team
+        );
         if (teamStack) {
           return this.calculateStackEnhancedExposure(exposure, teamStack);
         }
         return exposure;
       });
-      
+
       this.debugLog("Stack+ enhanced exposures applied");
     }
 
@@ -718,7 +780,6 @@ class AdvancedOptimizer {
         };
       }
     }
-
   }
 
   /**
@@ -732,12 +793,22 @@ class AdvancedOptimizer {
       teamStacks: new Map(), // "team_stackSize" -> lineup count (lineups with X-stack)
       positions: new Map(),
       stackLineups: new Map(), // stackSize -> lineup count (for overall stack tracking)
-      
+
       // Enhanced tracking
       qualityAdjustedExposures: new Map(), // Exposure weighted by lineup strength
       synergyScores: new Map(), // Track stack synergy effectiveness
       correlationMatrix: new Map(), // Dynamic correlation tracking
       exposurePredictions: new Map(), // Predicted exposures for remaining lineups
+    };
+
+    // Reset cache
+    this.exposureCache = {
+      totalLineups: 0,
+      playerExposurePercents: new Map(),
+      teamExposurePercents: new Map(),
+      stackExposurePercents: new Map(),
+      needsUpdate: true,
+      lastUpdateLineupCount: 0,
     };
 
     if (!this.existingLineups || this.existingLineups.length === 0) {
@@ -749,12 +820,8 @@ class AdvancedOptimizer {
       this._trackLineupExposure(lineup);
     });
 
-    this.debugLog("Initialized exposure tracking from existing lineups", {
-      playerCount: this.exposureTracking.players.size,
-      teamCount: this.exposureTracking.teams.size,
-      teamStackCount: this.exposureTracking.teamStacks.size,
-      positionCount: this.exposureTracking.positions.size,
-    });
+    // Update cached calculations after initialization
+    this._updateExposureCache();
   }
 
   /**
@@ -791,7 +858,7 @@ class AdvancedOptimizer {
     if (lineup.players && Array.isArray(lineup.players)) {
       // Count total players by team (including captain)
       const teamCounts = {};
-      
+
       // Count captain if present
       if (lineup.cpt && lineup.cpt.team) {
         teamCounts[lineup.cpt.team] = (teamCounts[lineup.cpt.team] || 0) + 1;
@@ -824,22 +891,96 @@ class AdvancedOptimizer {
         // Track this lineup for each stack size this team achieves
         for (let stackSize = 2; stackSize <= count; stackSize++) {
           const stackKey = `${team}_${stackSize}`;
-          const currentCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+          const currentCount =
+            this.exposureTracking.teamStacks.get(stackKey) || 0;
           this.exposureTracking.teamStacks.set(stackKey, currentCount + 1);
         }
       });
-      
+
       // Track overall stack pattern counts
       const stackSizes = Object.values(teamCounts).sort((a, b) => b - a);
       if (stackSizes.length > 0) {
         const primaryStackSize = stackSizes[0];
-        const stackCount = this.exposureTracking.stackLineups.get(primaryStackSize) || 0;
-        this.exposureTracking.stackLineups.set(primaryStackSize, stackCount + 1);
+        const stackCount =
+          this.exposureTracking.stackLineups.get(primaryStackSize) || 0;
+        this.exposureTracking.stackLineups.set(
+          primaryStackSize,
+          stackCount + 1
+        );
       }
     }
-    
+
     // Enhanced tracking: Calculate lineup quality and update weighted exposures
     this._updateWeightedExposures(lineup);
+
+    // Mark cache as needing update
+    if (this.exposureCache) {
+      this.exposureCache.needsUpdate = true;
+    }
+  }
+
+  // Update exposure cache with O(1) incremental calculations
+  _updateExposureCache() {
+    const totalLineups =
+      this.generatedLineups.length + (this.existingLineups?.length || 0);
+    this.exposureCache.totalLineups = totalLineups;
+
+    if (totalLineups === 0) {
+      this.exposureCache.playerExposurePercents.clear();
+      this.exposureCache.teamExposurePercents.clear();
+      this.exposureCache.stackExposurePercents.clear();
+      return;
+    }
+
+    // Only update if needed
+    if (!this.exposureCache.needsUpdate) return;
+
+    // Update player exposure percentages
+    for (const [playerId, count] of this.exposureTracking.players) {
+      this.exposureCache.playerExposurePercents.set(
+        playerId,
+        count / totalLineups
+      );
+    }
+
+    // Update team exposure percentages
+    for (const [team, count] of this.exposureTracking.teams) {
+      this.exposureCache.teamExposurePercents.set(team, count / totalLineups);
+    }
+
+    // Update stack exposure percentages
+    for (const [stackKey, count] of this.exposureTracking.teamStacks) {
+      this.exposureCache.stackExposurePercents.set(
+        stackKey,
+        count / totalLineups
+      );
+    }
+
+    this.exposureCache.needsUpdate = false;
+    this.exposureCache.lastUpdateLineupCount = totalLineups;
+  }
+
+  /**
+   * Get cached player exposure (O(1) lookup)
+   */
+  _getCachedPlayerExposure(playerId) {
+    // Update cache if needed
+    if (this.exposureCache.needsUpdate) {
+      this._updateExposureCache();
+    }
+    return this.exposureCache.playerExposurePercents.get(playerId) || 0;
+  }
+
+  /**
+   * Get cached stack exposure (O(1) lookup)
+   */
+  _getCachedStackExposure(team, stackSize) {
+    // Update cache if needed
+    if (this.exposureCache.needsUpdate) {
+      this._updateExposureCache();
+    }
+    const stackKey = `${team}_${stackSize}`;
+    return this.exposureCache.stackExposurePercents.get(stackKey) || 0;
   }
 
   /**
@@ -850,27 +991,34 @@ class AdvancedOptimizer {
 
     // Calculate lineup quality score
     const qualityScore = this._calculateLineupQuality(lineup);
-    
+
     // Update quality-adjusted exposures for all players
     const allPlayers = [];
     if (lineup.cpt) allPlayers.push(lineup.cpt);
     if (lineup.players) allPlayers.push(...lineup.players);
-    
-    allPlayers.forEach(player => {
+
+    allPlayers.forEach((player) => {
       if (!player || !player.id) return;
-      
+
       // Safety check for exposureTracking
-      if (!this.exposureTracking || !this.exposureTracking.qualityAdjustedExposures) {
+      if (
+        !this.exposureTracking ||
+        !this.exposureTracking.qualityAdjustedExposures
+      ) {
         return;
       }
-      
-      const currentQualityExposure = this.exposureTracking.qualityAdjustedExposures.get(player.id) || 0;
-      this.exposureTracking.qualityAdjustedExposures.set(player.id, currentQualityExposure + qualityScore);
+
+      const currentQualityExposure =
+        this.exposureTracking.qualityAdjustedExposures.get(player.id) || 0;
+      this.exposureTracking.qualityAdjustedExposures.set(
+        player.id,
+        currentQualityExposure + qualityScore
+      );
     });
 
     // Update synergy scores for stacks
     this._updateSynergyScores(lineup, qualityScore);
-    
+
     // Update correlation matrix
     this._updateCorrelationMatrix(lineup, qualityScore);
   }
@@ -890,12 +1038,13 @@ class AdvancedOptimizer {
     const allPlayers = [];
     if (lineup.cpt) {
       // Captain gets 1.5x multiplier in DraftKings
-      const cptPoints = this._safeParseFloat(lineup.cpt.projectedPoints, 0) * 1.5;
+      const cptPoints =
+        this._safeParseFloat(lineup.cpt.projectedPoints, 0) * 1.5;
       totalProjectedPoints += cptPoints;
       allPlayers.push(lineup.cpt);
     }
     if (lineup.players) {
-      lineup.players.forEach(player => {
+      lineup.players.forEach((player) => {
         totalProjectedPoints += this._safeParseFloat(player.projectedPoints, 0);
         allPlayers.push(player);
       });
@@ -905,21 +1054,22 @@ class AdvancedOptimizer {
 
     // Calculate team synergy bonuses
     const teamCounts = {};
-    allPlayers.forEach(player => {
+    allPlayers.forEach((player) => {
       if (player?.team) {
         teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
       }
     });
 
     // Synergy bonus for stacks
-    Object.values(teamCounts).forEach(count => {
+    Object.values(teamCounts).forEach((count) => {
       if (count >= 2) {
-        synergryBonus += Math.pow(count, 1.5) * this.config.correlation.stackSynergy * 10;
+        synergryBonus +=
+          Math.pow(count, 1.5) * this.config.correlation.stackSynergy * 10;
       }
     });
 
     // Correlation bonus for complementary roles
-    const positions = allPlayers.map(p => p.position).filter(Boolean);
+    const positions = allPlayers.map((p) => p.position).filter(Boolean);
     const uniquePositions = [...new Set(positions)];
     if (uniquePositions.length >= 5) {
       correlationBonus += this.config.correlation.roleComplementarity * 15;
@@ -928,8 +1078,9 @@ class AdvancedOptimizer {
     // Meta bonus (simplified - could be enhanced with actual meta data)
     const metaBonus = this._calculateMetaBonus(allPlayers);
 
-    const finalScore = qualityScore + synergryBonus + correlationBonus + metaBonus;
-    
+    const finalScore =
+      qualityScore + synergryBonus + correlationBonus + metaBonus;
+
     // Normalize to 0-1 range for weighting
     return Math.max(0.1, Math.min(2.0, finalScore / 100));
   }
@@ -939,13 +1090,13 @@ class AdvancedOptimizer {
    */
   _calculateMetaBonus(players) {
     let metaBonus = 0;
-    
+
     // Simplified meta analysis - in production this would use real meta data
-    const teamDiversity = new Set(players.map(p => p.team)).size;
+    const teamDiversity = new Set(players.map((p) => p.team)).size;
     if (teamDiversity >= 4) {
       metaBonus += this.config.correlation.metaBonus * 20;
     }
-    
+
     return metaBonus;
   }
 
@@ -957,13 +1108,13 @@ class AdvancedOptimizer {
     if (!this.exposureTracking || !this.exposureTracking.synergyScores) {
       return;
     }
-    
+
     const teamCounts = {};
     const allPlayers = [];
     if (lineup.cpt) allPlayers.push(lineup.cpt);
     if (lineup.players) allPlayers.push(...lineup.players);
 
-    allPlayers.forEach(player => {
+    allPlayers.forEach((player) => {
       if (player?.team) {
         teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
       }
@@ -973,8 +1124,12 @@ class AdvancedOptimizer {
       if (count >= 2) {
         for (let stackSize = 2; stackSize <= count; stackSize++) {
           const stackKey = `${team}_${stackSize}`;
-          const currentSynergy = this.exposureTracking.synergyScores.get(stackKey) || 0;
-          this.exposureTracking.synergyScores.set(stackKey, currentSynergy + qualityScore);
+          const currentSynergy =
+            this.exposureTracking.synergyScores.get(stackKey) || 0;
+          this.exposureTracking.synergyScores.set(
+            stackKey,
+            currentSynergy + qualityScore
+          );
         }
       }
     });
@@ -988,7 +1143,7 @@ class AdvancedOptimizer {
     if (!this.exposureTracking || !this.exposureTracking.correlationMatrix) {
       return;
     }
-    
+
     const allPlayers = [];
     if (lineup.cpt) allPlayers.push(lineup.cpt);
     if (lineup.players) allPlayers.push(...lineup.players);
@@ -998,21 +1153,31 @@ class AdvancedOptimizer {
       for (let j = i + 1; j < allPlayers.length; j++) {
         const player1 = allPlayers[i];
         const player2 = allPlayers[j];
-        
+
         if (player1?.id && player2?.id) {
           const pairKey = `${player1.id}_${player2.id}`;
-          const currentCorr = this.exposureTracking.correlationMatrix.get(pairKey) || 0;
-          
+          const currentCorr =
+            this.exposureTracking.correlationMatrix.get(pairKey) || 0;
+
           // Calculate correlation bonus based on team, position, etc.
           let corrBonus = 0;
-          if (player1.team === player2.team && this.config?.correlation?.sameTeam) {
+          if (
+            player1.team === player2.team &&
+            this.config?.correlation?.sameTeam
+          ) {
             corrBonus += this.config.correlation.sameTeam;
           }
-          if (player1.position === player2.position && this.config?.correlation?.sameTeamSamePosition) {
+          if (
+            player1.position === player2.position &&
+            this.config?.correlation?.sameTeamSamePosition
+          ) {
             corrBonus += this.config.correlation.sameTeamSamePosition;
           }
-          
-          this.exposureTracking.correlationMatrix.set(pairKey, currentCorr + (qualityScore * corrBonus));
+
+          this.exposureTracking.correlationMatrix.set(
+            pairKey,
+            currentCorr + qualityScore * corrBonus
+          );
         }
       }
     }
@@ -1110,6 +1275,101 @@ class AdvancedOptimizer {
 
     // Minimum standard deviation of 3 points
     return Math.max(basePoints * positionVolatility, 3);
+  }
+
+  //  Build indexed player pools for O(1) lookups
+  _buildPlayerIndexes() {
+    // Clear existing indexes
+    this.playerIndexes.byId.clear();
+    this.playerIndexes.byPosition.clear();
+    this.playerIndexes.byTeam.clear();
+    this.playerIndexes.byPositionAndTeam.clear();
+    this.playerIndexes.captainEligible.clear();
+    this.playerIndexes.bySalaryRange = [];
+
+    // Build indexes
+    this.playerPool.forEach((player) => {
+      // Index by ID
+      this.playerIndexes.byId.set(player.id, player);
+
+      // Index by position
+      if (!this.playerIndexes.byPosition.has(player.position)) {
+        this.playerIndexes.byPosition.set(player.position, new Set());
+      }
+      this.playerIndexes.byPosition.get(player.position).add(player.id);
+
+      // Index by team
+      if (!this.playerIndexes.byTeam.has(player.team)) {
+        this.playerIndexes.byTeam.set(player.team, new Set());
+      }
+      this.playerIndexes.byTeam.get(player.team).add(player.id);
+
+      // Index by position and team combo
+      const posTeamKey = `${player.position}_${player.team}`;
+      if (!this.playerIndexes.byPositionAndTeam.has(posTeamKey)) {
+        this.playerIndexes.byPositionAndTeam.set(posTeamKey, new Set());
+      }
+      this.playerIndexes.byPositionAndTeam.get(posTeamKey).add(player.id);
+
+      // Mark captain eligible players
+      if (["TOP", "MID", "ADC", "JNG"].includes(player.position)) {
+        this.playerIndexes.captainEligible.add(player.id);
+      }
+    });
+
+    // Build salary range buckets for binary search
+    // Sort players by salary and create buckets of 10 players each
+    const sortedBySalary = [...this.playerPool].sort(
+      (a, b) =>
+        this._safeParseFloat(a.salary, 0) - this._safeParseFloat(b.salary, 0)
+    );
+
+    const bucketSize = 10;
+    for (let i = 0; i < sortedBySalary.length; i += bucketSize) {
+      const bucket = sortedBySalary.slice(i, i + bucketSize);
+      const minSalary = this._safeParseFloat(bucket[0].salary, 0);
+      const maxSalary = this._safeParseFloat(
+        bucket[bucket.length - 1].salary,
+        0
+      );
+      this.playerIndexes.bySalaryRange.push({
+        minSalary,
+        maxSalary,
+        players: bucket.map((p) => p.id),
+      });
+    }
+  }
+
+  /**
+   * Get players by position using indexed lookup (O(1))
+   */
+  _getPlayersByPosition(position, excludeIds = new Set()) {
+    const playerIds = this.playerIndexes.byPosition.get(position);
+    if (!playerIds) return [];
+
+    const result = [];
+    for (const playerId of playerIds) {
+      if (!excludeIds.has(playerId)) {
+        result.push(this.playerIndexes.byId.get(playerId));
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Get players by team using indexed lookup (O(1))
+   */
+  _getPlayersByTeam(team, excludeIds = new Set()) {
+    const playerIds = this.playerIndexes.byTeam.get(team);
+    if (!playerIds) return [];
+
+    const result = [];
+    for (const playerId of playerIds) {
+      if (!excludeIds.has(playerId)) {
+        result.push(this.playerIndexes.byId.get(playerId));
+      }
+    }
+    return result;
   }
 
   /**
@@ -1236,8 +1496,7 @@ class AdvancedOptimizer {
       const max = this._getPlayerMaxExposure(player);
 
       // Higher projections get more exposure, but leverage ownership
-      const playerOwnership =
-        this._safeParseFloat(player.ownership, 0.01); // Ensure not zero
+      const playerOwnership = this._safeParseFloat(player.ownership, 0.01); // Ensure not zero
       const leverageAdjustment = Math.min(
         1,
         projPoints / Math.max(0.1, playerOwnership) / 1.5
@@ -1284,16 +1543,24 @@ class AdvancedOptimizer {
           if (player1.position === player2.position) {
             correlation += this.config.correlation.sameTeamSamePosition;
           }
-          
+
           // Apply Stack+ synergy modifier to same-team correlations
-          const teamStack = this.teamStacks?.find(stack => stack.team === player1.team);
+          const teamStack = this.teamStacks?.find(
+            (stack) => stack.team === player1.team
+          );
           if (teamStack) {
             const contestType = this.config.contestType || null;
             const stackModifier = this.getStackModifier(teamStack, contestType);
             // Enhance correlation based on Stack+ (subtract 1 to get the modifier amount)
             correlation *= stackModifier;
-            
-            this.debugLog(`Stack+ Correlation Enhancement: ${player1.team} - Base correlation: ${this.config.correlation.sameTeam}, Modified: ${correlation.toFixed(3)}`);
+
+            this.debugLog(
+              `Stack+ Correlation Enhancement: ${
+                player1.team
+              } - Base correlation: ${
+                this.config.correlation.sameTeam
+              }, Modified: ${correlation.toFixed(3)}`
+            );
           }
         }
         // Opposing team
@@ -1381,9 +1648,6 @@ class AdvancedOptimizer {
     const batchSize = 2000;
     const batches = Math.ceil(iterations / batchSize);
 
-    // Use SharedArrayBuffer if available for parallel processing
-    const useSharedMemory = typeof SharedArrayBuffer !== "undefined";
-
     for (let batch = 0; batch < batches; batch++) {
       if (this.isCancelled) {
         this.debugLog("Performance map initialization cancelled");
@@ -1466,7 +1730,6 @@ class AdvancedOptimizer {
         }
       }
     }
-
   }
 
   /**
@@ -1538,7 +1801,7 @@ class AdvancedOptimizer {
 
       // Phase 2: Run simulations on each lineup (40% of progress)
       // Process in batches to keep UI responsive
-      const batchSize = 5; // Process 5 lineups at a time
+      const batchSize = 50;
       const totalBatches = Math.ceil(lineups.length / batchSize);
 
       for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
@@ -1844,23 +2107,35 @@ class AdvancedOptimizer {
     // Calculate stack bonus with Stack+ enhancement
     let stackBonus = 0;
     let stackPlusModifier = 1.0;
-    
-    for (const [team, count] of Object.entries(teamCounts)) {
+
+    for (const [, count] of Object.entries(teamCounts)) {
       // Exponential bonus for larger stacks
       if (count >= 3) {
         stackBonus += Math.pow(count - 2, 1.5) * 3;
       }
     }
-    
+
     // Apply Stack+ synergy modifier to the primary stack
     const primaryStack = this.identifyPrimaryStack(lineup);
     if (primaryStack) {
       // Determine contest type from config if available
       const contestType = this.config.contestType || null;
-      stackPlusModifier = this.getScaledStackModifier(primaryStack, primaryStack.stackSize, contestType);
+      stackPlusModifier = this.getScaledStackModifier(
+        primaryStack,
+        primaryStack.stackSize,
+        contestType
+      );
       stackBonus *= stackPlusModifier;
-      
-      this.debugLog(`Stack+ Enhancement: ${primaryStack.team} (${primaryStack.stackSize}-stack) - Base: ${primaryStack.stackPlus}, All Wins: ${primaryStack.stackPlusAllWins}, All Losses: ${primaryStack.stackPlusAllLosses}, Modifier: ${stackPlusModifier.toFixed(3)}`);
+
+      this.debugLog(
+        `Stack+ Enhancement: ${primaryStack.team} (${
+          primaryStack.stackSize
+        }-stack) - Base: ${primaryStack.stackPlus}, All Wins: ${
+          primaryStack.stackPlusAllWins
+        }, All Losses: ${
+          primaryStack.stackPlusAllLosses
+        }, Modifier: ${stackPlusModifier.toFixed(3)}`
+      );
     }
 
     // 4. Position impact weighting
@@ -1930,15 +2205,123 @@ class AdvancedOptimizer {
   }
 
   /**
+   * Calculate the minimum possible salary for a valid lineup
+   */
+  _calculateMinimumPossibleSalary() {
+    const positionPools = {};
+
+    // Group players by position and sort by salary
+    for (const player of this.playerPool) {
+      if (!positionPools[player.position]) {
+        positionPools[player.position] = [];
+      }
+      positionPools[player.position].push(player);
+    }
+
+    // Sort each position by salary (ascending)
+    for (const pos in positionPools) {
+      positionPools[pos].sort(
+        (a, b) =>
+          this._safeParseFloat(a.salary, 0) - this._safeParseFloat(b.salary, 0)
+      );
+    }
+
+    let minSalary = 0;
+
+    // Add cheapest player for each required position
+    for (const [pos, count] of Object.entries(
+      this.config.positionRequirements
+    )) {
+      if (pos === "CPT") {
+        // Captain can be any position, find overall cheapest
+        let cheapestPlayer = null;
+        let cheapestSalary = Infinity;
+
+        for (const position of ["TOP", "JNG", "MID", "ADC", "SUP"]) {
+          if (positionPools[position] && positionPools[position].length > 0) {
+            const salary = this._safeParseFloat(
+              positionPools[position][0].salary,
+              0
+            );
+            if (salary < cheapestSalary) {
+              cheapestSalary = salary;
+              cheapestPlayer = positionPools[position][0];
+            }
+          }
+        }
+
+        if (cheapestPlayer) {
+          minSalary += cheapestSalary * 1.5; // Captain multiplier
+        }
+      } else {
+        // Regular position
+        if (positionPools[pos] && positionPools[pos].length >= count) {
+          for (let i = 0; i < count; i++) {
+            minSalary += this._safeParseFloat(positionPools[pos][i].salary, 0);
+          }
+        } else {
+          // Not enough players for this position
+          return Infinity;
+        }
+      }
+    }
+
+    return minSalary;
+  }
+
+  /**
    * Generate optimized lineups with constraints
    */
   async _generateLineups(count) {
     this.debugLog(`Generating ${count} optimized lineups...`);
     this.updateStatus(`Generating ${count} lineups...`);
 
+    // Early exit: Check if we have enough players for basic requirements
+    const minPlayersNeeded = 7; // 6 positions + 1 captain
+    if (this.playerPool.length < minPlayersNeeded) {
+      this.debugLog(
+        `Not enough players in pool: ${this.playerPool.length} < ${minPlayersNeeded}`
+      );
+      this.updateStatus(
+        `Failed: Not enough players (${this.playerPool.length} available, ${minPlayersNeeded} needed)`
+      );
+      return [];
+    }
+
+    // Early exit: Check if we have players for each required position
+    const requiredPositions = Object.keys(
+      this.config.positionRequirements
+    ).filter((pos) => pos !== "CPT");
+    const availablePositions = new Set(this.playerPool.map((p) => p.position));
+    const missingPositions = requiredPositions.filter(
+      (pos) => !availablePositions.has(pos)
+    );
+
+    if (missingPositions.length > 0) {
+      this.debugLog(
+        `Missing required positions: ${missingPositions.join(", ")}`
+      );
+      this.updateStatus(
+        `Failed: Missing positions (${missingPositions.join(", ")})`
+      );
+      return [];
+    }
+
+    // Early exit: Check if minimum salary constraint is feasible
+    const lowestSalaryLineup = this._calculateMinimumPossibleSalary();
+    if (lowestSalaryLineup > this.config.salaryCap) {
+      this.debugLog(
+        `Minimum possible salary ${lowestSalaryLineup} exceeds cap ${this.config.salaryCap}`
+      );
+      this.updateStatus(
+        `Failed: Salary cap too low (min: $${lowestSalaryLineup}, cap: $${this.config.salaryCap})`
+      );
+      return [];
+    }
+
     const lineups = [];
     const lineupSignatures = new Set(); // Track unique lineup signatures
-    const maxAttempts = count * 100; // Allow more attempts for larger lineup counts
+    const maxAttempts = count * 10;
     let attempts = 0;
     let consecutiveFailures = 0;
     const maxConsecutiveFailures = Math.min(1000, count * 10); // Scale with lineup count
@@ -1953,10 +2336,11 @@ class AdvancedOptimizer {
       });
     }
 
-    // Process in small batches to keep UI responsive
-    const targetBatchSize = 1; // Generate one unique lineup at a time for better control
-
-    while (lineups.length < count && attempts < maxAttempts && consecutiveFailures < maxConsecutiveFailures) {
+    while (
+      lineups.length < count &&
+      attempts < maxAttempts &&
+      consecutiveFailures < maxConsecutiveFailures
+    ) {
       if (this.isCancelled) {
         this.debugLog("Lineup generation cancelled");
         break;
@@ -1967,12 +2351,10 @@ class AdvancedOptimizer {
       try {
         // Update status every 10 attempts
         if (attempts % 10 === 0) {
-          // Get real-time accuracy metrics
-          const accuracyMetrics = this.getAccuracyMetrics();
-          const accuracyPct = Math.round(accuracyMetrics.overallAccuracy * 100);
-          
-          this.updateStatus(`Generating lineups... (${lineups.length}/${count})`);
-          
+          this.updateStatus(
+            `Generating lineups... (${lineups.length}/${count})`
+          );
+
           // Update progress - scales from 5% to 40% during generation
           const progress = 5 + (lineups.length / count) * 35;
           this.updateProgress(progress, "generating_lineups");
@@ -1990,38 +2372,58 @@ class AdvancedOptimizer {
         }
 
         // Create signature for quick duplicate checking
-        const signature = [lineup.cpt.id, ...lineup.players.map(p => p.id)].sort().join('|');
+        const signature = [lineup.cpt.id, ...lineup.players.map((p) => p.id)]
+          .sort()
+          .join("|");
 
         // Run exposure prediction for remaining lineups
-        const exposurePrediction = this._predictFinalExposures(lineup, lineups, count);
-        const exposureAcceptable = this._isExposurePredictionAcceptable(exposurePrediction);
+        const exposurePrediction = this._predictFinalExposures(
+          lineup,
+          lineups,
+          count
+        );
+        const exposureAcceptable =
+          this._isExposurePredictionAcceptable(exposurePrediction);
 
         // Check if lineup is valid, unique, and exposure-acceptable
-        if (this._isValidLineup(lineup, lineups) && !lineupSignatures.has(signature) && exposureAcceptable) {
+        if (
+          this._isValidLineup(lineup, lineups) &&
+          !lineupSignatures.has(signature) &&
+          exposureAcceptable
+        ) {
           // Additional diversity check only if we have multiple lineups
-          const hasSufficientDiversity = lineups.length === 0 || this._hasSufficientDiversity(lineup, lineups);
-          
+          const hasSufficientDiversity =
+            lineups.length === 0 ||
+            this._hasSufficientDiversity(lineup, lineups);
+
           if (hasSufficientDiversity) {
             // Track exposures for the new lineup
             this._trackLineupExposure(lineup);
-            
+
             // Update adaptive targeting with Bayesian methods
             this._updateAdaptiveTargeting(lineups.length + 1, count);
-            
+
             lineups.push(lineup);
             lineupSignatures.add(signature);
             consecutiveFailures = 0; // Reset failure counter
-            
-            this.debugLog(`Lineup accepted: ${lineups.length}/${count} (attempts: ${attempts})`);
-            
+
+            this.debugLog(
+              `Lineup accepted: ${lineups.length}/${count} (attempts: ${attempts})`
+            );
+
             // Log real-time deviation tracking
             this._logRealTimeDeviations(lineups.length, count);
-            
+
             // Increase randomness for next lineup to ensure diversity
-            this.config.randomness = Math.min(0.9, this.config.randomness + 0.05);
+            this.config.randomness = Math.min(
+              0.9,
+              this.config.randomness + 0.05
+            );
           } else {
             consecutiveFailures++;
-            this.debugLog(`Diversity rejected: ${consecutiveFailures} consecutive failures`);
+            this.debugLog(
+              `Diversity rejected: ${consecutiveFailures} consecutive failures`
+            );
           }
         } else {
           consecutiveFailures++;
@@ -2030,11 +2432,10 @@ class AdvancedOptimizer {
           }
         }
 
-        // Yield to UI thread occasionally
-        if (attempts % 5 === 0) {
+        // Yield to UI thread less frequently for better performance
+        if (attempts % 50 === 0) {
           await this.yieldToUI();
         }
-
       } catch (error) {
         console.error("Error generating lineup:", error);
         consecutiveFailures++;
@@ -2044,11 +2445,16 @@ class AdvancedOptimizer {
 
     // Log final generation results
     if (lineups.length < count) {
-      const reason = consecutiveFailures >= maxConsecutiveFailures ? 
-        "too many consecutive failures (not enough unique combinations)" : 
-        "maximum attempts reached";
-      this.debugLog(`Generation stopped: ${reason}. Generated ${lineups.length}/${count} unique lineups`);
-      this.updateStatus(`Generated ${lineups.length} unique lineups (${reason})`);
+      const reason =
+        consecutiveFailures >= maxConsecutiveFailures
+          ? "too many consecutive failures (not enough unique combinations)"
+          : "maximum attempts reached";
+      this.debugLog(
+        `Generation stopped: ${reason}. Generated ${lineups.length}/${count} unique lineups`
+      );
+      this.updateStatus(
+        `Generated ${lineups.length} unique lineups (${reason})`
+      );
     }
 
     // Store generated lineups
@@ -2070,103 +2476,32 @@ class AdvancedOptimizer {
   _teamNeedsExposure(team, stackSize = null) {
     // DISABLED: Return false to prevent aggressive targeting
     return false;
-    
-    const totalLineups =
-      this.generatedLineups.length + this.existingLineups.length;
-    if (totalLineups === 0) return true; // Always need exposure for first lineup
-
-    // Check stack-specific exposure first if a stack size is provided
-    if (stackSize !== null) {
-      const stackKey = `${team}_${stackSize}`;
-      const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
-      const currentPct = stackCount / totalLineups;
-
-      // Find the stack-specific constraint
-      const stackConstraint = this.teamStackExposures.find(
-        (te) => te.team === team && te.stackSize === stackSize
-      );
-
-      if (stackConstraint) {
-        // Need more exposure if below min
-        if (stackConstraint.min > 0 && currentPct < stackConstraint.min) {
-          this.debugLog(
-            `Team ${team} needs more ${stackSize}-stack exposure (min): ${
-              currentPct * 100
-            }% < ${stackConstraint.min * 100}%`
-          );
-          return true;
-        }
-        
-        // Also check if below target (with tolerance to avoid infinite attempts)
-        const tolerance = 0.10; // 10% tolerance to prevent over-pursuit
-        if (stackConstraint.target > 0 && currentPct < stackConstraint.target - tolerance) {
-          this.debugLog(
-            `Team ${team} needs more ${stackSize}-stack exposure (target): ${
-              currentPct * 100
-            }% < ${stackConstraint.target * 100}% (with ${tolerance * 100}% tolerance)`
-          );
-          return true;
-        }
-
-        // At max exposure?
-        if (stackConstraint.max < 1 && currentPct >= stackConstraint.max) {
-          return false;
-        }
-      }
-    }
-
-    // Check general team exposure
-    const teamCount = this.exposureTracking.teams.get(team) || 0;
-    const currentPct = teamCount / (totalLineups * 6); // 6 players per lineup (5 + CPT)
-
-    // Find the team constraint
-    const teamConstraint = this.teamExposures.find((te) => te.team === team);
-
-    if (teamConstraint && teamConstraint.min > 0) {
-      // Need more exposure if below min
-      if (currentPct < teamConstraint.min) {
-        this.debugLog(
-          `Team ${team} needs more general exposure: ${currentPct * 100}% < ${
-            teamConstraint.min * 100
-          }%`
-        );
-        return true;
-      }
-
-      // At max exposure?
-      if (teamConstraint.max < 1 && currentPct >= teamConstraint.max) {
-        return false;
-      }
-    }
-
-    // If no constraints or below max, default to true
-    return true;
   }
 
   /**
    * Build a single lineup using a smart algorithm
    */
   async _buildLineup(existingLineups = [], currentLineupCount = 0) {
-    
     // Increment global counter to ensure unique IDs
     lineupCounter++;
 
     // Create a unique seed for this lineup to inject additional randomness
-    const lineupSeed = Math.random() * 1000 + currentLineupCount * 13 + Date.now() % 1000;
-    
+    const lineupSeed =
+      Math.random() * 1000 + currentLineupCount * 13 + (Date.now() % 1000);
+
     // Use the seed to initialize a pseudorandom sequence for this lineup
-    Math.seedrandom = Math.seedrandom || ((seed) => {
-      let m = 0x80000000; // pow(2,31)
-      let a = 1103515245;
-      let c = 12345;
-      let state = seed ? seed : Math.floor(Math.random() * (m - 1));
-      return () => {
-        state = (a * state + c) % m;
-        return state / (m - 1);
-      };
-    });
-    
-    const lineupRandom = Math.seedrandom(lineupSeed);
+    Math.seedrandom =
+      Math.seedrandom ||
+      ((seed) => {
+        let m = 0x80000000; // pow(2,31)
+        let a = 1103515245;
+        let c = 12345;
+        let state = seed ? seed : Math.floor(Math.random() * (m - 1));
+        return () => {
+          state = (a * state + c) % m;
+          return state / (m - 1);
+        };
+      });
 
     // Start with empty lineup
     const lineup = {
@@ -2198,30 +2533,18 @@ class AdvancedOptimizer {
     let stackPattern = null;
     let primaryStackSize = null;
 
-    // Randomly choose between 4-3 and 4-2-1 patterns (weighted by exposure targets)
-    const availablePatterns = ['4-3', '4-2-1'];
-    
     // Check if this team has any stack-specific constraints
     const teamStackConstraints = this.teamStackExposures.filter(
-      (tc) => tc.team === stackTeam.name && (tc.stackSize === 4 || tc.stackSize === 3 || tc.stackSize === 2)
+      (tc) =>
+        tc.team === stackTeam.name &&
+        (tc.stackSize === 4 || tc.stackSize === 3 || tc.stackSize === 2)
     );
 
     if (teamStackConstraints.length > 0) {
       // Find underexposed stack sizes for this team
       const underexposedStacks = teamStackConstraints.filter((tc) => {
-        const stackKey = `${stackTeam.name}_${tc.stackSize}`;
-        const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
-        const currentPct = totalLineups > 0 ? stackCount / totalLineups : 0;
-        
-        // DISABLED: Check if below minimum OR below target exposure (but not over max)
-        // Return false to disable stack size targeting that was causing 60% over-selection
+        // DISABLED: Return false to disable stack size targeting that was causing 60% over-selection
         return false;
-        
-        const belowMin = tc.min > 0 && currentPct < tc.min;
-        const belowTarget = tc.target > 0 && currentPct < tc.target;
-        const overMax = tc.max < 1 && currentPct >= tc.max;
-        
-        return (belowMin || belowTarget) && !overMax;
       });
 
       if (underexposedStacks.length > 0) {
@@ -2233,35 +2556,35 @@ class AdvancedOptimizer {
           const bCount = this.exposureTracking.teamStacks.get(bKey) || 0;
           const aPct = totalLineups > 0 ? aCount / totalLineups : 0;
           const bPct = totalLineups > 0 ? bCount / totalLineups : 0;
-          
+
           // Calculate how far below target/min each stack is
           const aDeficit = Math.max(
-            (a.min > 0 ? a.min - aPct : 0),
-            (a.target > 0 ? a.target - aPct : 0)
+            a.min > 0 ? a.min - aPct : 0,
+            a.target > 0 ? a.target - aPct : 0
           );
           const bDeficit = Math.max(
-            (b.min > 0 ? b.min - bPct : 0),
-            (b.target > 0 ? b.target - bPct : 0)
+            b.min > 0 ? b.min - bPct : 0,
+            b.target > 0 ? b.target - bPct : 0
           );
-          
+
           return bDeficit - aDeficit; // Highest deficit first
         })[0];
 
         primaryStackSize = targetStack.stackSize;
-        
+
         // Determine pattern based on primary stack size
         if (primaryStackSize === 4) {
           // Primary team gets 4, so decide between 4-3 and 4-2-1
-          stackPattern = Math.random() < 0.5 ? '4-3' : '4-2-1';
+          stackPattern = Math.random() < 0.5 ? "4-3" : "4-2-1";
         } else if (primaryStackSize === 3) {
           // Primary team gets 3, must be 4-3 pattern with another team getting 4
-          stackPattern = '4-3';
+          stackPattern = "4-3";
           // Note: Another team will get the 4-stack
         } else if (primaryStackSize === 2) {
           // Primary team gets 2, must be 4-2-1 pattern
-          stackPattern = '4-2-1';
+          stackPattern = "4-2-1";
         }
-        
+
         this.debugLog(
           `Selected ${primaryStackSize}-stack for team ${stackTeam.name}, pattern: ${stackPattern}`
         );
@@ -2270,26 +2593,28 @@ class AdvancedOptimizer {
 
     // Default to pattern selection based on exposure needs
     if (!stackPattern) {
-      // Check which patterns are most needed based on overall exposure
-      const totalLineups = this.generatedLineups.length + this.existingLineups.length;
-      const pattern43Count = this.exposureTracking.stackLineups.get(4) || 0;
-      const pattern421Count = this.exposureTracking.stackLineups.get(4) || 0; // Both use 4-stacks as primary
-      
       // Prefer 4-3 for balance, but add some 4-2-1 for diversity
       const prefer43 = Math.random() < 0.7; // 70% chance for 4-3, 30% for 4-2-1
-      stackPattern = prefer43 ? '4-3' : '4-2-1';
+      stackPattern = prefer43 ? "4-3" : "4-2-1";
       primaryStackSize = 4; // Primary team always gets 4
-      
-      this.debugLog(`Auto-selected pattern: ${stackPattern}, primary team gets ${primaryStackSize}`);
+
+      this.debugLog(
+        `Auto-selected pattern: ${stackPattern}, primary team gets ${primaryStackSize}`
+      );
     }
 
     // Select a captain
-    lineup.cpt = this._selectCaptain(stackTeam, usedPlayers, primaryStackSize, lineupSeed);
+    lineup.cpt = this._selectCaptain(
+      stackTeam,
+      usedPlayers,
+      primaryStackSize,
+      lineupSeed
+    );
     if (!lineup.cpt) {
       this.debugLog(`Failed to select captain for team ${stackTeam.name}`);
       return null;
     }
-    
+
     usedPlayers.add(lineup.cpt.id);
     remainingSalary -= lineup.cpt.salary;
 
@@ -2334,23 +2659,24 @@ class AdvancedOptimizer {
       for (let i = 0; i < count; i++) {
         // Special handling for TEAM position
         if (position === "TEAM") {
-          // First try to get TEAM player from stack team
-          let teamPlayers = this.playerPool.filter(
-            (player) =>
-              !usedPlayers.has(player.id) &&
-              player.position === "TEAM" &&
-              player.team === stackTeam.name &&
-              this._safeParseFloat(player.salary, 0) <= remainingSalary
-          );
-
-          // If no TEAM players from stack team, get any TEAM player
-          if (teamPlayers.length === 0) {
-            teamPlayers = this.playerPool.filter(
+          // Create filter function to avoid unsafe reference warning
+          const currentSalary = remainingSalary;
+          const filterTeamPlayers = (teamName = null) => {
+            return this.playerPool.filter(
               (player) =>
                 !usedPlayers.has(player.id) &&
                 player.position === "TEAM" &&
-                this._safeParseFloat(player.salary, 0) <= remainingSalary
+                (teamName === null || player.team === teamName) &&
+                this._safeParseFloat(player.salary, 0) <= currentSalary
             );
+          };
+
+          // First try to get TEAM player from stack team
+          let teamPlayers = filterTeamPlayers(stackTeam.name);
+
+          // If no TEAM players from stack team, get any TEAM player
+          if (teamPlayers.length === 0) {
+            teamPlayers = filterTeamPlayers();
           }
 
           // If we found a TEAM player
@@ -2385,7 +2711,7 @@ class AdvancedOptimizer {
           }
         } else {
           // Regular position selection
-          const player = await this._selectPositionPlayer(
+          const player = this._selectPositionPlayer(
             position,
             stackTeam,
             usedPlayers,
@@ -2407,7 +2733,9 @@ class AdvancedOptimizer {
             usedPlayers.add(player.id);
             remainingSalary -= player.salary;
           } else {
-            this.debugLog(`Couldn't find player for position ${position} - skipping lineup`);
+            this.debugLog(
+              `Couldn't find player for position ${position} - skipping lineup`
+            );
             return null; // Return null instead of throwing error
           }
         }
@@ -2418,7 +2746,10 @@ class AdvancedOptimizer {
     this._balanceTeamExposures(lineup, usedPlayers, remainingSalary);
 
     // Debug: Log the final lineup composition
-    const lineupSummary = [lineup.cpt.name, ...lineup.players.map(p => p.name)].join(', ');
+    const lineupSummary = [
+      lineup.cpt.name,
+      ...lineup.players.map((p) => p.name),
+    ].join(", ");
     this.debugLog(`Built lineup ${currentLineupCount + 1}: ${lineupSummary}`);
 
     return lineup;
@@ -2427,77 +2758,92 @@ class AdvancedOptimizer {
   /**
    * Filter candidates to enforce stack pattern (4-3 or 4-2-1 only)
    */
-  _filterCandidatesByStackPattern(candidates, currentTeamCounts, stackPattern, primaryTeam, targetStackSize) {
+  _filterCandidatesByStackPattern(
+    candidates,
+    currentTeamCounts,
+    stackPattern,
+    primaryTeam,
+    targetStackSize
+  ) {
     this.debugLog(
-      `Filtering candidates for pattern ${stackPattern}. Current counts: ${JSON.stringify(currentTeamCounts)}`
+      `Filtering candidates for pattern ${stackPattern}. Current counts: ${JSON.stringify(
+        currentTeamCounts
+      )}`
     );
-    
-    const filtered = candidates.filter(candidate => {
+
+    const filtered = candidates.filter((candidate) => {
       // Simulate adding this candidate to see if it would violate the pattern
       const testCounts = { ...currentTeamCounts };
       testCounts[candidate.team] = (testCounts[candidate.team] || 0) + 1;
-      
+
       // Check if this would create a valid intermediate state
       const counts = Object.values(testCounts).sort((a, b) => b - a);
       const maxCount = counts[0] || 0;
-      
+
       let isValid = true;
-      let reason = '';
-      
-      // For 4-3 pattern: allow building toward [4, 3] 
+      let reason = "";
+
+      // For 4-3 pattern: allow building toward [4, 3]
       // For 4-2-1 pattern: allow building toward [4, 2, 1]
-      if (stackPattern === '4-3') {
+      if (stackPattern === "4-3") {
         // Don't allow any team to exceed 4
         if (maxCount > 4) {
           isValid = false;
-          reason = 'max count > 4';
+          reason = "max count > 4";
         }
         // Don't allow more than 2 teams total
         else if (counts.length > 2) {
           isValid = false;
-          reason = 'more than 2 teams';
+          reason = "more than 2 teams";
         }
         // If we have 2 teams and one has 4, the other shouldn't exceed 3
         else if (counts.length === 2 && counts[0] === 4 && counts[1] > 3) {
           isValid = false;
-          reason = 'second team > 3 when first is 4';
+          reason = "second team > 3 when first is 4";
         }
-      } else if (stackPattern === '4-2-1') {
+      } else if (stackPattern === "4-2-1") {
         // Don't allow any team to exceed 4
         if (maxCount > 4) {
           isValid = false;
-          reason = 'max count > 4';
+          reason = "max count > 4";
         }
         // Don't allow more than 3 teams total
         else if (counts.length > 3) {
           isValid = false;
-          reason = 'more than 3 teams';
+          reason = "more than 3 teams";
         }
         // If we have 2+ teams and the largest has 4, the second shouldn't exceed 2
         else if (counts.length >= 2 && counts[0] === 4 && counts[1] > 2) {
           isValid = false;
-          reason = 'second team > 2 when first is 4';
+          reason = "second team > 2 when first is 4";
         }
         // If we have 3 teams with pattern [4, 2, x], x shouldn't exceed 1
-        else if (counts.length === 3 && counts[0] === 4 && counts[1] === 2 && counts[2] > 1) {
+        else if (
+          counts.length === 3 &&
+          counts[0] === 4 &&
+          counts[1] === 2 &&
+          counts[2] > 1
+        ) {
           isValid = false;
-          reason = 'third team > 1 when pattern is 4-2';
+          reason = "third team > 1 when pattern is 4-2";
         }
       }
-      
+
       if (!isValid) {
         this.debugLog(
-          `Rejected ${candidate.team} ${candidate.name}: ${reason}. Would create counts: [${counts.join(', ')}]`
+          `Rejected ${candidate.team} ${
+            candidate.name
+          }: ${reason}. Would create counts: [${counts.join(", ")}]`
         );
       }
-      
+
       return isValid;
     });
-    
+
     this.debugLog(
       `Pattern filtering result: ${candidates.length} -> ${filtered.length} candidates`
     );
-    
+
     return filtered;
   }
 
@@ -2513,37 +2859,54 @@ class AdvancedOptimizer {
       if (team.min > 0 && this._teamNeedsExposure(team.team)) {
         teamsNeedingExposure.push(team.team);
       }
-      
+
       // Check if team is below target exposure (using 4-stack as default)
       if (team.target > 0) {
-        const totalLineups = this.generatedLineups.length + this.existingLineups.length;
+        const totalLineups =
+          this.generatedLineups.length + this.existingLineups.length;
         if (totalLineups > 0) {
           // For regular team exposures, check 4-stack exposure by default
           const stackKey = `${team.team}_4`;
-          const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+          const stackCount =
+            this.exposureTracking.teamStacks.get(stackKey) || 0;
           const currentPct = stackCount / totalLineups;
-          
+
           // Use tolerance ranges - don't add if already at or above target
           const lowerTolerance = 0.05; // 5% lower tolerance to prevent overshooting
           const upperTolerance = 0.02; // 2% upper tolerance
-          
-          this.debugLog(`STACK EXPOSURE - ${team.team} 4-stack: ${stackCount}/${totalLineups} = ${(currentPct * 100).toFixed(1)}%, target: ${(team.target * 100).toFixed(1)}%`);
-          
+
+          this.debugLog(
+            `STACK EXPOSURE - ${
+              team.team
+            } 4-stack: ${stackCount}/${totalLineups} = ${(
+              currentPct * 100
+            ).toFixed(1)}%, target: ${(team.target * 100).toFixed(1)}%`
+          );
+
           // Only add team if it's significantly below target
           if (currentPct < team.target - lowerTolerance) {
             teamsNeedingExposure.push(team.team);
             this.debugLog(
-              `Team ${team.team} below 4-stack target: ${(currentPct * 100).toFixed(1)}% < ${(team.target * 100).toFixed(1)}%`
+              `Team ${team.team} below 4-stack target: ${(
+                currentPct * 100
+              ).toFixed(1)}% < ${(team.target * 100).toFixed(1)}%`
             );
           } else if (currentPct >= team.target + upperTolerance) {
             this.debugLog(
-              `Team ${team.team} already over 4-stack target: ${(currentPct * 100).toFixed(1)}% >= ${((team.target + upperTolerance) * 100).toFixed(1)}%`
+              `Team ${team.team} already over 4-stack target: ${(
+                currentPct * 100
+              ).toFixed(1)}% >= ${(
+                (team.target + upperTolerance) *
+                100
+              ).toFixed(1)}%`
             );
           }
         } else {
           // First lineup always needs target teams
           teamsNeedingExposure.push(team.team);
-          this.debugLog(`${team.team}: First lineup, added to teamsNeedingExposure`);
+          this.debugLog(
+            `${team.team}: First lineup, added to teamsNeedingExposure`
+          );
         }
       }
     });
@@ -2556,27 +2919,39 @@ class AdvancedOptimizer {
       ) {
         teamsNeedingExposure.push(stack.team);
       }
-      
+
       // Also check if team is below target exposure
       if (stack.target > 0) {
-        const totalLineups = this.generatedLineups.length + this.existingLineups.length;
+        const totalLineups =
+          this.generatedLineups.length + this.existingLineups.length;
         if (totalLineups > 0) {
           const stackKey = `${stack.team}_${stack.stackSize}`;
-          const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+          const stackCount =
+            this.exposureTracking.teamStacks.get(stackKey) || 0;
           const currentPct = stackCount / totalLineups;
-          
-          // Use tolerance ranges - don't add if already at or above target  
+
+          // Use tolerance ranges - don't add if already at or above target
           const lowerTolerance = 0.03; // 3% lower tolerance
           const upperTolerance = 0.03; // 3% upper tolerance
-          
-          if (currentPct < stack.target - lowerTolerance && currentPct < stack.target + upperTolerance) {
+
+          if (
+            currentPct < stack.target - lowerTolerance &&
+            currentPct < stack.target + upperTolerance
+          ) {
             teamsNeedingExposure.push(stack.team);
             this.debugLog(
-              `Team ${stack.team} below target stack exposure: ${(currentPct * 100).toFixed(1)}% < ${(stack.target * 100).toFixed(1)}%`
+              `Team ${stack.team} below target stack exposure: ${(
+                currentPct * 100
+              ).toFixed(1)}% < ${(stack.target * 100).toFixed(1)}%`
             );
           } else if (currentPct >= stack.target + upperTolerance) {
             this.debugLog(
-              `Team ${stack.team} already over target stack: ${(currentPct * 100).toFixed(1)}% >= ${((stack.target + upperTolerance) * 100).toFixed(1)}%`
+              `Team ${stack.team} already over target stack: ${(
+                currentPct * 100
+              ).toFixed(1)}% >= ${(
+                (stack.target + upperTolerance) *
+                100
+              ).toFixed(1)}%`
             );
           }
         } else {
@@ -2589,52 +2964,65 @@ class AdvancedOptimizer {
     // If we have teams that need exposure, prioritize them by deficit
     if (teamsNeedingExposure.length > 0) {
       // Calculate deficit for each team needing exposure
-      const teamDeficits = teamsNeedingExposure.map(teamName => {
-        const totalLineups = this.generatedLineups.length + this.existingLineups.length;
+      const teamDeficits = teamsNeedingExposure.map((teamName) => {
+        const totalLineups =
+          this.generatedLineups.length + this.existingLineups.length;
         let maxDeficit = 0;
-        
+
         // Check all stack constraints for this team
-        this.teamStackExposures.forEach(stack => {
+        this.teamStackExposures.forEach((stack) => {
           if (stack.team === teamName) {
             const stackKey = `${stack.team}_${stack.stackSize}`;
-            const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+            const stackCount =
+              this.exposureTracking.teamStacks.get(stackKey) || 0;
             const currentPct = totalLineups > 0 ? stackCount / totalLineups : 0;
-            
+
             // Calculate deficit from target or min
-            const targetDeficit = stack.target > 0 ? Math.max(0, stack.target - currentPct) : 0;
-            const minDeficit = stack.min > 0 ? Math.max(0, stack.min - currentPct) : 0;
-            
+            const targetDeficit =
+              stack.target > 0 ? Math.max(0, stack.target - currentPct) : 0;
+            const minDeficit =
+              stack.min > 0 ? Math.max(0, stack.min - currentPct) : 0;
+
             maxDeficit = Math.max(maxDeficit, targetDeficit, minDeficit);
           }
         });
-        
+
         // Also check regular team exposures (using 4-stack as default)
-        this.teamExposures.forEach(teamExp => {
+        this.teamExposures.forEach((teamExp) => {
           if (teamExp.team === teamName) {
             const stackKey = `${teamName}_4`;
-            const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+            const stackCount =
+              this.exposureTracking.teamStacks.get(stackKey) || 0;
             const currentPct = totalLineups > 0 ? stackCount / totalLineups : 0;
-            
-            const targetDeficit = teamExp.target > 0 ? Math.max(0, teamExp.target - currentPct) : 0;
-            const minDeficit = teamExp.min > 0 ? Math.max(0, teamExp.min - currentPct) : 0;
-            
+
+            const targetDeficit =
+              teamExp.target > 0 ? Math.max(0, teamExp.target - currentPct) : 0;
+            const minDeficit =
+              teamExp.min > 0 ? Math.max(0, teamExp.min - currentPct) : 0;
+
             maxDeficit = Math.max(maxDeficit, targetDeficit, minDeficit);
           }
         });
-        
+
         return { teamName, deficit: maxDeficit };
       });
-      
+
       // Sort by highest deficit and pick from top 3 to maintain some randomness
       teamDeficits.sort((a, b) => b.deficit - a.deficit);
-      const topDeficitTeams = teamDeficits.slice(0, Math.min(3, teamDeficits.length));
-      
-      const selectedTeamData = topDeficitTeams[Math.floor(Math.random() * topDeficitTeams.length)];
+      const topDeficitTeams = teamDeficits.slice(
+        0,
+        Math.min(3, teamDeficits.length)
+      );
+
+      const selectedTeamData =
+        topDeficitTeams[Math.floor(Math.random() * topDeficitTeams.length)];
       const team = this.teams.find((t) => t.name === selectedTeamData.teamName);
 
       if (team) {
         this.debugLog(
-          `TEAM SELECTION: Selected team ${selectedTeamData.teamName} with ${(selectedTeamData.deficit * 100).toFixed(1)}% deficit from target`
+          `TEAM SELECTION: Selected team ${selectedTeamData.teamName} with ${(
+            selectedTeamData.deficit * 100
+          ).toFixed(1)}% deficit from target`
         );
         return team;
       }
@@ -2644,9 +3032,12 @@ class AdvancedOptimizer {
     const teamWeights = this.teams.map((team) => {
       // Get projection value
       const projectionValue = team.totalProjection;
-      
+
       // Calculate team synergy score
-      const synergyScore = this._calculateTeamSynergyScore(team, currentLineupCount);
+      const synergyScore = this._calculateTeamSynergyScore(
+        team,
+        currentLineupCount
+      );
 
       // Get target exposure (if any)
       const exposureSetting = this.teamExposures.find(
@@ -2659,15 +3050,14 @@ class AdvancedOptimizer {
         this.generatedLineups.length + this.existingLineups.length;
       const stackKey = `${team.name}_4`;
       const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
-      const currentExposure =
-        totalLineups > 0 ? stackCount / totalLineups : 0;
+      const currentExposure = totalLineups > 0 ? stackCount / totalLineups : 0;
 
       // Adjust weight based on exposure difference
       let exposureAdjustment = 1.0;
       if (totalLineups > 0) {
         const exposureDiff = targetExposure - currentExposure;
         // If under-exposed, increase weight; if over-exposed, decrease weight
-        exposureAdjustment = 1.0 + (exposureDiff * 3); // Increased multiplier for more responsive adjustment
+        exposureAdjustment = 1.0 + exposureDiff * 3; // Increased multiplier for more responsive adjustment
         exposureAdjustment = Math.max(0.1, Math.min(5.0, exposureAdjustment)); // Wider range for stronger effect
       }
 
@@ -2685,27 +3075,32 @@ class AdvancedOptimizer {
 
     // Add extra randomness to team selection to prevent always picking same team
     const randomnessFactor = this.config.randomness || 0.3;
-    
+
     // Increase randomness significantly for preventing duplicates - use different approach for each lineup
-    const lineupBasedRandomness = Math.min(0.9, randomnessFactor + (currentLineupCount * 0.08));
-    
+    const lineupBasedRandomness = Math.min(
+      0.9,
+      randomnessFactor + currentLineupCount * 0.08
+    );
+
     // Use a more aggressive randomness approach for team selection
     // Use lineupSeed to add deterministic but varying randomness across lineups
     const seedBasedRandomness = (lineupSeed % 100) / 100;
     if (seedBasedRandomness < lineupBasedRandomness && currentLineupCount > 0) {
       // Sometimes just pick a random team to increase diversity
-      const randomIndex = Math.floor(((lineupSeed * 17) % this.teams.length));
+      const randomIndex = Math.floor((lineupSeed * 17) % this.teams.length);
       const randomTeam = this.teams[randomIndex];
-      this.debugLog(`Selected random team ${randomTeam.name} for diversity (lineup ${currentLineupCount}, seed: ${lineupSeed})`);
+      this.debugLog(
+        `Selected random team ${randomTeam.name} for diversity (lineup ${currentLineupCount}, seed: ${lineupSeed})`
+      );
       return randomTeam;
     }
-    
+
     // After 5 lineups, force more randomness by flattening the distribution
     if (currentLineupCount >= 5) {
       // Flatten the weight distribution to make all teams more equally likely
-      const flattenedWeights = teamsToUse.map(tw => ({
+      const flattenedWeights = teamsToUse.map((tw) => ({
         team: tw.team,
-        weight: tw.weight * 0.3 + (Math.random() * tw.weight * 0.7)
+        weight: tw.weight * 0.3 + Math.random() * tw.weight * 0.7,
       }));
       teamsToUse.splice(0, teamsToUse.length, ...flattenedWeights);
     }
@@ -2716,38 +3111,51 @@ class AdvancedOptimizer {
       teamsToUse.map((tw) => tw.weight),
       lineupSeed
     );
-    
-    
+
     return selectedTeam;
   }
 
   /**
    * Select a captain for the lineup
    */
-  _selectCaptain(stackTeam, usedPlayers, targetStackSize = null, lineupSeed = 0) {
-    // Get potential captain candidates
-    let candidates = this.playerPool.filter(
-      (player) =>
-        !usedPlayers.has(player.id) &&
-        // Captain is typically a high-scoring position
-        ["TOP", "MID", "ADC", "JNG"].includes(player.position)
-    );
+  _selectCaptain(
+    stackTeam,
+    usedPlayers,
+    targetStackSize = null,
+    lineupSeed = 0
+  ) {
+    // Use indexed lookups instead of filter operations
+    let candidates = [];
 
-    // Prefer players from the stack team
-    const stackTeamCandidates = candidates.filter(
-      (p) => p.team === stackTeam.name
-    );
+    // Get captain eligible players from index (O(1) lookup)
+    for (const playerId of this.playerIndexes.captainEligible) {
+      if (!usedPlayers.has(playerId)) {
+        candidates.push(this.playerIndexes.byId.get(playerId));
+      }
+    }
+
+    // Prefer players from the stack team using indexed lookup
+    const stackTeamPlayerIds =
+      this.playerIndexes.byTeam.get(stackTeam.name) || new Set();
+    const stackTeamCandidates = [];
+
+    for (const playerId of stackTeamPlayerIds) {
+      if (
+        this.playerIndexes.captainEligible.has(playerId) &&
+        !usedPlayers.has(playerId)
+      ) {
+        stackTeamCandidates.push(this.playerIndexes.byId.get(playerId));
+      }
+    }
 
     if (stackTeamCandidates.length > 0) {
       candidates = stackTeamCandidates;
     }
 
-    // Calculate current exposures
+    // Calculate current exposures using cached values
     const exposures = candidates.map((player) => {
-      const totalLineups =
-        this.generatedLineups.length + this.existingLineups.length;
-      const playerCount = this.exposureTracking.players.get(player.id) || 0;
-      const currentExposure = totalLineups > 0 ? playerCount / totalLineups : 0;
+      // Use cached exposure for O(1) lookup instead of recalculation
+      const currentExposure = this._getCachedPlayerExposure(player.id);
 
       // Get exposure constraints
       const exposureSetting = this.playerExposures.find(
@@ -2807,22 +3215,35 @@ class AdvancedOptimizer {
       // Captain value is influenced by projection, leverage, and remaining exposure
       const projectionValue =
         this._safeParseFloat(player.projectedPoints, 0) * 1.5; // CPT gets 1.5x
-      const playerOwnership =
-        this._safeParseFloat(player.ownership, 0.01); // Ensure not zero
+      const playerOwnership = this._safeParseFloat(player.ownership, 0.01); // Ensure not zero
       const leverageValue = projectionValue / playerOwnership;
       const exposureMultiplier =
         player.availableExposure / Math.max(0.1, player.maxExposure);
 
-      // Add stack exposure targeting weight
-      const stackExposureMultiplier = this._getStackExposureWeight(player.team, 4);
+      // Add stack exposure targeting weight using cached value
+      const stackExposureMultiplier = this._getStackExposureWeightCached(
+        player.team,
+        4
+      );
 
-      return projectionValue * leverageValue * exposureMultiplier * stackExposureMultiplier;
+      return (
+        projectionValue *
+        leverageValue *
+        exposureMultiplier *
+        stackExposureMultiplier
+      );
     });
 
     // Select a player based on weights
-    const selectedPlayer = this._weightedRandom(playersToUse, weights, lineupSeed);
-    
-    this.debugLog(`Selected captain: ${selectedPlayer?.name} (${selectedPlayer?.team})`);
+    const selectedPlayer = this._weightedRandom(
+      playersToUse,
+      weights,
+      lineupSeed
+    );
+
+    this.debugLog(
+      `Selected captain: ${selectedPlayer?.name} (${selectedPlayer?.team})`
+    );
 
     // Apply captain formatting
     return {
@@ -2853,7 +3274,8 @@ class AdvancedOptimizer {
     // Calculate current exposure for this stack
     const stackKey = `${team}_${stackSize}`;
     const stackCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
-    const totalLineups = this.generatedLineups.length + this.existingLineups.length;
+    const totalLineups =
+      this.generatedLineups.length + this.existingLineups.length;
     const currentExposure = totalLineups > 0 ? stackCount / totalLineups : 0;
 
     // Calculate deficit (positive = needs more exposure, negative = has too much)
@@ -2864,18 +3286,52 @@ class AdvancedOptimizer {
     // Strong weighting for teams that need exposure, reduced for those at/over target
     if (deficit > 0) {
       // Team needs more exposure - boost weight significantly
-      return 1.0 + (deficit * 5.0); // Up to 6x weight for large deficits
+      return 1.0 + deficit * 5.0; // Up to 6x weight for large deficits
     } else {
       // Team has enough/too much exposure - reduce weight
       const excess = Math.abs(deficit);
-      return Math.max(0.1, 1.0 - (excess * 2.0)); // Down to 0.1x weight for large excess
+      return Math.max(0.1, 1.0 - excess * 2.0); // Down to 0.1x weight for large excess
+    }
+  }
+
+  /**
+   * Calculate stack exposure weight using cached values
+   */
+  _getStackExposureWeightCached(team, stackSize) {
+    if (!team) return 1.0;
+
+    // Find stack exposure constraint for this team and stack size
+    const stackConstraint = this.teamStackExposures.find(
+      (se) => se.team === team && se.stackSize === stackSize
+    );
+
+    if (!stackConstraint || !stackConstraint.target) {
+      return 1.0; // No target set, neutral weight
+    }
+
+    // Use cached exposure instead of recalculating
+    const currentExposure = this._getCachedStackExposure(team, stackSize);
+
+    // Calculate deficit (positive = needs more exposure, negative = has too much)
+    const targetExposure = stackConstraint.target / 100; // Convert percentage to decimal
+    const deficit = targetExposure - currentExposure;
+
+    // Convert deficit to multiplier
+    // Strong weighting for teams that need exposure, reduced for those at/over target
+    if (deficit > 0) {
+      // Team needs more exposure - boost weight significantly
+      return 1.0 + deficit * 5.0; // Up to 6x weight for large deficits
+    } else {
+      // Team has enough/too much exposure - reduce weight
+      const excess = Math.abs(deficit);
+      return Math.max(0.1, 1.0 - excess * 2.0); // Down to 0.1x weight for large excess
     }
   }
 
   /**
    * Select a player for a position
    */
-  async _selectPositionPlayer(
+  _selectPositionPlayer(
     position,
     stackTeam,
     usedPlayers,
@@ -2890,26 +3346,38 @@ class AdvancedOptimizer {
     if (position === "TEAM") {
       this.debugLog("Selecting TEAM position player...");
 
+      // Use indexed lookups instead of filter
       // First try to get a TEAM player from the stack team
-      let teamPlayers = this.playerPool.filter(
-        (player) =>
-          !usedPlayers.has(player.id) &&
-          player.position === "TEAM" &&
-          player.team === stackTeam.name &&
-          this._safeParseFloat(player.salary, 0) <= remainingSalary
-      );
+      const posTeamKey = `TEAM_${stackTeam.name}`;
+      const stackTeamPlayerIds =
+        this.playerIndexes.byPositionAndTeam.get(posTeamKey) || new Set();
+
+      let teamPlayers = [];
+      for (const playerId of stackTeamPlayerIds) {
+        if (!usedPlayers.has(playerId)) {
+          const player = this.playerIndexes.byId.get(playerId);
+          if (this._safeParseFloat(player.salary, 0) <= remainingSalary) {
+            teamPlayers.push(player);
+          }
+        }
+      }
 
       // If no TEAM players from stack team, get any TEAM player
       if (teamPlayers.length === 0) {
         this.debugLog(
           "No TEAM players from stack team, selecting any TEAM player"
         );
-        teamPlayers = this.playerPool.filter(
-          (player) =>
-            !usedPlayers.has(player.id) &&
-            player.position === "TEAM" &&
-            this._safeParseFloat(player.salary, 0) <= remainingSalary
-        );
+
+        const allTeamPlayerIds =
+          this.playerIndexes.byPosition.get("TEAM") || new Set();
+        for (const playerId of allTeamPlayerIds) {
+          if (!usedPlayers.has(playerId)) {
+            const player = this.playerIndexes.byId.get(playerId);
+            if (this._safeParseFloat(player.salary, 0) <= remainingSalary) {
+              teamPlayers.push(player);
+            }
+          }
+        }
       }
 
       // If still no TEAM players, this is an error condition
@@ -2937,22 +3405,31 @@ class AdvancedOptimizer {
       };
     }
 
-    // Get potential players for this position who are under salary cap
-    let candidates = this.playerPool.filter(
-      (player) =>
-        !usedPlayers.has(player.id) &&
-        player.position === position &&
-        this._safeParseFloat(player.salary, 0) <= remainingSalary
-    );
+    // Use indexed lookups for position filtering
+    let candidates = [];
+    const positionPlayerIds =
+      this.playerIndexes.byPosition.get(position) || new Set();
+
+    for (const playerId of positionPlayerIds) {
+      if (!usedPlayers.has(playerId)) {
+        const player = this.playerIndexes.byId.get(playerId);
+        if (this._safeParseFloat(player.salary, 0) <= remainingSalary) {
+          candidates.push(player);
+        }
+      }
+    }
 
     // If no candidates, we have a problem
     if (candidates.length === 0) {
-      // Try to find any player under salary cap
-      candidates = this.playerPool.filter(
-        (player) =>
-          !usedPlayers.has(player.id) &&
+      // Try to find any player under salary cap from all players
+      for (const [playerId, player] of this.playerIndexes.byId) {
+        if (
+          !usedPlayers.has(playerId) &&
           this._safeParseFloat(player.salary, 0) <= remainingSalary
-      );
+        ) {
+          candidates.push(player);
+        }
+      }
 
       // If still no candidates, return null
       if (candidates.length === 0) {
@@ -2975,13 +3452,16 @@ class AdvancedOptimizer {
         `No candidates for ${position} after team limit filter, relaxing constraints`
       );
 
-      // Try to find any player for this position
-      candidates = this.playerPool.filter(
-        (player) =>
-          !usedPlayers.has(player.id) &&
-          player.position === position &&
-          this._safeParseFloat(player.salary, 0) <= remainingSalary
-      );
+      // Try to find any player for this position using indexed lookup
+      candidates = [];
+      for (const playerId of positionPlayerIds) {
+        if (!usedPlayers.has(playerId)) {
+          const player = this.playerIndexes.byId.get(playerId);
+          if (this._safeParseFloat(player.salary, 0) <= remainingSalary) {
+            candidates.push(player);
+          }
+        }
+      }
 
       // If still no candidates, return null
       if (candidates.length === 0) {
@@ -2993,28 +3473,31 @@ class AdvancedOptimizer {
     if (stackPattern) {
       const originalCount = candidates.length;
       candidates = this._filterCandidatesByStackPattern(
-        candidates, 
-        teamCounts, 
-        stackPattern, 
-        stackTeam.name, 
+        candidates,
+        teamCounts,
+        stackPattern,
+        stackTeam.name,
         targetStackSize
       );
-      
+
       this.debugLog(
         `Pattern filtering for ${position}: ${originalCount} -> ${candidates.length} candidates (pattern: ${stackPattern})`
       );
-      
+
       if (candidates.length === 0) {
         this.debugLog(
           `No candidates for ${position} that fit ${stackPattern} pattern, relaxing pattern constraint`
         );
         // Fallback: allow any candidate if pattern can't be met
-        candidates = this.playerPool.filter(
-          (player) =>
-            !usedPlayers.has(player.id) &&
-            player.position === position &&
-            this._safeParseFloat(player.salary, 0) <= remainingSalary
-        );
+        candidates = [];
+        for (const playerId of positionPlayerIds) {
+          if (!usedPlayers.has(playerId)) {
+            const player = this.playerIndexes.byId.get(playerId);
+            if (this._safeParseFloat(player.salary, 0) <= remainingSalary) {
+              candidates.push(player);
+            }
+          }
+        }
       }
     }
 
@@ -3057,12 +3540,10 @@ class AdvancedOptimizer {
       }
     }
 
-    // Calculate current exposures and check constraints
+    // Calculate current exposures and check constraints using cached values
     const exposures = candidates.map((player) => {
-      const totalLineups =
-        this.generatedLineups.length + this.existingLineups.length;
-      const playerCount = this.exposureTracking.players.get(player.id) || 0;
-      const currentExposure = totalLineups > 0 ? playerCount / totalLineups : 0;
+      // Use cached exposure lookup
+      const currentExposure = this._getCachedPlayerExposure(player.id);
 
       // Get exposure constraints
       const exposureSetting = this.playerExposures.find(
@@ -3120,8 +3601,7 @@ class AdvancedOptimizer {
       const projectionValue = this._safeParseFloat(player.projectedPoints, 0);
 
       // Leverage factor (projection vs ownership)
-      const playerOwnership =
-        this._safeParseFloat(player.ownership, 0.01); // Ensure not zero
+      const playerOwnership = this._safeParseFloat(player.ownership, 0.01); // Ensure not zero
       const leverageFactor =
         this.config.leverageMultiplier * (projectionValue / playerOwnership);
 
@@ -3145,11 +3625,17 @@ class AdvancedOptimizer {
     });
 
     // Select a player based on weights
-    const selectedPlayer = this._weightedRandom(playersToUse, weights, lineupSeed);
+    const selectedPlayer = this._weightedRandom(
+      playersToUse,
+      weights,
+      lineupSeed
+    );
 
     // Handle case where no valid player could be selected
     if (!selectedPlayer) {
-      console.warn(`No valid player found for position ${position} with current constraints`);
+      console.warn(
+        `No valid player found for position ${position} with current constraints`
+      );
       return null;
     }
 
@@ -3234,7 +3720,9 @@ class AdvancedOptimizer {
       );
 
     if (totalSalary > this.config.salaryCap) {
-      this.debugLog(`Lineup rejected: Salary $${totalSalary} exceeds cap $${this.config.salaryCap}`);
+      this.debugLog(
+        `Lineup rejected: Salary $${totalSalary} exceeds cap $${this.config.salaryCap}`
+      );
       return false;
     }
 
@@ -3263,7 +3751,7 @@ class AdvancedOptimizer {
     const MAX_PLAYERS_PER_TEAM = this.config.maxPlayersPerTeam || 4; // Use config value or default to 4
 
     const teamCounts = {};
-    
+
     // Count captain's team
     if (lineup.cpt && lineup.cpt.team) {
       teamCounts[lineup.cpt.team] = (teamCounts[lineup.cpt.team] || 0) + 1;
@@ -3288,12 +3776,17 @@ class AdvancedOptimizer {
 
     // Check stack type constraints (only allow 4-3 and 4-2-1 stacks)
     const counts = Object.values(teamCounts).sort((a, b) => b - a);
-    const stackPattern = counts.join('-');
-    
+    const stackPattern = counts.join("-");
+
     // Must be exactly 4-3 or 4-2-1 pattern
-    const isValid43Stack = (counts.length === 2 && counts[0] === 4 && counts[1] === 3);
-    const isValid421Stack = (counts.length === 3 && counts[0] === 4 && counts[1] === 2 && counts[2] === 1);
-    
+    const isValid43Stack =
+      counts.length === 2 && counts[0] === 4 && counts[1] === 3;
+    const isValid421Stack =
+      counts.length === 3 &&
+      counts[0] === 4 &&
+      counts[1] === 2 &&
+      counts[2] === 1;
+
     if (!isValid43Stack && !isValid421Stack) {
       this.debugLog(
         `Lineup invalid: stack pattern ${stackPattern} not allowed (only 4-3 and 4-2-1 allowed)`
@@ -3303,17 +3796,17 @@ class AdvancedOptimizer {
 
     // Check DraftKings rule: players must be from at least 2 games (no full game stacks)
     const games = new Set();
-    
+
     // Add captain's game
     if (lineup.cpt && lineup.cpt.team) {
       const captainOpponent = this._getTeamOpponent(lineup.cpt.team);
       if (captainOpponent) {
         // Create a game identifier using alphabetically sorted team names
         const gameTeams = [lineup.cpt.team, captainOpponent].sort();
-        games.add(gameTeams.join(' vs '));
+        games.add(gameTeams.join(" vs "));
       }
     }
-    
+
     // Add players' games
     lineup.players.forEach((player) => {
       if (player && player.team) {
@@ -3321,11 +3814,11 @@ class AdvancedOptimizer {
         if (playerOpponent) {
           // Create a game identifier using alphabetically sorted team names
           const gameTeams = [player.team, playerOpponent].sort();
-          games.add(gameTeams.join(' vs '));
+          games.add(gameTeams.join(" vs "));
         }
       }
     });
-    
+
     if (games.size < 2) {
       this.debugLog(
         `Lineup invalid: players from only ${games.size} game(s) (DraftKings requires at least 2 games)`
@@ -3342,18 +3835,27 @@ class AdvancedOptimizer {
    * Enhanced duplicate detection method
    */
   _isDuplicateLineup(lineup, existingLineups) {
-    const currentPlayerIds = [lineup.cpt.id, ...lineup.players.map(p => p.id)].sort().join('|');
-    
+    const currentPlayerIds = [lineup.cpt.id, ...lineup.players.map((p) => p.id)]
+      .sort()
+      .join("|");
+
     for (let i = 0; i < existingLineups.length; i++) {
       const existing = existingLineups[i];
-      const existingPlayerIds = [existing.cpt.id, ...existing.players.map(p => p.id)].sort().join('|');
+      const existingPlayerIds = [
+        existing.cpt.id,
+        ...existing.players.map((p) => p.id),
+      ]
+        .sort()
+        .join("|");
       if (currentPlayerIds === existingPlayerIds) {
         this.debugLog(`Duplicate detected: matches existing lineup ${i}`);
         return true;
       }
     }
-    
-    this.debugLog(`Unique lineup: ${currentPlayerIds} (vs ${existingLineups.length} existing)`);
+
+    this.debugLog(
+      `Unique lineup: ${currentPlayerIds} (vs ${existingLineups.length} existing)`
+    );
     return false;
   }
 
@@ -3362,31 +3864,47 @@ class AdvancedOptimizer {
    */
   _hasSufficientDiversity(lineup, existingLineups) {
     if (existingLineups.length === 0) return true;
-    
-    const currentPlayers = new Set([lineup.cpt.id, ...lineup.players.map(p => p.id)]);
-    
+
+    const currentPlayers = new Set([
+      lineup.cpt.id,
+      ...lineup.players.map((p) => p.id),
+    ]);
+
     // Scale diversity requirement based on how many lineups we have
     // Start strict (25%) and relax to 15% as we generate more lineups
-    const diversityFactor = Math.max(0.15, 0.25 - (existingLineups.length * 0.001));
-    const minDifferentPlayers = Math.max(1, Math.floor(currentPlayers.size * diversityFactor));
-    
+    const diversityFactor = Math.max(
+      0.15,
+      0.25 - existingLineups.length * 0.001
+    );
+    const minDifferentPlayers = Math.max(
+      1,
+      Math.floor(currentPlayers.size * diversityFactor)
+    );
+
     // Only check against recent lineups for efficiency with large counts
     const checkCount = Math.min(existingLineups.length, 50);
     const recentLineups = existingLineups.slice(-checkCount);
-    
+
     for (const existing of recentLineups) {
-      const existingPlayers = new Set([existing.cpt.id, ...existing.players.map(p => p.id)]);
-      
+      const existingPlayers = new Set([
+        existing.cpt.id,
+        ...existing.players.map((p) => p.id),
+      ]);
+
       // Calculate intersection (same players)
-      const intersection = new Set([...currentPlayers].filter(x => existingPlayers.has(x)));
+      const intersection = new Set(
+        [...currentPlayers].filter((x) => existingPlayers.has(x))
+      );
       const differentPlayers = currentPlayers.size - intersection.size;
-      
+
       if (differentPlayers < minDifferentPlayers) {
-        this.debugLog(`Insufficient diversity: only ${differentPlayers} different players (need ${minDifferentPlayers})`);
+        this.debugLog(
+          `Insufficient diversity: only ${differentPlayers} different players (need ${minDifferentPlayers})`
+        );
         return false;
       }
     }
-    
+
     return true;
   }
 
@@ -3430,7 +3948,7 @@ class AdvancedOptimizer {
               this._applyCorrelations(basePerformances);
 
             // Sum up performances
-            for (const { id, perf, isCpt } of correlatedPerformances) {
+            for (const { perf, isCpt } of correlatedPerformances) {
               // Captain gets 1.5x
               totalPoints += isCpt ? perf * 1.5 : perf;
             }
@@ -3655,17 +4173,20 @@ class AdvancedOptimizer {
 
     // Add randomness factor to flatten the distribution and prevent same selections
     const randomnessFactor = this.config.randomness || 0.3;
-    
+
     // Increase randomness based on current lineup count to prevent duplicates
     const lineupCount = this.generatedLineups.length;
-    const adaptiveRandomness = Math.min(0.9, randomnessFactor + (lineupCount * 0.03));
-    
+    const adaptiveRandomness = Math.min(
+      0.9,
+      randomnessFactor + lineupCount * 0.03
+    );
+
     const baseWeight = Math.max(...positiveWeights) * adaptiveRandomness;
-    
+
     // Normalize weights with enhanced randomness
-    const normalizedWeights = positiveWeights.map(w => {
+    const normalizedWeights = positiveWeights.map((w) => {
       // Add different levels of randomness for each selection - make it more variable
-      const randomMultiplier = 0.3 + (Math.random() * adaptiveRandomness * 1.5);
+      const randomMultiplier = 0.3 + Math.random() * adaptiveRandomness * 1.5;
       // Add additional entropy based on lineup count and seed
       const entropyBoost = (lineupCount % 7) * 0.1; // Use modulo to create cycling randomness
       const seedEntropy = lineupSeed ? (lineupSeed % 10) * 0.05 : 0; // Additional seed-based entropy
@@ -3685,7 +4206,9 @@ class AdvancedOptimizer {
     if (Math.random() < pureRandomChance && lineupCount > 1) {
       // For preventing duplicates, sometimes just pick completely randomly
       const randomIndex = Math.floor(Math.random() * items.length);
-      this.debugLog(`Pure random selection (chance: ${pureRandomChance}, lineup: ${lineupCount})`);
+      this.debugLog(
+        `Pure random selection (chance: ${pureRandomChance}, lineup: ${lineupCount})`
+      );
       return items[randomIndex];
     }
 
@@ -3695,9 +4218,9 @@ class AdvancedOptimizer {
       const sortedIndices = normalizedWeights
         .map((weight, index) => ({ weight, index }))
         .sort((a, b) => b.weight - a.weight);
-      
+
       // Increase the portion we select from as we generate more lineups
-      const topPortion = Math.min(0.5, 0.3 + (lineupCount * 0.02));
+      const topPortion = Math.min(0.5, 0.3 + lineupCount * 0.02);
       const topCount = Math.max(1, Math.ceil(items.length * topPortion));
       const randomTopIndex = Math.floor(Math.random() * topCount);
       return items[sortedIndices[randomTopIndex].index];
@@ -3723,24 +4246,28 @@ class AdvancedOptimizer {
    */
   _predictFinalExposures(candidateLineup, currentLineups, totalTargetLineups) {
     const remainingLineups = totalTargetLineups - currentLineups.length - 1; // -1 for candidate
-    if (remainingLineups <= 0) return { acceptable: true, predictions: new Map() };
+    if (remainingLineups <= 0)
+      return { acceptable: true, predictions: new Map() };
 
     // Run simplified Monte Carlo to predict exposure outcomes
     const simulations = Math.min(100, remainingLineups * 5); // Reasonable simulation count
     const predictions = new Map();
-    
+
     // Initialize prediction tracking
     const allPlayers = [];
     if (candidateLineup.cpt) allPlayers.push(candidateLineup.cpt);
     if (candidateLineup.players) allPlayers.push(...candidateLineup.players);
-    
+
     // Get current exposure state including the candidate lineup
-    const currentState = this._getCurrentExposureState(candidateLineup, currentLineups);
-    
+    const currentState = this._getCurrentExposureState(
+      candidateLineup,
+      currentLineups
+    );
+
     // Run simulations
     for (let sim = 0; sim < simulations; sim++) {
       const simState = { ...currentState };
-      
+
       // Simulate remaining lineups
       for (let remaining = 0; remaining < remainingLineups; remaining++) {
         const simLineup = this._simulateRandomLineup(currentLineups, remaining);
@@ -3748,11 +4275,11 @@ class AdvancedOptimizer {
           this._updateSimulationState(simState, simLineup);
         }
       }
-      
+
       // Record final exposures from this simulation
       this._recordSimulationResults(simState, predictions, totalTargetLineups);
     }
-    
+
     // Calculate prediction statistics
     return this._calculatePredictionStatistics(predictions, simulations);
   }
@@ -3764,17 +4291,17 @@ class AdvancedOptimizer {
     const state = {
       playerCounts: new Map(),
       teamStackCounts: new Map(),
-      totalLineups: currentLineups.length + 1 // Include candidate
+      totalLineups: currentLineups.length + 1, // Include candidate
     };
-    
+
     // Count existing lineups
-    currentLineups.forEach(lineup => {
+    currentLineups.forEach((lineup) => {
       this._updateSimulationState(state, lineup);
     });
-    
+
     // Count candidate lineup
     this._updateSimulationState(state, candidateLineup);
-    
+
     return state;
   }
 
@@ -3784,32 +4311,32 @@ class AdvancedOptimizer {
   _simulateRandomLineup(existingLineups, iteration) {
     // Simplified lineup simulation - create a representative lineup
     // This is a fast approximation, not a full lineup build
-    
+
     if (!this.playerPool || this.playerPool.length === 0) return null;
-    
+
     // Pick players with some reasonable distribution
     const lineup = { cpt: null, players: [] };
     const usedIds = new Set();
-    
+
     // Select captain randomly from top-tier players
     const topPlayers = this.playerPool
-      .filter(p => this._safeParseFloat(p.projectedPoints, 0) > 10)
+      .filter((p) => this._safeParseFloat(p.projectedPoints, 0) > 10)
       .slice(0, Math.min(20, this.playerPool.length));
-    
+
     if (topPlayers.length > 0) {
       lineup.cpt = topPlayers[Math.floor(Math.random() * topPlayers.length)];
       usedIds.add(lineup.cpt.id);
     }
-    
+
     // Select 5 regular players
-    const availablePlayers = this.playerPool.filter(p => !usedIds.has(p.id));
+    const availablePlayers = this.playerPool.filter((p) => !usedIds.has(p.id));
     for (let i = 0; i < 5 && availablePlayers.length > 0; i++) {
       const randomIndex = Math.floor(Math.random() * availablePlayers.length);
       const player = availablePlayers.splice(randomIndex, 1)[0];
       lineup.players.push(player);
       usedIds.add(player.id);
     }
-    
+
     return lineup.players.length === 5 ? lineup : null;
   }
 
@@ -3820,23 +4347,23 @@ class AdvancedOptimizer {
     const allPlayers = [];
     if (lineup.cpt) allPlayers.push(lineup.cpt);
     if (lineup.players) allPlayers.push(...lineup.players);
-    
+
     // Count players
-    allPlayers.forEach(player => {
+    allPlayers.forEach((player) => {
       if (player?.id) {
         const current = state.playerCounts.get(player.id) || 0;
         state.playerCounts.set(player.id, current + 1);
       }
     });
-    
+
     // Count team stacks
     const teamCounts = {};
-    allPlayers.forEach(player => {
+    allPlayers.forEach((player) => {
       if (player?.team) {
         teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
       }
     });
-    
+
     Object.entries(teamCounts).forEach(([team, count]) => {
       if (count >= 2) {
         for (let stackSize = 2; stackSize <= count; stackSize++) {
@@ -3860,7 +4387,7 @@ class AdvancedOptimizer {
       }
       predictions.get(`player_${playerId}`).push(exposure);
     }
-    
+
     // Record stack exposure predictions
     for (const [stackKey, count] of simState.teamStackCounts) {
       const exposure = count / totalLineups;
@@ -3876,22 +4403,22 @@ class AdvancedOptimizer {
    */
   _calculatePredictionStatistics(predictions, simulations) {
     const stats = new Map();
-    
+
     for (const [key, values] of predictions) {
       const sorted = values.sort((a, b) => a - b);
       const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
       const p25 = sorted[Math.floor(simulations * 0.25)];
       const p75 = sorted[Math.floor(simulations * 0.75)];
-      
+
       stats.set(key, {
         mean,
         p25,
         p75,
         confidence: p75 - p25, // Confidence interval width
-        samples: values.length
+        samples: values.length,
       });
     }
-    
+
     return { predictions: stats, acceptable: true };
   }
 
@@ -3900,31 +4427,35 @@ class AdvancedOptimizer {
    */
   _isExposurePredictionAcceptable(prediction) {
     if (!prediction || !prediction.predictions) return true;
-    
+
     // Check against exposure constraints
     for (const [key, stats] of prediction.predictions) {
-      if (key.startsWith('stack_')) {
-        const stackInfo = key.replace('stack_', '').split('_');
+      if (key.startsWith("stack_")) {
+        const stackInfo = key.replace("stack_", "").split("_");
         if (stackInfo.length >= 2) {
           const team = stackInfo[0];
           const stackSize = parseInt(stackInfo[1]);
-          
+
           // Find corresponding target exposure
           const targetExposure = this._getTargetExposure(team, stackSize);
           if (targetExposure !== null) {
             const targetDecimal = targetExposure / 100;
-            
+
             // Check if prediction is within acceptable range
             const tolerance = 0.15; // 15% tolerance
             if (stats.mean > targetDecimal + tolerance) {
-              this.debugLog(`Exposure prediction exceeded for ${team} ${stackSize}-stack: ${(stats.mean * 100).toFixed(1)}% > ${targetExposure}%`);
+              this.debugLog(
+                `Exposure prediction exceeded for ${team} ${stackSize}-stack: ${(
+                  stats.mean * 100
+                ).toFixed(1)}% > ${targetExposure}%`
+              );
               return false;
             }
           }
         }
       }
     }
-    
+
     return true;
   }
 
@@ -3933,7 +4464,7 @@ class AdvancedOptimizer {
    */
   _getTargetExposure(team, stackSize) {
     const stackExposure = this.teamStackExposures.find(
-      exp => exp.team === team && exp.stackSize === stackSize.toString()
+      (exp) => exp.team === team && exp.stackSize === stackSize.toString()
     );
     return stackExposure?.target || null;
   }
@@ -3944,27 +4475,28 @@ class AdvancedOptimizer {
   _updateAdaptiveTargeting(currentLineupCount, totalTargetLineups) {
     // Always update accuracy metrics, but only adapt targeting after 5 lineups
     const shouldAdapt = currentLineupCount >= 5;
-    
+
     // Safety check for exposureTracking
     if (!this.exposureTracking || !this.exposureTracking.exposurePredictions) {
       return;
     }
-    
+
     const progress = currentLineupCount / totalTargetLineups;
     const remaining = totalTargetLineups - currentLineupCount;
-    
+
     // Always update accuracy metrics
     this._updateAllAccuracyMetrics(currentLineupCount, totalTargetLineups);
-    
+
     // Only adapt targeting after we have enough data
     if (shouldAdapt) {
       // Update target exposures based on current performance
-      this.teamStackExposures.forEach(stackExp => {
+      this.teamStackExposures.forEach((stackExp) => {
         const stackKey = `${stackExp.team}_${stackExp.stackSize}`;
-        const currentCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+        const currentCount =
+          this.exposureTracking.teamStacks.get(stackKey) || 0;
         const currentExposure = currentCount / currentLineupCount;
         const targetExposure = (stackExp.target || 0) / 100;
-        
+
         if (targetExposure > 0) {
           // Bayesian update of target based on current performance
           const adjustedTarget = this._bayesianTargetUpdate(
@@ -3973,9 +4505,12 @@ class AdvancedOptimizer {
             progress,
             remaining
           );
-          
+
           // Store updated target in exposure tracking for future decisions
-          this.exposureTracking.exposurePredictions.set(stackKey, adjustedTarget);
+          this.exposureTracking.exposurePredictions.set(
+            stackKey,
+            adjustedTarget
+          );
         }
       });
     }
@@ -3986,83 +4521,113 @@ class AdvancedOptimizer {
    */
   _updateAllAccuracyMetrics(currentLineupCount, totalTargetLineups) {
     const progress = currentLineupCount / totalTargetLineups;
-    
+
     // Track team stack accuracy
     if (this.teamStackExposures) {
-      this.teamStackExposures.forEach(stackExp => {
+      this.teamStackExposures.forEach((stackExp) => {
         const stackKey = `${stackExp.team}_${stackExp.stackSize}`;
-        const currentCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+        const currentCount =
+          this.exposureTracking.teamStacks.get(stackKey) || 0;
         const currentExposure = currentCount / currentLineupCount;
         const targetExposure = (stackExp.target || 0) / 100;
-        
+
         if (targetExposure > 0) {
-          this._updateAccuracyMetrics(stackKey, targetExposure, currentExposure, progress);
+          this._updateAccuracyMetrics(
+            stackKey,
+            targetExposure,
+            currentExposure,
+            progress
+          );
         }
       });
     }
-    
+
     // Track player exposure accuracy
     if (this.playerExposures && this.playerExposures.length > 0) {
-      this.playerExposures.forEach(playerExp => {
+      this.playerExposures.forEach((playerExp) => {
         const playerId = playerExp.playerId || playerExp.player_id;
         if (playerId) {
           const currentCount = this.exposureTracking.players.get(playerId) || 0;
           const currentExposure = currentCount / currentLineupCount;
           const targetExposure = (playerExp.target || 0) / 100;
-          
+
           if (targetExposure > 0) {
             const playerKey = `player_${playerId}`;
-            this._updateAccuracyMetrics(playerKey, targetExposure, currentExposure, progress);
+            this._updateAccuracyMetrics(
+              playerKey,
+              targetExposure,
+              currentExposure,
+              progress
+            );
           }
         }
       });
     }
-    
+
     // Add basic accuracy metrics even without specific targets
     if (currentLineupCount > 0) {
       let overallDeviation = 0;
-      
+
       // If we have specific targets, use them
-      const totalTargetExposures = this.teamStackExposures ? this.teamStackExposures.reduce((sum, exp) => sum + (exp.target || 0), 0) : 0;
-      
+      const totalTargetExposures = this.teamStackExposures
+        ? this.teamStackExposures.reduce(
+            (sum, exp) => sum + (exp.target || 0),
+            0
+          )
+        : 0;
+
       if (totalTargetExposures > 0) {
-        const totalActualExposures = Array.from(this.exposureTracking.teamStacks.values()).reduce((sum, count) => sum + (count / currentLineupCount), 0) * 100;
-        overallDeviation = Math.abs(totalActualExposures - totalTargetExposures) / 100;
+        const totalActualExposures =
+          Array.from(this.exposureTracking.teamStacks.values()).reduce(
+            (sum, count) => sum + count / currentLineupCount,
+            0
+          ) * 100;
+        overallDeviation =
+          Math.abs(totalActualExposures - totalTargetExposures) / 100;
       } else {
         // Fallback: measure diversity as accuracy (ideal = balanced distribution)
         const playerCounts = Array.from(this.exposureTracking.players.values());
         if (playerCounts.length > 0) {
-          const avgPlayerUsage = playerCounts.reduce((sum, count) => sum + count, 0) / playerCounts.length;
-          const variance = playerCounts.reduce((sum, count) => sum + Math.pow(count - avgPlayerUsage, 2), 0) / playerCounts.length;
-          
+          const avgPlayerUsage =
+            playerCounts.reduce((sum, count) => sum + count, 0) /
+            playerCounts.length;
+          const variance =
+            playerCounts.reduce(
+              (sum, count) => sum + Math.pow(count - avgPlayerUsage, 2),
+              0
+            ) / playerCounts.length;
+
           // Better diversity calculation: coefficient of variation
-          const coefficientOfVariation = avgPlayerUsage > 0 ? Math.sqrt(variance) / avgPlayerUsage : 0;
-          
+          const coefficientOfVariation =
+            avgPlayerUsage > 0 ? Math.sqrt(variance) / avgPlayerUsage : 0;
+
           // Good diversity: CV between 0.2-0.8, excellent <0.2, poor >1.0
           // Convert to deviation (0 = perfect, 1 = very poor)
           if (coefficientOfVariation <= 0.2) {
-            overallDeviation = coefficientOfVariation / 0.2 * 0.1; // 0-10% deviation for excellent diversity
+            overallDeviation = (coefficientOfVariation / 0.2) * 0.1; // 0-10% deviation for excellent diversity
           } else if (coefficientOfVariation <= 0.8) {
-            overallDeviation = 0.1 + (coefficientOfVariation - 0.2) / 0.6 * 0.3; // 10-40% deviation for good diversity
+            overallDeviation =
+              0.1 + ((coefficientOfVariation - 0.2) / 0.6) * 0.3; // 10-40% deviation for good diversity
           } else {
-            overallDeviation = Math.min(0.8, 0.4 + (coefficientOfVariation - 0.8) * 0.4); // 40-80% deviation for poor diversity
+            overallDeviation = Math.min(
+              0.8,
+              0.4 + (coefficientOfVariation - 0.8) * 0.4
+            ); // 40-80% deviation for poor diversity
           }
-          
         } else {
           // Minimal fallback: assume reasonable accuracy if we can't measure
           overallDeviation = 0.3; // Equivalent to ~40% accuracy baseline
         }
       }
-      
+
       // Add to overall accuracy history
       this.exposureAccuracy.accuracyHistory.push({
         deviation: overallDeviation,
         timestamp: Date.now(),
         progress: progress,
-        lineupCount: currentLineupCount
+        lineupCount: currentLineupCount,
       });
-      
-      
+
       // Keep history manageable
       if (this.exposureAccuracy.accuracyHistory.length > 500) {
         this.exposureAccuracy.accuracyHistory.splice(0, 100);
@@ -4073,37 +4638,49 @@ class AdvancedOptimizer {
   /**
    * Bayesian update of target exposure
    */
-  _bayesianTargetUpdate(originalTarget, currentActual, progress, remainingLineups) {
+  _bayesianTargetUpdate(
+    originalTarget,
+    currentActual,
+    progress,
+    remainingLineups
+  ) {
     // Calculate deviation from target
     const deviation = currentActual - originalTarget;
     const absDeviation = Math.abs(deviation);
-    
+
     // Confidence in current trend (higher with more data)
     const confidence = Math.min(0.8, progress * 1.2);
-    
+
     // Calculate adjustment factor
     let adjustmentFactor = 1.0;
-    
+
     if (remainingLineups > 0) {
       // If we're over target, reduce future targeting aggressiveness
-      if (deviation > 0.05) { // 5% threshold
-        adjustmentFactor = Math.max(0.3, 1.0 - (confidence * absDeviation * 2));
+      if (deviation > 0.05) {
+        // 5% threshold
+        adjustmentFactor = Math.max(0.3, 1.0 - confidence * absDeviation * 2);
       }
       // If we're under target, increase targeting aggressiveness
       else if (deviation < -0.05) {
-        adjustmentFactor = Math.min(2.0, 1.0 + (confidence * absDeviation * 1.5));
+        adjustmentFactor = Math.min(2.0, 1.0 + confidence * absDeviation * 1.5);
       }
     }
-    
+
     // Apply Bayesian weighting
     const prior = originalTarget;
     const likelihood = currentActual;
-    const posterior = (prior * (1 - confidence)) + (likelihood * confidence);
-    
+    const posterior = prior * (1 - confidence) + likelihood * confidence;
+
     const adjustedTarget = posterior * adjustmentFactor;
-    
-    this.debugLog(`Bayesian update: ${originalTarget.toFixed(3)} -> ${adjustedTarget.toFixed(3)} (conf: ${confidence.toFixed(2)}, adj: ${adjustmentFactor.toFixed(2)})`);
-    
+
+    this.debugLog(
+      `Bayesian update: ${originalTarget.toFixed(
+        3
+      )} -> ${adjustedTarget.toFixed(3)} (conf: ${confidence.toFixed(
+        2
+      )}, adj: ${adjustmentFactor.toFixed(2)})`
+    );
+
     return Math.max(0, Math.min(1, adjustedTarget));
   }
 
@@ -4113,36 +4690,41 @@ class AdvancedOptimizer {
   _updateAccuracyMetrics(stackKey, target, actual, progress) {
     const deviation = Math.abs(actual - target);
     const timestamp = Date.now();
-    
+
     // Initialize if needed
     if (!this.exposureAccuracy.targetDeviation.has(stackKey)) {
       this.exposureAccuracy.targetDeviation.set(stackKey, []);
     }
     if (!this.exposureAccuracy.confidenceIntervals.has(stackKey)) {
-      this.exposureAccuracy.confidenceIntervals.set(stackKey, { lower: 0, upper: 1 });
+      this.exposureAccuracy.confidenceIntervals.set(stackKey, {
+        lower: 0,
+        upper: 1,
+      });
     }
-    
+
     // Update deviation history
     const deviations = this.exposureAccuracy.targetDeviation.get(stackKey);
     deviations.push({ deviation, timestamp, progress, target, actual });
-    
+
     // Keep only recent history (last 100 measurements)
     if (deviations.length > 100) {
       deviations.splice(0, deviations.length - 100);
     }
-    
+
     // Update confidence intervals based on historical performance
     const recentDeviations = deviations.slice(-20); // Last 20 measurements
     if (recentDeviations.length >= 5) {
-      const avgDeviation = recentDeviations.reduce((sum, d) => sum + d.deviation, 0) / recentDeviations.length;
-      const confidence = Math.max(0.05, 0.15 - (avgDeviation * 0.5)); // Better accuracy = tighter intervals
-      
+      const avgDeviation =
+        recentDeviations.reduce((sum, d) => sum + d.deviation, 0) /
+        recentDeviations.length;
+      const confidence = Math.max(0.05, 0.15 - avgDeviation * 0.5); // Better accuracy = tighter intervals
+
       this.exposureAccuracy.confidenceIntervals.set(stackKey, {
         lower: Math.max(0, target - confidence),
-        upper: Math.min(1, target + confidence)
+        upper: Math.min(1, target + confidence),
       });
     }
-    
+
     // Update overall accuracy history
     this.exposureAccuracy.accuracyHistory.push({
       timestamp,
@@ -4150,9 +4732,9 @@ class AdvancedOptimizer {
       deviation,
       progress,
       target,
-      actual
+      actual,
     });
-    
+
     // Keep accuracy history manageable
     if (this.exposureAccuracy.accuracyHistory.length > 500) {
       this.exposureAccuracy.accuracyHistory.splice(0, 100);
@@ -4167,37 +4749,44 @@ class AdvancedOptimizer {
       overallAccuracy: 0,
       stackAccuracies: new Map(),
       confidenceIntervals: this.exposureAccuracy.confidenceIntervals,
-      recentTrends: new Map()
+      recentTrends: new Map(),
     };
-    
-    
+
     // Calculate overall accuracy
     if (this.exposureAccuracy.accuracyHistory.length > 0) {
       const recentHistory = this.exposureAccuracy.accuracyHistory.slice(-50);
-      const avgDeviation = recentHistory.reduce((sum, h) => sum + h.deviation, 0) / recentHistory.length;
-      metrics.overallAccuracy = Math.max(0, 1 - (avgDeviation * 2)); // Convert deviation to accuracy score
+      const avgDeviation =
+        recentHistory.reduce((sum, h) => sum + h.deviation, 0) /
+        recentHistory.length;
+      metrics.overallAccuracy = Math.max(0, 1 - avgDeviation * 2); // Convert deviation to accuracy score
     }
-    
+
     // Calculate per-stack accuracy
-    for (const [stackKey, deviations] of this.exposureAccuracy.targetDeviation) {
+    for (const [stackKey, deviations] of this.exposureAccuracy
+      .targetDeviation) {
       if (deviations.length > 0) {
         const recent = deviations.slice(-10);
-        const avgDeviation = recent.reduce((sum, d) => sum + d.deviation, 0) / recent.length;
-        const accuracy = Math.max(0, 1 - (avgDeviation * 2));
+        const avgDeviation =
+          recent.reduce((sum, d) => sum + d.deviation, 0) / recent.length;
+        const accuracy = Math.max(0, 1 - avgDeviation * 2);
         metrics.stackAccuracies.set(stackKey, accuracy);
-        
+
         // Calculate trend (improving or declining accuracy)
         if (recent.length >= 5) {
           const firstHalf = recent.slice(0, Math.floor(recent.length / 2));
           const secondHalf = recent.slice(Math.floor(recent.length / 2));
-          const firstAvg = firstHalf.reduce((sum, d) => sum + d.deviation, 0) / firstHalf.length;
-          const secondAvg = secondHalf.reduce((sum, d) => sum + d.deviation, 0) / secondHalf.length;
+          const firstAvg =
+            firstHalf.reduce((sum, d) => sum + d.deviation, 0) /
+            firstHalf.length;
+          const secondAvg =
+            secondHalf.reduce((sum, d) => sum + d.deviation, 0) /
+            secondHalf.length;
           const trend = firstAvg - secondAvg; // Positive = improving, negative = declining
           metrics.recentTrends.set(stackKey, trend);
         }
       }
     }
-    
+
     return metrics;
   }
 
@@ -4208,33 +4797,40 @@ class AdvancedOptimizer {
     if (!team || !team.name) return 1.0;
 
     let synergyScore = 1.0;
-    
+
     // Get team players
-    const teamPlayers = this.playerPool.filter(p => p.team === team.name);
+    const teamPlayers = this.playerPool.filter((p) => p.team === team.name);
     if (teamPlayers.length === 0) return 1.0;
 
     // Calculate role diversity bonus
     const roleDiversityBonus = this._calculateRoleDiversityBonus(teamPlayers);
-    
+
     // Calculate projection balance bonus
-    const projectionBalanceBonus = this._calculateProjectionBalanceBonus(teamPlayers);
-    
+    const projectionBalanceBonus =
+      this._calculateProjectionBalanceBonus(teamPlayers);
+
     // Calculate historical synergy from existing lineups
-    const historicalSynergyBonus = this._calculateHistoricalSynergyBonus(team.name);
-    
+    const historicalSynergyBonus = this._calculateHistoricalSynergyBonus(
+      team.name
+    );
+
     // Calculate meta positioning bonus
-    const metaBonus = this._calculateTeamMetaBonus(teamPlayers, currentLineupCount);
-    
+    const metaBonus = this._calculateTeamMetaBonus(
+      teamPlayers,
+      currentLineupCount
+    );
+
     // Combine bonuses
-    synergyScore = 1.0 + 
-      (roleDiversityBonus * this.config.correlation.roleComplementarity) +
-      (projectionBalanceBonus * 0.2) +
-      (historicalSynergyBonus * this.config.correlation.stackSynergy) +
-      (metaBonus * this.config.correlation.metaBonus);
-    
+    synergyScore =
+      1.0 +
+      roleDiversityBonus * this.config.correlation.roleComplementarity +
+      projectionBalanceBonus * 0.2 +
+      historicalSynergyBonus * this.config.correlation.stackSynergy +
+      metaBonus * this.config.correlation.metaBonus;
+
     // Normalize to reasonable range
     synergyScore = Math.max(0.5, Math.min(2.0, synergyScore));
-    
+
     return synergyScore;
   }
 
@@ -4242,9 +4838,9 @@ class AdvancedOptimizer {
    * Calculate role diversity bonus for a team
    */
   _calculateRoleDiversityBonus(teamPlayers) {
-    const positions = teamPlayers.map(p => p.position).filter(Boolean);
+    const positions = teamPlayers.map((p) => p.position).filter(Boolean);
     const uniquePositions = new Set(positions);
-    
+
     // Bonus for having all core positions represented
     if (uniquePositions.size >= 5) {
       return 0.3; // 30% bonus for full position coverage
@@ -4253,7 +4849,7 @@ class AdvancedOptimizer {
     } else if (uniquePositions.size >= 3) {
       return 0.1; // 10% bonus for moderate coverage
     }
-    
+
     return 0;
   }
 
@@ -4262,24 +4858,27 @@ class AdvancedOptimizer {
    */
   _calculateProjectionBalanceBonus(teamPlayers) {
     const projections = teamPlayers
-      .map(p => this._safeParseFloat(p.projectedPoints, 0))
-      .filter(proj => proj > 0);
-    
+      .map((p) => this._safeParseFloat(p.projectedPoints, 0))
+      .filter((proj) => proj > 0);
+
     if (projections.length < 3) return 0;
-    
+
     // Calculate coefficient of variation (std dev / mean)
-    const mean = projections.reduce((sum, p) => sum + p, 0) / projections.length;
-    const variance = projections.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / projections.length;
+    const mean =
+      projections.reduce((sum, p) => sum + p, 0) / projections.length;
+    const variance =
+      projections.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) /
+      projections.length;
     const stdDev = Math.sqrt(variance);
     const cv = stdDev / mean;
-    
+
     // Lower CV means more balanced projections
     if (cv < 0.3) {
       return 0.2; // Well-balanced team
     } else if (cv < 0.5) {
       return 0.1; // Moderately balanced
     }
-    
+
     return 0;
   }
 
@@ -4291,20 +4890,21 @@ class AdvancedOptimizer {
     if (!this.exposureTracking || !this.exposureTracking.synergyScores) {
       return 0;
     }
-    
+
     // Look up synergy scores from tracking
-    const synergyKeys = Array.from(this.exposureTracking.synergyScores.keys())
-      .filter(key => key.startsWith(`${teamName}_`));
-    
+    const synergyKeys = Array.from(
+      this.exposureTracking.synergyScores.keys()
+    ).filter((key) => key.startsWith(`${teamName}_`));
+
     if (synergyKeys.length === 0) return 0;
-    
+
     // Calculate average synergy performance
     const totalSynergy = synergyKeys.reduce((sum, key) => {
       return sum + (this.exposureTracking.synergyScores.get(key) || 0);
     }, 0);
-    
+
     const avgSynergy = totalSynergy / synergyKeys.length;
-    
+
     // Normalize to bonus range (higher synergy = higher bonus)
     return Math.min(0.3, avgSynergy / 100); // Cap at 30% bonus
   }
@@ -4314,24 +4914,24 @@ class AdvancedOptimizer {
    */
   _calculateTeamMetaBonus(teamPlayers, currentLineupCount) {
     // This is simplified - in production would use real meta data
-    
+
     // Bonus for having high-projection players (meta indicator)
-    const highProjPlayers = teamPlayers.filter(p => 
-      this._safeParseFloat(p.projectedPoints, 0) > 15
+    const highProjPlayers = teamPlayers.filter(
+      (p) => this._safeParseFloat(p.projectedPoints, 0) > 15
     ).length;
-    
+
     let metaBonus = 0;
-    
+
     // More high-projection players suggests strong meta positioning
     if (highProjPlayers >= 3) {
       metaBonus += 0.2;
     } else if (highProjPlayers >= 2) {
       metaBonus += 0.1;
     }
-    
+
     // Bonus for team diversity in lineup count (anti-repeat)
     const diversityBonus = Math.min(0.1, currentLineupCount * 0.02);
-    
+
     return metaBonus + diversityBonus;
   }
 
@@ -4340,33 +4940,46 @@ class AdvancedOptimizer {
    */
   _logRealTimeDeviations(currentLineupCount, targetLineupCount) {
     if (currentLineupCount % 5 === 0 && this.teamStackExposures.length > 0) {
-      this.debugLog(`=== Real-time Exposure Tracking (${currentLineupCount}/${targetLineupCount}) ===`);
-      
-      this.teamStackExposures.forEach(stackExp => {
+      this.debugLog(
+        `=== Real-time Exposure Tracking (${currentLineupCount}/${targetLineupCount}) ===`
+      );
+
+      this.teamStackExposures.forEach((stackExp) => {
         if (stackExp.target > 0) {
           const stackKey = `${stackExp.team}_${stackExp.stackSize}`;
-          const currentCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
+          const currentCount =
+            this.exposureTracking.teamStacks.get(stackKey) || 0;
           const currentExposure = currentCount / currentLineupCount;
           const targetExposure = stackExp.target / 100;
           const deviation = Math.abs(currentExposure - targetExposure);
           const deviationPct = Math.round(deviation * 100);
-          
+
           // Predict final exposure
           const predictedFinal = this._predictFinalExposureSimple(
-            currentExposure, 
-            currentLineupCount, 
+            currentExposure,
+            currentLineupCount,
             targetLineupCount
           );
-          
+
           const status = deviation < 0.05 ? "✓" : deviation < 0.1 ? "⚠" : "✗";
-          
-          this.debugLog(`  ${status} ${stackExp.team} ${stackExp.stackSize}-stack: ${(currentExposure * 100).toFixed(1)}% (target: ${stackExp.target}%, dev: ±${deviationPct}%, pred: ${(predictedFinal * 100).toFixed(1)}%)`);
+
+          this.debugLog(
+            `  ${status} ${stackExp.team} ${stackExp.stackSize}-stack: ${(
+              currentExposure * 100
+            ).toFixed(1)}% (target: ${
+              stackExp.target
+            }%, dev: ±${deviationPct}%, pred: ${(predictedFinal * 100).toFixed(
+              1
+            )}%)`
+          );
         }
       });
-      
+
       // Calculate overall accuracy
       const metrics = this.getAccuracyMetrics();
-      this.debugLog(`  Overall Accuracy: ${(metrics.overallAccuracy * 100).toFixed(1)}%`);
+      this.debugLog(
+        `  Overall Accuracy: ${(metrics.overallAccuracy * 100).toFixed(1)}%`
+      );
     }
   }
 
@@ -4375,53 +4988,58 @@ class AdvancedOptimizer {
    */
   _predictFinalExposureSimple(currentExposure, currentLineups, targetLineups) {
     if (currentLineups === 0) return 0;
-    
+
     // Simple linear projection (could be enhanced with Monte Carlo)
     const remainingLineups = targetLineups - currentLineups;
     if (remainingLineups <= 0) return currentExposure;
-    
+
     // Assume exposure will stabilize around current rate
     // This is a simplified prediction - the full Monte Carlo method is more accurate
-    return currentExposure * 0.9 + 0.1 * (currentExposure); // Slight regression to mean
+    return currentExposure * 0.9 + 0.1 * currentExposure; // Slight regression to mean
   }
 
   /**
    * Get real-time exposure report for UI display
    */
   getRealTimeExposureReport() {
-    const totalLineups = this.generatedLineups.length + (this.existingLineups?.length || 0);
+    const totalLineups =
+      this.generatedLineups.length + (this.existingLineups?.length || 0);
     if (totalLineups === 0) return { stacks: [], accuracy: 0 };
-    
-    const stackReports = this.teamStackExposures.map(stackExp => {
+
+    const stackReports = this.teamStackExposures.map((stackExp) => {
       const stackKey = `${stackExp.team}_${stackExp.stackSize}`;
       const currentCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
       const currentExposure = currentCount / totalLineups;
       const targetExposure = (stackExp.target || 0) / 100;
       const deviation = Math.abs(currentExposure - targetExposure);
-      
+
       // Get confidence interval if available
-      const confidence = this.exposureAccuracy.confidenceIntervals.get(stackKey);
-      
+      const confidence =
+        this.exposureAccuracy.confidenceIntervals.get(stackKey);
+
       return {
         team: stackExp.team,
         stackSize: stackExp.stackSize,
         current: Math.round(currentExposure * 100),
         target: stackExp.target || 0,
         deviation: Math.round(deviation * 100),
-        status: deviation < 0.05 ? 'good' : deviation < 0.1 ? 'warning' : 'poor',
-        confidence: confidence ? {
-          lower: Math.round(confidence.lower * 100),
-          upper: Math.round(confidence.upper * 100)
-        } : null
+        status:
+          deviation < 0.05 ? "good" : deviation < 0.1 ? "warning" : "poor",
+        confidence: confidence
+          ? {
+              lower: Math.round(confidence.lower * 100),
+              upper: Math.round(confidence.upper * 100),
+            }
+          : null,
       };
     });
-    
+
     const metrics = this.getAccuracyMetrics();
-    
+
     return {
       stacks: stackReports,
       accuracy: Math.round(metrics.overallAccuracy * 100),
-      totalLineups
+      totalLineups,
     };
   }
 }

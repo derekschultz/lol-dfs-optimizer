@@ -8,6 +8,7 @@ import HybridOptimizerUI from "./components/HybridOptimizerUI";
 import PlayerManagerUI from "./components/PlayerManagerUI";
 import AIInsights from "./components/AIInsights";
 import StackExposure from "./components/StackExposure";
+import PerformanceTest from "./components/PerformanceTest";
 
 const App = () => {
   // API base URL - this matches the port in our server.js
@@ -1091,7 +1092,7 @@ const App = () => {
         {/* Tabs */}
         <div className="tabs-container">
           <ul style={{ listStyle: "none" }}>
-            {["upload", "players", "lineups", "stack-exposure", "ai-insights", "hybrid", "optimizer", "nexustest"].map((tab) => (
+            {["upload", "players", "lineups", "stack-exposure", "ai-insights", "hybrid", "optimizer", "nexustest", "performance"].map((tab) => (
               <li key={tab} style={{ display: "inline-block" }}>
                 <button
                   className={`tab ${activeTab === tab ? "active" : ""}`}
@@ -1109,6 +1110,8 @@ const App = () => {
                     ? "Advanced Optimizer (Legacy)"
                     : tab === "nexustest"
                     ? "NexusScore Test"
+                    : tab === "performance"
+                    ? "Performance Test"
                     : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               </li>
@@ -1418,6 +1421,14 @@ const App = () => {
               // Switch to lineups tab after import
               setActiveTab("lineups");
             }}
+          />
+        )}
+
+        {/* Performance Test Tab */}
+        {activeTab === "performance" && (
+          <PerformanceTest
+            playerProjections={playerData}
+            teamStacks={stackData}
           />
         )}
       </main>
