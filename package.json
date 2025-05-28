@@ -7,6 +7,8 @@
     "start": "concurrently --names \"MAIN,CLIENT,AI\" --prefix-colors \"cyan,yellow,magenta\" \"npm run server\" \"npm run client\" \"npm run ai-service\"",
     "start-basic": "concurrently --names \"MAIN,CLIENT\" --prefix-colors \"cyan,yellow\" \"npm run server\" \"npm run client\"",
     "server": "node server.js",
+    "server-refactored": "node src/server-refactored.js",
+    "test-refactored": "node test-refactored-api.js",
     "client": "cd client && npm start",
     "ai-service": "cd ai-service && npm start",
     "build": "cd client && npm run build",

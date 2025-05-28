@@ -11,6 +11,18 @@ const AdvancedOptimizer = require("./client/src/lib/AdvancedOptimizer");
 const HybridOptimizer = require("./client/src/lib/HybridOptimizer");
 const DataValidator = require("./client/src/lib/DataValidator");
 
+// Import refactored services and routes
+const serviceRegistry = require('./src/services/ServiceRegistry');
+const { router: playerRoutes } = require('./src/routes/players');
+const { router: lineupRoutes } = require('./src/routes/lineups');
+const { router: teamRoutes } = require('./src/routes/teams');
+const fileRoutes = require('./src/routes/files');
+const optimizationRoutes = require('./src/routes/optimizations');
+const progressRoutes = require('./src/routes/progress');
+const settingsRoutes = require('./src/routes/settings');
+const dataRoutes = require('./src/routes/data');
+const { errorHandler } = require('./src/middleware/errorHandler');
+
 // Create Express app
 const app = express();
 const PORT = 3001;
@@ -44,6 +56,35 @@ let teamStacks = [];
 let lineups = [];
 let contestMetadata = null; // Store contest info from DraftKings import
 let playerIdMapping = new Map(); // Map player names to DraftKings IDs
+
+// Initialize services
+serviceRegistry.initialize();
+app.set('services', {
+  player: serviceRegistry.getPlayerService(),
+  lineup: serviceRegistry.getLineupService(),
+  teamStack: serviceRegistry.getTeamStackService(),
+  fileProcessing: serviceRegistry.getFileProcessingService(),
+  optimization: serviceRegistry.getOptimizationService(),
+  progress: serviceRegistry.getProgressService(),
+  settings: serviceRegistry.getSettingsService(),
+  data: serviceRegistry.getDataService()
+});
+
+app.set('repositories', {
+  player: serviceRegistry.getPlayerRepository(),
+  lineup: serviceRegistry.getLineupRepository(),
+  teamStack: serviceRegistry.getTeamStackRepository()
+});
+
+// Setup API routes
+app.use('/api/players', playerRoutes);
+app.use('/api/lineups', lineupRoutes);
+app.use('/api/teams', teamRoutes);
+app.use('/api/files', fileRoutes);
+app.use('/api/optimizations', optimizationRoutes);
+app.use('/api/progress', progressRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/data', dataRoutes);
 
 // Progress tracking for Server-Sent Events
 const progressSessions = new Map(); // sessionId -> { res, progress, status, isActive }
@@ -2332,6 +2373,9 @@ const cleanup = () => {
   console.log("Cleanup completed. Exiting...");
   process.exit(0);
 };
+
+// Global error handler (must be last middleware)
+app.use(errorHandler);
 
 // Handle termination signals
 process.on("SIGTERM", cleanup);
