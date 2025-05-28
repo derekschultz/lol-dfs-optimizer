@@ -43,7 +43,11 @@ const LineupList = ({
     avgOwnership: 0,
     avgSalary: 0,
     avgNexusScore: 0,
+    avgROI: 0,
   });
+
+  // Tooltip state
+  const [showTooltip, setShowTooltip] = useState(null);
 
   // Calculate total pages whenever lineups, itemsPerPage, or filters change
   useEffect(() => {
@@ -236,11 +240,15 @@ const LineupList = ({
       const avgNexus =
         lineupsWithMetrics.reduce((sum, l) => sum + l.metrics.nexusScore, 0) /
         lineupsWithMetrics.length;
+      const avgROI =
+        lineupsWithMetrics.reduce((sum, l) => sum + (l.metrics.roi || 0), 0) /
+        lineupsWithMetrics.length;
       setGlobalStats({
         avgProjection: avgProj,
         avgOwnership: avgOwn,
         avgSalary: avgSal,
         avgNexusScore: avgNexus,
+        avgROI: avgROI,
       });
     }
   }, [lineupsWithMetrics]);
@@ -521,10 +529,34 @@ const LineupList = ({
               ${Math.round(globalStats.avgSalary).toLocaleString()}
             </span>
           </div>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-            <span style={{ color: "#90cdf4", marginBottom: "0.25rem" }}>
-              Average NexusScore
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative" }}>
+            <span 
+              style={{ color: "#90cdf4", marginBottom: "0.25rem", cursor: "help" }}
+              onMouseEnter={() => setShowTooltip('nexus')}
+              onMouseLeave={() => setShowTooltip(null)}
+              title="NexusScore: A proprietary scoring algorithm that evaluates lineup quality based on projections, ownership leverage, and team stacking"
+            >
+              Average NexusScore ⓘ
             </span>
+            {showTooltip === 'nexus' && (
+              <div style={{
+                position: "absolute",
+                top: "100%",
+                left: "0",
+                backgroundColor: "#1a202c",
+                border: "1px solid #2d3748",
+                borderRadius: "4px",
+                padding: "8px",
+                boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
+                zIndex: 1000,
+                maxWidth: "250px",
+                fontSize: "0.75rem",
+                color: "#e2e8f0",
+                lineHeight: "1.4"
+              }}>
+                A proprietary scoring algorithm that evaluates lineup quality based on projections, ownership leverage, and team stacking
+              </div>
+            )}
             <span
               style={{
                 color: "#4fd1c5",
@@ -533,6 +565,44 @@ const LineupList = ({
               }}
             >
               {globalStats.avgNexusScore.toFixed(2)}
+            </span>
+          </div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative" }}>
+            <span 
+              style={{ color: "#90cdf4", marginBottom: "0.25rem", cursor: "help" }}
+              onMouseEnter={() => setShowTooltip('roi')}
+              onMouseLeave={() => setShowTooltip(null)}
+              title="ROI: Return on Investment calculated using expected value from finish distributions, considering lineup strength, correlation, and contest payout structure"
+            >
+              Average ROI ⓘ
+            </span>
+            {showTooltip === 'roi' && (
+              <div style={{
+                position: "absolute",
+                top: "100%",
+                left: "0",
+                backgroundColor: "#1a202c",
+                border: "1px solid #2d3748",
+                borderRadius: "4px",
+                padding: "8px",
+                boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
+                zIndex: 1000,
+                maxWidth: "250px",
+                fontSize: "0.75rem",
+                color: "#e2e8f0",
+                lineHeight: "1.4"
+              }}>
+                Return on Investment calculated using expected value from finish distributions, considering lineup strength, correlation, and contest payout structure
+              </div>
+            )}
+            <span
+              style={{
+                color: "#9f7aea",
+                fontWeight: "bold",
+                fontSize: "1.125rem",
+              }}
+            >
+              {globalStats.avgROI.toFixed(2)}%
             </span>
           </div>
         </div>
@@ -850,29 +920,38 @@ const LineupList = ({
             borderRadius: "4px",
             overflow: "hidden",
             fontSize: "0.75rem",
+            position: "relative",
           }}
         >
           <button
             onClick={() => setSortBy("nexusScore")}
+            onMouseEnter={() => setShowTooltip('sort-nexus')}
+            onMouseLeave={() => setShowTooltip(null)}
             style={{
               padding: "0.5rem 0.75rem",
               background: sortBy === "nexusScore" ? "#1a202c" : "transparent",
               border: "none",
               color: sortBy === "nexusScore" ? "#4fd1c5" : "#a0aec0",
               cursor: "pointer",
+              position: "relative",
             }}
+            title="NexusScore: A proprietary scoring algorithm that evaluates lineup quality based on projections, ownership leverage, and team stacking"
           >
             NexusScore
           </button>
           <button
             onClick={() => setSortBy("roi")}
+            onMouseEnter={() => setShowTooltip('sort-roi')}
+            onMouseLeave={() => setShowTooltip(null)}
             style={{
               padding: "0.5rem 0.75rem",
               background: sortBy === "roi" ? "#1a202c" : "transparent",
               border: "none",
               color: sortBy === "roi" ? "#4fd1c5" : "#a0aec0",
               cursor: "pointer",
+              position: "relative",
             }}
+            title="ROI: Return on Investment calculated using expected value from finish distributions, considering lineup strength, correlation, and contest payout structure"
           >
             ROI
           </button>

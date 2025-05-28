@@ -574,7 +574,7 @@ const NexusScoreExplainer = ({ isOpen, onClose }) => {
           >
             <p style={{ color: "#e2e8f0", margin: 0 }}>
               <strong style={{ color: "#4fd1c5" }}>Pro Tip:</strong> Use
-              NexusScore alongside First Place % metrics for a complete
+              NexusScore alongside ROI and First Place % metrics for a complete
               view of lineup potential. NexusScore is especially valuable when
               comparing lineups with similar projected points.
             </p>
@@ -1327,7 +1327,9 @@ const AdvancedOptimizerUI = ({
 
       const formattedLineups = selectedLineupsList.map((lineup) => ({
         id: lineup.id,
-        name: `NexusScore ${Math.round(lineup.nexusScore || 100)} (${formatNumber(lineup.projectedPoints, 1)} pts)`,
+        name: `NexusScore ${Math.round(
+          lineup.nexusScore || 100
+        )} (${formatNumber(lineup.projectedPoints, 1)} pts)`,
         cpt: lineup.cpt,
         players: lineup.players,
         projectedPoints: lineup.projectedPoints,
@@ -1376,7 +1378,9 @@ const AdvancedOptimizerUI = ({
 
         const formattedLineups = sortedLineups.map((lineup) => ({
           id: lineup.id,
-          name: `NexusScore ${Math.round(lineup.nexusScore || 100)} (${formatNumber(lineup.projectedPoints, 1)} pts)`,
+          name: `NexusScore ${Math.round(
+            lineup.nexusScore || 100
+          )} (${formatNumber(lineup.projectedPoints, 1)} pts)`,
           cpt: lineup.cpt,
           players: lineup.players,
           projectedPoints: lineup.projectedPoints,

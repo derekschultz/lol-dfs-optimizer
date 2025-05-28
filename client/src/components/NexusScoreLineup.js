@@ -544,10 +544,10 @@ const NexusScoreLineup = ({
                 }}
               >
                 {safeFormatNumber(
-                  playerData.find((p) => p.id === lineup.cpt.id)
+                  (playerData.find((p) => p.id === lineup.cpt.id)
                     ?.projectedPoints ||
                     lineup.cpt.projectedPoints ||
-                    0,
+                    0) * 1.5,
                   2
                 )}
               </td>

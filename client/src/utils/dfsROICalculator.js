@@ -176,27 +176,174 @@ class DFSROICalculator {
   }
 
   /**
-   * Calculate correlation score (0-1)
+   * Calculate advanced correlation score (0-1)
    */
   getCorrelationScore(lineup) {
-    // Count players from same team (stacking)
+    let correlationScore = 0;
+    const allPlayers = [lineup.cpt, ...lineup.players].filter(Boolean);
+    
+    // 1. Team stacking analysis (40% of score)
     const teamCounts = {};
-    const allPlayers = [lineup.cpt, ...lineup.players];
+    const teamPlayers = {};
     
     allPlayers.forEach(player => {
-      if (player?.team) {
+      if (player?.team && player.team !== 'TEAM') {
         teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+        if (!teamPlayers[player.team]) teamPlayers[player.team] = [];
+        teamPlayers[player.team].push(player);
       }
     });
     
-    // Find largest stack
+    // Find game stacks (players from both teams in same game)
+    const gameStacks = this.findGameStacks(lineup, teamPlayers);
+    
+    // Calculate stacking score
+    let stackingScore = 0;
     const maxStack = Math.max(...Object.values(teamCounts), 0);
     
-    // 4+ stack is ideal for correlation
-    if (maxStack >= 4) return 1;
-    if (maxStack === 3) return 0.7;
-    if (maxStack === 2) return 0.4;
-    return 0.2;
+    // Optimal stacking patterns
+    if (maxStack >= 4) {
+      stackingScore = 0.9;
+      // Bonus for specific 4-stack compositions
+      const stackTeam = Object.keys(teamCounts).find(team => teamCounts[team] >= 4);
+      if (stackTeam && teamPlayers[stackTeam]) {
+        const positions = teamPlayers[stackTeam].map(p => p.position);
+        // Best 4-stack: TOP/JNG/MID/ADC or JNG/MID/ADC/SUP
+        if (positions.includes('MID') && positions.includes('ADC')) {
+          stackingScore = 1.0;
+        }
+      }
+    } else if (maxStack === 3) {
+      stackingScore = 0.7;
+      // 3-stack with bring-back is valuable
+      if (gameStacks.length > 0) stackingScore = 0.8;
+    } else if (maxStack === 2) {
+      stackingScore = 0.4;
+    } else {
+      stackingScore = 0.2;
+    }
+    
+    correlationScore += stackingScore * 0.4;
+    
+    // 2. Game stack correlation (30% of score)
+    let gameStackScore = 0;
+    if (gameStacks.length > 0) {
+      gameStacks.forEach(gameStack => {
+        // Ideal game stack: 4-3 or 5-2 split
+        const teamSizes = Object.values(gameStack.teams).map(players => players.length);
+        const maxTeamSize = Math.max(...teamSizes);
+        const minTeamSize = Math.min(...teamSizes);
+        
+        if (maxTeamSize === 4 && minTeamSize >= 2) {
+          gameStackScore = Math.max(gameStackScore, 1.0);
+        } else if (maxTeamSize === 3 && minTeamSize >= 2) {
+          gameStackScore = Math.max(gameStackScore, 0.8);
+        } else if (maxTeamSize >= 2 && minTeamSize >= 1) {
+          gameStackScore = Math.max(gameStackScore, 0.6);
+        }
+      });
+    }
+    
+    correlationScore += gameStackScore * 0.3;
+    
+    // 3. Position correlation (20% of score)
+    const positionScore = this.getPositionCorrelation(lineup, teamPlayers);
+    correlationScore += positionScore * 0.2;
+    
+    // 4. Captain correlation (10% of score)
+    let captainScore = 0;
+    if (lineup.cpt) {
+      const cptTeam = lineup.cpt.team;
+      const cptTeamCount = teamCounts[cptTeam] || 0;
+      
+      // Captain from stacked team is ideal
+      if (cptTeamCount >= 3) captainScore = 1.0;
+      else if (cptTeamCount >= 2) captainScore = 0.7;
+      else captainScore = 0.3; // Solo captain
+      
+      // Bonus for high-correlation positions as captain
+      if (['MID', 'ADC'].includes(lineup.cpt.position)) {
+        captainScore = Math.min(1.0, captainScore + 0.1);
+      }
+    }
+    
+    correlationScore += captainScore * 0.1;
+    
+    return Math.min(1.0, correlationScore);
+  }
+  
+  /**
+   * Find game stacks (players from teams playing against each other)
+   */
+  findGameStacks(lineup, teamPlayers) {
+    const gameStacks = [];
+    const processedTeams = new Set();
+    
+    Object.keys(teamPlayers).forEach(team => {
+      if (processedTeams.has(team)) return;
+      
+      // Find opponent team in lineup
+      const teamPlayersList = teamPlayers[team];
+      const opponents = teamPlayersList
+        .map(p => p.opp || p.opponent)
+        .filter(Boolean);
+      
+      if (opponents.length > 0) {
+        const oppTeam = opponents[0].replace(/^vs\s*|^at\s*/i, '');
+        
+        if (teamPlayers[oppTeam] && teamPlayers[oppTeam].length > 0) {
+          gameStacks.push({
+            teams: {
+              [team]: teamPlayersList,
+              [oppTeam]: teamPlayers[oppTeam]
+            },
+            totalPlayers: teamPlayersList.length + teamPlayers[oppTeam].length
+          });
+          
+          processedTeams.add(team);
+          processedTeams.add(oppTeam);
+        }
+      }
+    });
+    
+    return gameStacks;
+  }
+  
+  /**
+   * Calculate position-based correlation
+   */
+  getPositionCorrelation(lineup, teamPlayers) {
+    let score = 0;
+    let factors = 0;
+    
+    // Check for correlated positions on same team
+    Object.values(teamPlayers).forEach(players => {
+      if (players.length >= 2) {
+        const positions = players.map(p => p.position);
+        
+        // High correlation pairs
+        if (positions.includes('MID') && positions.includes('JNG')) {
+          score += 0.3;
+          factors++;
+        }
+        if (positions.includes('ADC') && positions.includes('SUP')) {
+          score += 0.3;
+          factors++;
+        }
+        if (positions.includes('TOP') && positions.includes('JNG')) {
+          score += 0.2;
+          factors++;
+        }
+        
+        // Triple correlation (very strong)
+        if (positions.includes('MID') && positions.includes('JNG') && positions.includes('ADC')) {
+          score += 0.2;
+          factors++;
+        }
+      }
+    });
+    
+    return factors > 0 ? Math.min(1.0, score / factors) : 0.5;
   }
 
   /**
@@ -228,35 +375,191 @@ class DFSROICalculator {
   }
 
   /**
-   * Calculate ceiling score (0-1)
+   * Calculate ceiling/variance score (0-1)
    */
   getCeilingScore(lineup) {
-    // Evaluate lineup's ceiling potential
-    let ceilingFactors = 0;
+    let ceilingScore = 0;
+    const allPlayers = [lineup.cpt, ...lineup.players].filter(Boolean);
     
-    // Captain choice
-    if (lineup.cpt?.position === 'MID' || lineup.cpt?.position === 'ADC') {
-      ceilingFactors += 0.3; // High ceiling positions
+    // 1. Captain leverage (25% of score)
+    let captainLeverage = 0;
+    if (lineup.cpt) {
+      const cptOwnership = lineup.cpt.ownership || 0;
+      if (cptOwnership < 5) captainLeverage = 1.0;
+      else if (cptOwnership < 10) captainLeverage = 0.8;
+      else if (cptOwnership < 20) captainLeverage = 0.6;
+      else if (cptOwnership < 30) captainLeverage = 0.4;
+      else captainLeverage = 0.2;
+      
+      // Bonus for high-ceiling positions as captain
+      if (['MID', 'ADC'].includes(lineup.cpt.position)) {
+        captainLeverage = Math.min(1.0, captainLeverage + 0.1);
+      }
+    }
+    ceilingScore += captainLeverage * 0.25;
+    
+    // 2. Game environment analysis (25% of score)
+    const gameEnvironment = this.analyzeGameEnvironment(lineup);
+    ceilingScore += gameEnvironment * 0.25;
+    
+    // 3. Ownership leverage (20% of score)
+    const avgOwnership = this.getAverageOwnership(lineup);
+    let ownershipLeverage = 0;
+    if (avgOwnership < 10) ownershipLeverage = 1.0;
+    else if (avgOwnership < 15) ownershipLeverage = 0.8;
+    else if (avgOwnership < 20) ownershipLeverage = 0.6;
+    else if (avgOwnership < 25) ownershipLeverage = 0.4;
+    else ownershipLeverage = 0.2;
+    
+    ceilingScore += ownershipLeverage * 0.2;
+    
+    // 4. Stack concentration (20% of score)
+    const teamCounts = {};
+    allPlayers.forEach(player => {
+      if (player?.team && player.team !== 'TEAM') {
+        teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+      }
+    });
+    
+    const uniqueTeams = Object.keys(teamCounts).length;
+    let concentrationScore = 0;
+    
+    if (uniqueTeams <= 3) concentrationScore = 1.0;    // Very concentrated
+    else if (uniqueTeams <= 4) concentrationScore = 0.8;
+    else if (uniqueTeams <= 5) concentrationScore = 0.6;
+    else concentrationScore = 0.4;
+    
+    // Bonus for game stacks
+    const hasGameStack = this.hasSignificantGameStack(teamCounts, lineup);
+    if (hasGameStack) {
+      concentrationScore = Math.min(1.0, concentrationScore + 0.2);
     }
     
-    // Game environment (would need game totals)
-    // For now, use team distribution as proxy
-    const uniqueTeams = new Set([
-      lineup.cpt?.team,
-      ...lineup.players.map(p => p.team)
-    ].filter(Boolean));
+    ceilingScore += concentrationScore * 0.2;
     
-    if (uniqueTeams.size <= 4) {
-      ceilingFactors += 0.4; // Concentrated in fewer games = higher correlation
+    // 5. Player volatility (10% of score)
+    const volatilityScore = this.getPlayerVolatility(lineup);
+    ceilingScore += volatilityScore * 0.1;
+    
+    return Math.min(1.0, ceilingScore);
+  }
+
+  /**
+   * Analyze game environment for ceiling potential
+   */
+  analyzeGameEnvironment(lineup) {
+    // In a real implementation, this would use:
+    // - Team pace/style data
+    // - Historical game totals
+    // - Matchup analysis
+    
+    // For now, use position distribution as proxy
+    const positions = [lineup.cpt, ...lineup.players]
+      .filter(Boolean)
+      .map(p => p.position);
+    
+    let envScore = 0.5; // Base score
+    
+    // Aggressive compositions have higher ceiling
+    const midCount = positions.filter(p => p === 'MID').length;
+    const adcCount = positions.filter(p => p === 'ADC').length;
+    
+    if (midCount >= 2 || adcCount >= 2) {
+      envScore += 0.2; // Multiple carries
     }
     
-    // Ownership concentration
-    const totalOwnership = this.getTotalOwnership(lineup);
-    if (totalOwnership < 100) {
-      ceilingFactors += 0.3; // Low owned lineups have higher ceiling
+    // Game stacks indicate high-scoring game belief
+    if (this.hasGameStackPlayers(lineup)) {
+      envScore += 0.3;
     }
     
-    return Math.min(1, ceilingFactors);
+    return Math.min(1.0, envScore);
+  }
+  
+  /**
+   * Check if lineup has players from opposing teams
+   */
+  hasGameStackPlayers(lineup) {
+    const allPlayers = [lineup.cpt, ...lineup.players].filter(Boolean);
+    const teams = new Set();
+    const opponents = new Set();
+    
+    allPlayers.forEach(player => {
+      if (player?.team) teams.add(player.team);
+      if (player?.opp) {
+        const oppTeam = player.opp.replace(/^vs\s*|^at\s*/i, '');
+        opponents.add(oppTeam);
+      }
+    });
+    
+    // Check if any opponent team is also in our lineup
+    for (const team of teams) {
+      if (opponents.has(team)) return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Check for significant game stack
+   */
+  hasSignificantGameStack(teamCounts, lineup) {
+    const allPlayers = [lineup.cpt, ...lineup.players].filter(Boolean);
+    const gameTeams = {};
+    
+    allPlayers.forEach(player => {
+      if (player?.opp) {
+        const oppTeam = player.opp.replace(/^vs\s*|^at\s*/i, '');
+        const gameKey = [player.team, oppTeam].sort().join('-');
+        gameTeams[gameKey] = (gameTeams[gameKey] || 0) + 1;
+      }
+    });
+    
+    // Significant = 5+ players from same game
+    return Object.values(gameTeams).some(count => count >= 5);
+  }
+  
+  /**
+   * Calculate player volatility score
+   */
+  getPlayerVolatility(lineup) {
+    // In reality, this would use historical data
+    // For now, use position as proxy
+    const allPlayers = [lineup.cpt, ...lineup.players].filter(Boolean);
+    let volatilitySum = 0;
+    let count = 0;
+    
+    allPlayers.forEach(player => {
+      let playerVol = 0.5; // Base volatility
+      
+      // Position-based volatility
+      switch(player.position) {
+        case 'MID':
+        case 'ADC':
+          playerVol = 0.7; // Higher variance positions
+          break;
+        case 'JNG':
+          playerVol = 0.6;
+          break;
+        case 'TOP':
+        case 'SUP':
+          playerVol = 0.4; // More consistent
+          break;
+        case 'TEAM':
+          playerVol = 0.3; // Teams are consistent
+          break;
+      }
+      
+      // Low ownership = higher volatility potential
+      if ((player.ownership || 0) < 10) {
+        playerVol = Math.min(1.0, playerVol + 0.2);
+      }
+      
+      volatilitySum += playerVol;
+      count++;
+    });
+    
+    return count > 0 ? volatilitySum / count : 0.5;
   }
 
   /**
