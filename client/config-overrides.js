@@ -1,15 +1,15 @@
-const { override } = require('customize-cra');
+const { override } = require("customize-cra");
 
 module.exports = override(
   // Add webpack config overrides here
-  function(config) {
+  function (config) {
     // Add fallbacks for node core modules
     config.resolve.fallback = {
       ...config.resolve.fallback,
-      "fs": false,
-      "os": false,
-      "path": false,
-      "crypto": false
+      fs: false,
+      os: false,
+      path: false,
+      crypto: false,
     };
 
     return config;

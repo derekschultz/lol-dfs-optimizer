@@ -12,16 +12,16 @@ const HybridOptimizer = require("./client/src/lib/HybridOptimizer");
 const DataValidator = require("./client/src/lib/DataValidator");
 
 // Import refactored services and routes
-const serviceRegistry = require('./src/services/ServiceRegistry');
-const { router: playerRoutes } = require('./src/routes/players');
-const { router: lineupRoutes } = require('./src/routes/lineups');
-const { router: teamRoutes } = require('./src/routes/teams');
-const fileRoutes = require('./src/routes/files');
-const optimizationRoutes = require('./src/routes/optimizations');
-const progressRoutes = require('./src/routes/progress');
-const settingsRoutes = require('./src/routes/settings');
-const dataRoutes = require('./src/routes/data');
-const { errorHandler } = require('./src/middleware/errorHandler');
+const serviceRegistry = require("./src/services/ServiceRegistry");
+const { router: playerRoutes } = require("./src/routes/players");
+const { router: lineupRoutes } = require("./src/routes/lineups");
+const { router: teamRoutes } = require("./src/routes/teams");
+const fileRoutes = require("./src/routes/files");
+const optimizationRoutes = require("./src/routes/optimizations");
+const progressRoutes = require("./src/routes/progress");
+const settingsRoutes = require("./src/routes/settings");
+const dataRoutes = require("./src/routes/data");
+const { errorHandler } = require("./src/middleware/errorHandler");
 
 // Create Express app
 const app = express();
@@ -59,7 +59,7 @@ let playerIdMapping = new Map(); // Map player names to DraftKings IDs
 
 // Initialize services
 serviceRegistry.initialize();
-app.set('services', {
+app.set("services", {
   player: serviceRegistry.getPlayerService(),
   lineup: serviceRegistry.getLineupService(),
   teamStack: serviceRegistry.getTeamStackService(),
@@ -67,24 +67,24 @@ app.set('services', {
   optimization: serviceRegistry.getOptimizationService(),
   progress: serviceRegistry.getProgressService(),
   settings: serviceRegistry.getSettingsService(),
-  data: serviceRegistry.getDataService()
+  data: serviceRegistry.getDataService(),
 });
 
-app.set('repositories', {
+app.set("repositories", {
   player: serviceRegistry.getPlayerRepository(),
   lineup: serviceRegistry.getLineupRepository(),
-  teamStack: serviceRegistry.getTeamStackRepository()
+  teamStack: serviceRegistry.getTeamStackRepository(),
 });
 
 // Setup API routes
-app.use('/api/players', playerRoutes);
-app.use('/api/lineups', lineupRoutes);
-app.use('/api/teams', teamRoutes);
-app.use('/api/files', fileRoutes);
-app.use('/api/optimizations', optimizationRoutes);
-app.use('/api/progress', progressRoutes);
-app.use('/api/settings', settingsRoutes);
-app.use('/api/data', dataRoutes);
+app.use("/api/players", playerRoutes);
+app.use("/api/lineups", lineupRoutes);
+app.use("/api/teams", teamRoutes);
+app.use("/api/files", fileRoutes);
+app.use("/api/optimizations", optimizationRoutes);
+app.use("/api/progress", progressRoutes);
+app.use("/api/settings", settingsRoutes);
+app.use("/api/data", dataRoutes);
 
 // Progress tracking for Server-Sent Events
 const progressSessions = new Map(); // sessionId -> { res, progress, status, isActive }
@@ -194,7 +194,9 @@ const simulateLineups = (lineupIds, simSettings) => {
   });
 
   // Sort by projected points descending
-  lineupPerformance.sort((a, b) => parseFloat(b.projectedPoints) - parseFloat(a.projectedPoints));
+  lineupPerformance.sort(
+    (a, b) => parseFloat(b.projectedPoints) - parseFloat(a.projectedPoints)
+  );
 
   // Generate score distributions based on projected points
   const scoreDistributions = lineupPerformance.map((perf) => {
@@ -357,7 +359,13 @@ const parsePlayersCSV = (filePath) => {
             ) || 0,
           salary: parseInt(data.salary || data.Salary || data.SALARY || 0) || 0,
           value: 0, // Calculate value
-          opp: data.opp || data.OPP || data.Opp || data.opponent || data.Opponent || "",
+          opp:
+            data.opp ||
+            data.OPP ||
+            data.Opp ||
+            data.opponent ||
+            data.Opponent ||
+            "",
         };
 
         // Only add valid players with a name and projectedPoints > 0
@@ -1055,11 +1063,9 @@ app.post("/lineups/export", (req, res) => {
         break;
 
       default:
-        return res
-          .status(400)
-          .json({
-            error: "Unsupported export format. Use: csv, json, or draftkings",
-          });
+        return res.status(400).json({
+          error: "Unsupported export format. Use: csv, json, or draftkings",
+        });
     }
 
     // Set headers for file download
@@ -1829,8 +1835,8 @@ app.post("/lineups/generate-hybrid", async (req, res) => {
 
         selectedLineups = result.lineups
           .sort((a, b) => {
-            const scoreA = (a.nexusScore || 0);
-            const scoreB = (b.nexusScore || 0);
+            const scoreA = a.nexusScore || 0;
+            const scoreB = b.nexusScore || 0;
             return scoreB - scoreA;
           })
           .filter((lineup) => {

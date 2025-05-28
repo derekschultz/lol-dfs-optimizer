@@ -12,7 +12,6 @@
  * - NexusScore comprehensive lineup evaluation
  */
 
-
 // Add a global counter for truly unique lineup IDs
 let lineupCounter = 0;
 
@@ -48,7 +47,7 @@ class AdvancedOptimizer {
       fieldSize: 1000, // Default field size for tournaments
       debugMode: false, // Enable extra logging for debugging
       stackExposureTargets: {}, // Stack exposure targets from UI
-      contestInfo: { type: 'gpp', fieldSize: 1189, entryFee: 5 }, // Default contest info
+      contestInfo: { type: "gpp", fieldSize: 1189, entryFee: 5 }, // Default contest info
       ...config,
     };
 
@@ -1935,7 +1934,6 @@ class AdvancedOptimizer {
               lineup.firstPlace = (firstPlaceCount / iterations) * 100;
               lineup.top10 = (top10Count / iterations) * 100;
               lineup.cashRate = (cashCount / iterations) * 100;
-
             }
             resolve();
           }, 0);
@@ -1976,7 +1974,6 @@ class AdvancedOptimizer {
               const nexusResult = this._calculateNexusScore(lineup);
               lineup.nexusScore = nexusResult.score;
               lineup.scoreComponents = nexusResult.components;
-
             }
             resolve();
           }, 0);
@@ -2164,7 +2161,10 @@ class AdvancedOptimizer {
     // Scale down to reasonable range (25-65)
     // Average lineup has ~350 points, divide by 10 for base score of 35
     const baseScore = baseProjection / 10;
-    const rawScore = baseScore * leverageFactor * consistencyFactor + stackBonus / 2 + positionBonus / 2;
+    const rawScore =
+      baseScore * leverageFactor * consistencyFactor +
+      stackBonus / 2 +
+      positionBonus / 2;
     const nexusScore = Math.min(65, Math.max(25, rawScore));
 
     // Add component breakdown for UI explanation
@@ -4066,7 +4066,6 @@ class AdvancedOptimizer {
    * Get simulation summary stats
    */
   _getSimulationSummary() {
-
     // Get top lineup's NexusScore
     const topNexusScore =
       this.simulationResults.length > 0
@@ -5021,4 +5020,3 @@ class AdvancedOptimizer {
 
 // Export the optimizer class
 module.exports = AdvancedOptimizer;
-

@@ -46,6 +46,7 @@ const HybridOptimizerUI = ({
   const [recommendations, setRecommendations] = useState([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customConfig, setCustomConfig] = useState({});
+  const [sessionId, setSessionId] = useState(null);
 
   // Auto-initialize when data is available - simplified
   useEffect(() => {
@@ -131,13 +132,21 @@ const HybridOptimizerUI = ({
         setIsInitialized(true);
         setStatus("Optimizer ready");
 
+        // Store sessionId if provided and return it
+        if (data.sessionId) {
+          setSessionId(data.sessionId);
+        }
+
         // Load available strategies
-        await loadStrategies();
+        await loadStrategies(data.sessionId);
 
         // Set recommended strategy
         if (data.recommendedStrategy) {
           setSelectedStrategy(data.recommendedStrategy);
         }
+
+        // Return the sessionId so it can be used immediately
+        return data.sessionId;
       } else {
         setStatus(`Initialization failed: ${data.message}`);
         throw new Error(data.message || "Initialization failed");
@@ -153,18 +162,70 @@ const HybridOptimizerUI = ({
   /**
    * Load available strategies from the optimizer
    */
-  const loadStrategies = async () => {
+  const loadStrategies = async (sid = sessionId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/optimizer/strategies`);
+      const response = await fetch(
+        `${API_BASE_URL}/optimizer/strategies?sessionId=${sid}`
+      );
       const data = await response.json();
 
       if (data.success) {
-        setStrategies(data.strategies);
+        // Add algorithm property if missing (client-side fallback)
+        const strategiesWithAlgorithm = {};
+        Object.entries(data.strategies).forEach(([key, strategy]) => {
+          const algorithm = strategy.algorithm || getDefaultAlgorithm(key);
+          strategiesWithAlgorithm[key] = {
+            ...strategy,
+            algorithm,
+            distribution:
+              strategy.distribution || getDefaultDistribution(key, algorithm),
+          };
+        });
+
+        setStrategies(strategiesWithAlgorithm);
         setOptimizerStats(data.stats);
       }
     } catch (error) {
       console.error("Error loading strategies:", error);
     }
+  };
+
+  /**
+   * Get default algorithm for strategy key (fallback)
+   */
+  const getDefaultAlgorithm = (strategyKey) => {
+    const algorithmMap = {
+      recommended: "auto",
+      balanced: "hybrid",
+      cash_game: "monte_carlo",
+      tournament: "genetic",
+      contrarian: "genetic",
+      constraint_focused: "simulated_annealing",
+    };
+    return algorithmMap[strategyKey] || "hybrid";
+  };
+
+  /**
+   * Get default distribution for hybrid algorithms (fallback)
+   */
+  const getDefaultDistribution = (strategyKey, algorithm) => {
+    if (algorithm !== "hybrid") return null;
+
+    const distributionMap = {
+      balanced: { monte_carlo: 0.6, genetic: 0.3, simulated_annealing: 0.1 },
+      constraint_focused: {
+        monte_carlo: 0.4,
+        genetic: 0.4,
+        simulated_annealing: 0.2,
+      },
+    };
+    return (
+      distributionMap[strategyKey] || {
+        monte_carlo: 0.5,
+        genetic: 0.3,
+        simulated_annealing: 0.2,
+      }
+    );
   };
 
   /**
@@ -181,9 +242,10 @@ const HybridOptimizerUI = ({
     setStatus("Starting optimization...");
 
     // Initialize optimizer if not already done
+    let currentSessionId = sessionId;
     if (!isInitialized) {
       try {
-        await initializeOptimizer();
+        currentSessionId = await initializeOptimizer();
       } catch (error) {
         setIsOptimizing(false);
         setStatus("Initialization failed");
@@ -192,9 +254,8 @@ const HybridOptimizerUI = ({
     }
 
     // Set up real-time progress tracking via Server-Sent Events
-    const progressSessionId = `progress_${Date.now()}_${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
+    // Use the actual sessionId from initialization
+    const progressSessionId = currentSessionId || sessionId;
     let eventSource = null;
     let progressTimer = null;
     let sseReady = false;
@@ -321,6 +382,7 @@ const HybridOptimizerUI = ({
               count: portfolioConfig.portfolioSize,
               strategy: "portfolio",
               progressSessionId: progressSessionId,
+              sessionId: currentSessionId,
               customConfig: {
                 portfolioSize: portfolioConfig.portfolioSize,
                 bulkGenerationMultiplier: portfolioConfig.bulkMultiplier,
@@ -351,6 +413,7 @@ const HybridOptimizerUI = ({
               stackExposureTargets:
                 exposureSettings?.stackExposureTargets || {},
               contestInfo: contestInfo,
+              sessionId: currentSessionId,
             };
 
       const response = await fetch(`${API_BASE_URL}/lineups/generate-hybrid`, {
@@ -371,7 +434,7 @@ const HybridOptimizerUI = ({
         if (onLineupsGenerated) {
           onLineupsGenerated(data.lineups, {
             ...data,
-            contestInfo: contestInfo
+            contestInfo: contestInfo,
           });
         }
 
@@ -402,11 +465,56 @@ const HybridOptimizerUI = ({
   };
 
   /**
+   * Get human-readable algorithm description
+   */
+  const getAlgorithmDescription = (strategy) => {
+    // Force algorithm based on strategy name as absolute fallback
+    let algorithm = strategy.algorithm;
+    if (!algorithm) {
+      if (strategy.name === "Recommended") algorithm = "auto";
+      else if (strategy.name === "Balanced") algorithm = "hybrid";
+      else if (strategy.name === "Cash Game") algorithm = "monte_carlo";
+      else if (strategy.name === "Tournament/GPP") algorithm = "genetic";
+      else if (strategy.name === "Contrarian") algorithm = "genetic";
+      else if (strategy.name === "Constraint Optimizer")
+        algorithm = "simulated_annealing";
+      else algorithm = "hybrid";
+    }
+
+    switch (algorithm) {
+      case "auto":
+        return "Auto-selects optimal algorithm";
+      case "hybrid":
+        const dist = strategy.distribution;
+        if (dist) {
+          const algorithms = Object.entries(dist)
+            .filter(([, percentage]) => percentage > 0)
+            .map(
+              ([algo, percentage]) =>
+                `${algo.replace("_", " ")} (${(percentage * 100).toFixed(0)}%)`
+            )
+            .join(", ");
+          return `Hybrid: ${algorithms}`;
+        }
+        return "Hybrid optimization";
+      case "monte_carlo":
+        return "Monte Carlo simulation";
+      case "genetic":
+        return "Genetic algorithm";
+      case "simulated_annealing":
+        return "Simulated annealing";
+      default:
+        return algorithm.replace(/_/g, " ");
+    }
+  };
+
+  /**
    * Render strategy card
    */
   const renderStrategyCard = (strategyKey, strategy) => {
     const isSelected = selectedStrategy === strategyKey;
     const isRecommended = strategy.recommended;
+    const algorithmInfo = getAlgorithmDescription(strategy);
 
     return (
       <div
@@ -415,6 +523,7 @@ const HybridOptimizerUI = ({
           isRecommended ? "recommended" : ""
         }`}
         onClick={() => setSelectedStrategy(strategyKey)}
+        title={`Algorithm: ${algorithmInfo}`}
       >
         <div className="strategy-header">
           <h4>{strategy.name}</h4>
@@ -427,6 +536,12 @@ const HybridOptimizerUI = ({
 
         <div className="strategy-usage">
           <small>{strategy.usage}</small>
+        </div>
+
+        <div className="strategy-algorithm">
+          <small>
+            <strong>Algorithm:</strong> {algorithmInfo}
+          </small>
         </div>
 
         {strategy.performance && strategy.performance.usage > 0 && (
@@ -920,9 +1035,9 @@ const HybridOptimizerUI = ({
    * Render results summary
    */
   const renderResultsSummary = () => {
-    if (!lastResults) return null;
+    if (!lastResults || !lastResults.lineups) return null;
 
-    const { summary, strategy } = lastResults;
+    const { summary = {}, strategy, algorithms = [] } = lastResults;
 
     return (
       <div className="results-summary">
@@ -930,32 +1045,39 @@ const HybridOptimizerUI = ({
         <div className="results-grid">
           <div className="result-stat">
             <span className="stat-label">Strategy:</span>
-            <span className="stat-value">{strategy.name}</span>
+            <span className="stat-value">
+              {selectedStrategy || "recommended"}
+            </span>
           </div>
 
           <div className="result-stat">
             <span className="stat-label">Algorithm:</span>
-            <span className="stat-value">{summary.algorithm}</span>
+            <span className="stat-value">
+              {algorithms.join(", ") || summary.algorithm || "hybrid"}
+            </span>
           </div>
-
 
           <div className="result-stat">
             <span className="stat-label">Avg NexusScore:</span>
             <span className="stat-value">
-              {summary.averageNexusScore?.toFixed(1)}
+              {summary.averageNexusScore?.toFixed(1) || "N/A"}
             </span>
           </div>
 
           <div className="result-stat">
             <span className="stat-label">Diversity:</span>
             <span className="stat-value">
-              {(summary.diversityScore * 100)?.toFixed(1)}%
+              {summary.diversityScore
+                ? `${(summary.diversityScore * 100).toFixed(1)}%`
+                : "N/A"}
             </span>
           </div>
 
           <div className="result-stat">
             <span className="stat-label">Unique Lineups:</span>
-            <span className="stat-value">{summary.uniqueLineups}</span>
+            <span className="stat-value">
+              {summary.uniqueLineups || lastResults.lineups?.length || 0}
+            </span>
           </div>
         </div>
       </div>
@@ -1356,8 +1478,8 @@ const HybridOptimizerUI = ({
                 ? "Building Portfolio..."
                 : "Optimizing..."
               : optimizationMode === "portfolio"
-              ? "Generate Portfolio"
-              : "Generate Lineups"}
+                ? "Generate Portfolio"
+                : "Generate Lineups"}
           </button>
         </div>
       </div>
@@ -1548,7 +1670,17 @@ const HybridOptimizerUI = ({
         .strategy-usage {
           font-style: italic;
           color: #868e96;
+          margin-bottom: 10px;
+        }
+
+        .strategy-algorithm {
+          color: #495057;
           margin-bottom: 15px;
+          font-size: 12px;
+          background: rgba(0, 123, 255, 0.1);
+          padding: 4px 8px;
+          border-radius: 4px;
+          border-left: 3px solid #007bff;
         }
 
         .strategy-performance {

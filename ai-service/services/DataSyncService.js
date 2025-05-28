@@ -82,7 +82,7 @@ class DataSyncService {
   async fetchPlayers() {
     try {
       const response = await this.fetchWithRetry(
-        `${this.mainServerUrl}/api/data/players`,
+        `${this.mainServerUrl}/data/players`,
         "players"
       );
 
@@ -103,7 +103,7 @@ class DataSyncService {
   async fetchLineups() {
     try {
       const response = await this.fetchWithRetry(
-        `${this.mainServerUrl}/api/data/lineups`,
+        `${this.mainServerUrl}/data/lineups`,
         "lineups"
       );
 
@@ -123,9 +123,7 @@ class DataSyncService {
 
   async fetchExposures() {
     try {
-      const response = await axios.get(
-        `${this.mainServerUrl}/api/data/exposures`
-      );
+      const response = await axios.get(`${this.mainServerUrl}/data/exposures`);
       if (response.data.success) {
         this.cache.exposures = {
           data: response.data.data,
@@ -145,9 +143,7 @@ class DataSyncService {
 
   async fetchContest() {
     try {
-      const response = await axios.get(
-        `${this.mainServerUrl}/api/data/contest`
-      );
+      const response = await axios.get(`${this.mainServerUrl}/data/contest`);
       if (response.data.success) {
         this.cache.contest = {
           data: response.data.data,
@@ -184,11 +180,14 @@ class DataSyncService {
   }
 
   getPlayers() {
-    return this.getCachedData("players") || [];
+    const data = this.getCachedData("players");
+    const players = data?.players || [];
+    return players;
   }
 
   getLineups() {
-    return this.getCachedData("lineups") || [];
+    const data = this.getCachedData("lineups");
+    return data?.lineups || [];
   }
 
   getExposures() {

@@ -7,11 +7,13 @@ The LoL DFS Optimizer now includes comprehensive AI-powered features that enhanc
 ## 🚀 Core AI Services
 
 ### 1. Champion Performance Tracker
+
 - **Real-time data**: Pulls match history from Riot API for 18+ pro players
 - **Fantasy scoring**: Uses DraftKings scoring system (K×3 + A×2 - D + CS×0.01 + Win×2)
 - **Champion analysis**: Tracks performance across all champions with tier rankings (S, A, B, C, D)
 
 ### 2. Player Form Analysis
+
 - **Recent performance**: Analyzes last 5-10 games vs historical performance
 - **Hot/Cold streaks**: Detects 3+ win/loss streaks automatically
 - **Momentum tracking**: Compares recent 5 games vs previous 5 games
@@ -19,17 +21,20 @@ The LoL DFS Optimizer now includes comprehensive AI-powered features that enhanc
 - **Projection multipliers**: Provides ±20% max adjustments to base projections
 
 ### 3. Matchup Analysis
+
 - **Player vs Player**: Head-to-head form comparison with champion pool analysis
 - **Team vs Team**: Full team form analysis with stack recommendations
 - **Champion-specific**: Performance on common champions between players
 - **Positional advantages**: Multi-factor scoring for same-position matchups
 
 ### 4. Meta Detection
+
 - **Real-time meta trends**: Uses actual match data for champion priority
 - **Rising/declining picks**: Identifies trending champions by fantasy value
 - **Team strategy analysis**: Late game scaling vs early aggression trends
 
 ### 5. Background Data Collection
+
 - **Automated collection**: Runs every 30 minutes to keep data fresh
 - **Smart caching**: Stores results with 30-minute TTL for instant access
 - **Progress tracking**: Real-time progress updates via Server-Sent Events
@@ -39,6 +44,7 @@ The LoL DFS Optimizer now includes comprehensive AI-powered features that enhanc
 ## 📊 API Endpoints
 
 ### Health & Status
+
 ```bash
 GET /health                    # Service health check
 GET /api/ai/player-mappings    # Player mapping status
@@ -48,24 +54,28 @@ GET /api/ai/collect-data       # Get cached data (GET) or trigger collection (PO
 ```
 
 ### Player Analysis
+
 ```bash
 GET /api/ai/player-form        # All player forms or specific player (?player=Faker)
 GET /api/ai/streaks            # Win/loss streak analysis
 ```
 
 ### Matchup Analysis
+
 ```bash
 GET /api/ai/matchup?player1=Faker&player2=Chovy    # Player vs player
 GET /api/ai/matchup?team1=T1&team2=GEN              # Team vs team
 ```
 
 ### Comprehensive Insights
+
 ```bash
 GET /api/ai/insights           # Complete AI analysis summary
 GET /api/ai/meta-insights      # Meta trends and champion insights
 ```
 
 ### Testing & Debug
+
 ```bash
 POST /api/ai/test-player-lookup    # Test individual player PUUID lookup
 GET /api/ai/test-riot-api          # Riot API connectivity test
@@ -74,19 +84,22 @@ GET /api/ai/test-riot-api          # Riot API connectivity test
 ## 🎯 Player Form Metrics
 
 ### Form Rating Calculation
+
 - **Base**: (Recent 5 avg / Older avg) × Recent win rate
 - **Trend bonus**: +50% for strong upward trends
 - **Streak bonus**: +3 points for hot streaks
 - **Result**: 0.8 - 1.2 multiplier for projections
 
 ### Trend Categories
+
 - **Hot**: Recent avg >110% of historical + positive momentum
-- **Cold**: Recent avg <90% of historical + negative momentum  
+- **Cold**: Recent avg <90% of historical + negative momentum
 - **Improving**: Positive momentum >2 fantasy points
 - **Declining**: Negative momentum <-2 fantasy points
 - **Stable**: Minimal change between periods
 
 ### Consistency Levels
+
 - **High**: Variance <5 fantasy points (reliable)
 - **Medium**: Variance 5-15 fantasy points (moderate)
 - **Low**: Variance >15 fantasy points (volatile)
@@ -94,6 +107,7 @@ GET /api/ai/test-riot-api          # Riot API connectivity test
 ## 🏆 Champion Tier System
 
 ### Tier Rankings (S, A, B, C, D)
+
 - **S Tier**: Score ≥0.9 (Elite performance)
 - **A Tier**: Score 0.75-0.89 (Strong picks)
 - **B Tier**: Score 0.6-0.74 (Solid options)
@@ -101,6 +115,7 @@ GET /api/ai/test-riot-api          # Riot API connectivity test
 - **D Tier**: Score <0.4 (Avoid)
 
 ### Scoring Formula
+
 ```
 Score = (Avg Fantasy Points / 25) × 0.4 + Win Rate × 0.3 + (Avg KDA / 4) × 0.3
 ```
@@ -108,12 +123,15 @@ Score = (Avg Fantasy Points / 25) × 0.4 + Win Rate × 0.3 + (Avg KDA / 4) × 0.
 ## 🤖 Machine Learning Models
 
 ### TensorFlow.js Neural Networks
+
 1. **Player Performance Model**
+
    - Input: 12 features (recent stats, form, champion data)
    - Output: Fantasy points adjustment, variance, ceiling, floor
    - Activation: Sigmoid (bounded 0-1 for controlled adjustments)
 
-2. **Lineup Score Model**  
+2. **Lineup Score Model**
+
    - Input: 20 lineup features (correlations, exposure, value)
    - Output: Lineup quality score
    - Use case: Ranking generated lineups
@@ -126,16 +144,19 @@ Score = (Avg Fantasy Points / 25) × 0.4 + Win Rate × 0.3 + (Avg KDA / 4) × 0.
 ## 📈 Integration with DFS Optimizer
 
 ### Projection Adjustments
+
 - **Form multipliers**: Applied to base projections (±20% max)
 - **ML adjustments**: Additional neural network refinements (±10% max)
 - **Confidence intervals**: Ceiling/floor estimates for simulation
 
 ### Stack Recommendations
+
 - **Team form analysis**: Average form rating across all players
 - **Hot streak detection**: Teams with multiple players in hot form
 - **Meta alignment**: Teams performing well in current game meta
 
 ### Captain Selection
+
 - **Hot streak priority**: Players on 3+ win streaks
 - **Form trend weighting**: Recent performance vs historical
 - **Ownership considerations**: Low-owned players with strong form
@@ -143,16 +164,18 @@ Score = (Avg Fantasy Points / 25) × 0.4 + Win Rate × 0.3 + (Avg KDA / 4) × 0.
 ## 🗂️ Player Mappings
 
 ### Supported Regions
-- **LCK**: T1 (5 players), GEN (5 players) ✅ 
+
+- **LCK**: T1 (5 players), GEN (5 players) ✅
 - **LEC**: G2 (5 players), FNC (4 players), TH (1 player) ✅
 - **LCS**: C9 (3 players) ✅
 
 ### Mapping Format
+
 ```json
 {
   "Faker": {
     "summonerName": "Hide on bush",
-    "region": "KR", 
+    "region": "KR",
     "team": "T1",
     "puuid": "...",
     "altNames": ["T1 Faker", "SKT T1 Faker"]
@@ -161,6 +184,7 @@ Score = (Avg Fantasy Points / 25) × 0.4 + Win Rate × 0.3 + (Avg KDA / 4) × 0.
 ```
 
 ### Dynamic Discovery System
+
 - **Intelligent discovery**: Automatically discovers player mappings from current roster
 - **Team prefix generation**: Creates multiple team name variations for mapping attempts
 - **Riot ID support**: Tests multiple taglines (LEC, LCS, team names) with automated fallbacks
@@ -171,12 +195,14 @@ Score = (Avg Fantasy Points / 25) × 0.4 + Win Rate × 0.3 + (Avg KDA / 4) × 0.
 ## 🚨 Error Handling
 
 ### Common Issues
+
 - **403 Errors**: Player summoner name incorrect or region mismatch
 - **Rate Limits**: Automatic retry with exponential backoff
 - **Missing Data**: Graceful fallback to simulated data
 - **API Downtime**: Uses cached data when available
 
 ### Debugging Tools
+
 - **Player lookup test**: Verify individual player PUUIDs
 - **Mapping status**: Check which players are successfully mapped
 - **Health checks**: Verify all services are operational
@@ -194,22 +220,25 @@ Score = (Avg Fantasy Points / 25) × 0.4 + Win Rate × 0.3 + (Avg KDA / 4) × 0.
 ## 📋 Usage Examples
 
 ### Get Hot Players
+
 ```javascript
-const response = await fetch('/api/ai/player-form');
+const response = await fetch("/api/ai/player-form");
 const hotPlayers = response.data.form_analysis.hot_players;
 // Use hot players as captain candidates
 ```
 
 ### Team Matchup Analysis
-```javascript  
-const response = await fetch('/api/ai/matchup?team1=T1&team2=GEN');
+
+```javascript
+const response = await fetch("/api/ai/matchup?team1=T1&team2=GEN");
 const recommendation = response.analysis.stackRecommendation;
 // Apply team stacking strategy
 ```
 
 ### Comprehensive Insights
+
 ```javascript
-const response = await fetch('/api/ai/insights');
+const response = await fetch("/api/ai/insights");
 const insights = response.ai_insights;
 // Get captain candidates, avoid players, stack recommendations
 ```
@@ -217,12 +246,14 @@ const insights = response.ai_insights;
 ## 🎛️ Configuration
 
 ### Environment Variables
+
 ```bash
 RIOT_API_KEY=your_riot_api_key_here    # Required for player data
 AI_PORT=3002                           # AI service port
 ```
 
 ### Customization
+
 - **Player mappings**: Edit `/ai-service/services/ChampionPerformanceTracker.js`
 - **Scoring weights**: Modify fantasy point calculations in `RiotGamesAPI.js`
 - **Form thresholds**: Adjust hot/cold detection in `calculateRecentForm()`
@@ -230,4 +261,4 @@ AI_PORT=3002                           # AI service port
 
 ---
 
-*For technical support or feature requests, see the main project README.md*
+_For technical support or feature requests, see the main project README.md_

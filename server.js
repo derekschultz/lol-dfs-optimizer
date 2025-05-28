@@ -3,16 +3,16 @@ const cors = require("cors");
 const bodyParser = require("body-parser");
 
 // Import refactored services and routes
-const serviceRegistry = require('./src/services/ServiceRegistry');
-const { router: playerRoutes } = require('./src/routes/players');
-const { router: lineupRoutes } = require('./src/routes/lineups');
-const { router: teamRoutes } = require('./src/routes/teams');
-const fileRoutes = require('./src/routes/files');
-const optimizationRoutes = require('./src/routes/optimizations');
-const progressRoutes = require('./src/routes/progress');
-const settingsRoutes = require('./src/routes/settings');
-const dataRoutes = require('./src/routes/data');
-const { errorHandler } = require('./src/middleware/errorHandler');
+const serviceRegistry = require("./src/services/ServiceRegistry");
+const { router: playerRoutes } = require("./src/routes/players");
+const { router: lineupRoutes } = require("./src/routes/lineups");
+const { router: teamRoutes } = require("./src/routes/teams");
+const fileRoutes = require("./src/routes/files");
+const optimizationRoutes = require("./src/routes/optimizations");
+const progressRoutes = require("./src/routes/progress");
+const settingsRoutes = require("./src/routes/settings");
+const dataRoutes = require("./src/routes/data");
+const { errorHandler } = require("./src/middleware/errorHandler");
 
 // Create Express app
 const app = express();
@@ -27,7 +27,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 // Initialize services
 serviceRegistry.initialize();
-app.set('services', {
+app.set("services", {
   player: serviceRegistry.getPlayerService(),
   lineup: serviceRegistry.getLineupService(),
   teamStack: serviceRegistry.getTeamStackService(),
@@ -35,24 +35,24 @@ app.set('services', {
   optimization: serviceRegistry.getOptimizationService(),
   progress: serviceRegistry.getProgressService(),
   settings: serviceRegistry.getSettingsService(),
-  data: serviceRegistry.getDataService()
+  data: serviceRegistry.getDataService(),
 });
 
-app.set('repositories', {
+app.set("repositories", {
   player: serviceRegistry.getPlayerRepository(),
   lineup: serviceRegistry.getLineupRepository(),
-  teamStack: serviceRegistry.getTeamStackRepository()
+  teamStack: serviceRegistry.getTeamStackRepository(),
 });
 
 // Setup API routes
-app.use('/api/players', playerRoutes);
-app.use('/api/lineups', lineupRoutes);
-app.use('/api/teams', teamRoutes);
-app.use('/api/files', fileRoutes);
-app.use('/api/optimizations', optimizationRoutes);
-app.use('/api/progress', progressRoutes);
-app.use('/api/settings', settingsRoutes);
-app.use('/api/data', dataRoutes);
+app.use("/players", playerRoutes);
+app.use("/lineups", lineupRoutes);
+app.use("/teams", teamRoutes);
+app.use("/files", fileRoutes);
+app.use("/optimizer", optimizationRoutes);
+app.use("/progress", progressRoutes);
+app.use("/settings", settingsRoutes);
+app.use("/data", dataRoutes);
 
 // Global error handler (must be last middleware)
 app.use(errorHandler);

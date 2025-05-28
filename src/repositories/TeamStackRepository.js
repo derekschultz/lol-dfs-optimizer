@@ -4,7 +4,7 @@
  * Currently uses in-memory storage, will be replaced with database in Phase 2
  */
 
-const { generateRandomId } = require('../utils/generators');
+const { generateRandomId } = require("../utils/generators");
 
 class TeamStackRepository {
   constructor() {
@@ -18,15 +18,17 @@ class TeamStackRepository {
   }
 
   async findById(id) {
-    return this.teamStacks.find(stack => stack.id == id) || null;
+    return this.teamStacks.find((stack) => stack.id == id) || null;
   }
 
   async findByTeam(team) {
-    return this.teamStacks.filter(stack => stack.team === team);
+    return this.teamStacks.filter((stack) => stack.team === team);
   }
 
   async findByStackSize(stackSize) {
-    return this.teamStacks.filter(stack => stack.stack && stack.stack.length === stackSize);
+    return this.teamStacks.filter(
+      (stack) => stack.stack && stack.stack.length === stackSize
+    );
   }
 
   async create(stackData) {
@@ -34,27 +36,27 @@ class TeamStackRepository {
       ...stackData,
       id: stackData.id || generateRandomId(),
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
-    
+
     this.teamStacks.push(newStack);
     return newStack;
   }
 
   async createMany(stacksData) {
-    const newStacks = stacksData.map(stackData => ({
+    const newStacks = stacksData.map((stackData) => ({
       ...stackData,
       id: stackData.id || generateRandomId(),
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     }));
-    
+
     this.teamStacks.push(...newStacks);
     return newStacks;
   }
 
   async update(id, updateData) {
-    const index = this.teamStacks.findIndex(stack => stack.id == id);
+    const index = this.teamStacks.findIndex((stack) => stack.id == id);
     if (index === -1) {
       return null;
     }
@@ -62,14 +64,14 @@ class TeamStackRepository {
     this.teamStacks[index] = {
       ...this.teamStacks[index],
       ...updateData,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     return this.teamStacks[index];
   }
 
   async delete(id) {
-    const index = this.teamStacks.findIndex(stack => stack.id == id);
+    const index = this.teamStacks.findIndex((stack) => stack.id == id);
     if (index === -1) {
       return false;
     }
@@ -84,7 +86,7 @@ class TeamStackRepository {
     const notFoundIds = [];
 
     for (const id of ids) {
-      const index = this.teamStacks.findIndex(stack => stack.id == id);
+      const index = this.teamStacks.findIndex((stack) => stack.id == id);
       if (index !== -1) {
         deletedStacks.push(this.teamStacks.splice(index, 1)[0]);
       } else {
@@ -101,13 +103,13 @@ class TeamStackRepository {
   }
 
   async replaceAll(newStacks) {
-    this.teamStacks = newStacks.map(stack => ({
+    this.teamStacks = newStacks.map((stack) => ({
       ...stack,
       id: stack.id || generateRandomId(),
       createdAt: stack.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     }));
-    
+
     return this.teamStacks;
   }
 
@@ -119,44 +121,46 @@ class TeamStackRepository {
     let results = [...this.teamStacks];
 
     if (filters.team) {
-      results = results.filter(stack => 
-        stack.team && stack.team.toLowerCase().includes(filters.team.toLowerCase())
+      results = results.filter(
+        (stack) =>
+          stack.team &&
+          stack.team.toLowerCase().includes(filters.team.toLowerCase())
       );
     }
 
     if (filters.minStackPlus !== undefined) {
-      results = results.filter(stack => 
-        (stack.stackPlus || 0) >= filters.minStackPlus
+      results = results.filter(
+        (stack) => (stack.stackPlus || 0) >= filters.minStackPlus
       );
     }
 
     if (filters.maxStackPlus !== undefined) {
-      results = results.filter(stack => 
-        (stack.stackPlus || 0) <= filters.maxStackPlus
+      results = results.filter(
+        (stack) => (stack.stackPlus || 0) <= filters.maxStackPlus
       );
     }
 
     if (filters.stackSize) {
-      results = results.filter(stack => 
-        stack.stack && stack.stack.length === filters.stackSize
+      results = results.filter(
+        (stack) => stack.stack && stack.stack.length === filters.stackSize
       );
     }
 
     if (filters.includesPosition) {
-      results = results.filter(stack => 
-        stack.stack && stack.stack.includes(filters.includesPosition)
+      results = results.filter(
+        (stack) => stack.stack && stack.stack.includes(filters.includesPosition)
       );
     }
 
     if (filters.minProjection !== undefined) {
-      results = results.filter(stack => 
-        (stack.totalProjection || 0) >= filters.minProjection
+      results = results.filter(
+        (stack) => (stack.totalProjection || 0) >= filters.minProjection
       );
     }
 
     if (filters.maxProjection !== undefined) {
-      results = results.filter(stack => 
-        (stack.totalProjection || 0) <= filters.maxProjection
+      results = results.filter(
+        (stack) => (stack.totalProjection || 0) <= filters.maxProjection
       );
     }
 
@@ -166,8 +170,8 @@ class TeamStackRepository {
   // Statistics methods
   async getStackSizeDistribution() {
     const distribution = {};
-    
-    this.teamStacks.forEach(stack => {
+
+    this.teamStacks.forEach((stack) => {
       const size = stack.stack ? stack.stack.length : 0;
       distribution[size] = (distribution[size] || 0) + 1;
     });
@@ -176,7 +180,9 @@ class TeamStackRepository {
   }
 
   async getTeamCount() {
-    const teams = new Set(this.teamStacks.map(stack => stack.team).filter(Boolean));
+    const teams = new Set(
+      this.teamStacks.map((stack) => stack.team).filter(Boolean)
+    );
     return teams.size;
   }
 
@@ -186,23 +192,28 @@ class TeamStackRepository {
         avgStackPlus: 0,
         avgStackPlusWins: 0,
         avgStackPlusLosses: 0,
-        totalStacks: 0
+        totalStacks: 0,
       };
     }
 
-    const totals = this.teamStacks.reduce((acc, stack) => ({
-      stackPlus: acc.stackPlus + (stack.stackPlus || 0),
-      stackPlusWins: acc.stackPlusWins + (stack.stackPlusAllWins || 0),
-      stackPlusLosses: acc.stackPlusLosses + (stack.stackPlusAllLosses || 0)
-    }), { stackPlus: 0, stackPlusWins: 0, stackPlusLosses: 0 });
+    const totals = this.teamStacks.reduce(
+      (acc, stack) => ({
+        stackPlus: acc.stackPlus + (stack.stackPlus || 0),
+        stackPlusWins: acc.stackPlusWins + (stack.stackPlusAllWins || 0),
+        stackPlusLosses: acc.stackPlusLosses + (stack.stackPlusAllLosses || 0),
+      }),
+      { stackPlus: 0, stackPlusWins: 0, stackPlusLosses: 0 }
+    );
 
     const count = this.teamStacks.length;
 
     return {
       avgStackPlus: parseFloat((totals.stackPlus / count).toFixed(2)),
       avgStackPlusWins: parseFloat((totals.stackPlusWins / count).toFixed(2)),
-      avgStackPlusLosses: parseFloat((totals.stackPlusLosses / count).toFixed(2)),
-      totalStacks: count
+      avgStackPlusLosses: parseFloat(
+        (totals.stackPlusLosses / count).toFixed(2)
+      ),
+      totalStacks: count,
     };
   }
 
@@ -221,12 +232,12 @@ class TeamStackRepository {
       slightlyAbove: [], // 20-49
       average: [], // 10-19
       belowAverage: [], // 5-9
-      poor: [] // 0-4
+      poor: [], // 0-4
     };
 
-    this.teamStacks.forEach(stack => {
+    this.teamStacks.forEach((stack) => {
       const rating = stack.stackPlus || 0;
-      
+
       if (rating >= 200) {
         tiers.elite.push(stack);
       } else if (rating >= 150) {
@@ -252,41 +263,45 @@ class TeamStackRepository {
   // Helper methods for enhanced stack data
   calculateStackProjection(stack, teamPlayers) {
     if (!stack.stack || !teamPlayers) return 0;
-    
-    const stackPlayers = teamPlayers.filter(player => 
+
+    const stackPlayers = teamPlayers.filter((player) =>
       stack.stack.includes(player.position)
     );
-    
-    return stackPlayers.reduce((sum, player) => 
-      sum + Number(player.projectedPoints || 0), 0
+
+    return stackPlayers.reduce(
+      (sum, player) => sum + Number(player.projectedPoints || 0),
+      0
     );
   }
 
   calculateStackOwnership(stack, teamPlayers) {
     if (!stack.stack || !teamPlayers) return 0;
-    
-    const stackPlayers = teamPlayers.filter(player => 
+
+    const stackPlayers = teamPlayers.filter((player) =>
       stack.stack.includes(player.position)
     );
-    
+
     if (stackPlayers.length === 0) return 0;
-    
-    return stackPlayers.reduce((sum, player) => 
-      sum + Number(player.ownership || 0), 0
-    ) / stackPlayers.length;
+
+    return (
+      stackPlayers.reduce(
+        (sum, player) => sum + Number(player.ownership || 0),
+        0
+      ) / stackPlayers.length
+    );
   }
 
   getStackTier(stackPlus) {
     const rating = stackPlus || 0;
-    
-    if (rating >= 200) return { tier: 'Elite', color: '#10b981' };
-    if (rating >= 150) return { tier: 'Very Strong', color: '#34d399' };
-    if (rating >= 100) return { tier: 'Strong', color: '#60a5fa' };
-    if (rating >= 50) return { tier: 'Above Average', color: '#93c5fd' };
-    if (rating >= 20) return { tier: 'Slightly Above', color: '#cbd5e1' };
-    if (rating >= 10) return { tier: 'Average', color: '#94a3b8' };
-    if (rating >= 5) return { tier: 'Below Average', color: '#f59e0b' };
-    return { tier: 'Poor', color: '#ef4444' };
+
+    if (rating >= 200) return { tier: "Elite", color: "#10b981" };
+    if (rating >= 150) return { tier: "Very Strong", color: "#34d399" };
+    if (rating >= 100) return { tier: "Strong", color: "#60a5fa" };
+    if (rating >= 50) return { tier: "Above Average", color: "#93c5fd" };
+    if (rating >= 20) return { tier: "Slightly Above", color: "#cbd5e1" };
+    if (rating >= 10) return { tier: "Average", color: "#94a3b8" };
+    if (rating >= 5) return { tier: "Below Average", color: "#f59e0b" };
+    return { tier: "Poor", color: "#ef4444" };
   }
 }
 

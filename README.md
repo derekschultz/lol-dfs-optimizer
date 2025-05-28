@@ -90,11 +90,13 @@ npm start
 ```
 
 This starts all services:
+
 - Main server on port 3001
-- React client on port 3000  
+- React client on port 3000
 - AI service on port 3002
 
 For development without AI features:
+
 ```bash
 npm run start-basic
 ```
@@ -102,6 +104,7 @@ npm run start-basic
 ### Configuration
 
 To enable AI features, create a `.env` file in the `ai-service` directory:
+
 ```bash
 RIOT_API_KEY=your_riot_api_key_here
 ```

@@ -1,14 +1,16 @@
 # 🏗️ LoL DFS Optimizer Refactoring Implementation Plan
 
 ## 📋 Overview
+
 Transform the monolithic codebase into a maintainable, scalable, and testable architecture through 5 phases of systematic refactoring.
 
 **Status**: Planning Phase Complete ✅  
 **Created**: 2025-01-27  
 **Estimated Duration**: 11 weeks  
-**Current Phase**: Not Started  
+**Current Phase**: Not Started
 
 ## 🎯 Success Metrics
+
 - Reduce file complexity (target: <300 lines per file)
 - Improve test coverage (target: >80%)
 - Enhance performance (target: <2s page loads)
@@ -17,16 +19,20 @@ Transform the monolithic codebase into a maintainable, scalable, and testable ar
 ## 🚨 Current Technical Debt Assessment
 
 ### Critical Issues Identified:
+
 1. **Massive Monolithic Files**
+
    - server.js: 2,300+ lines (API routes, business logic, file processing, optimization)
    - App.js: 1,460+ lines (React component managing multiple concerns)
 
 2. **No Clear Architecture Pattern**
+
    - Mixed concerns everywhere (UI, business logic, data persistence)
    - In-memory data storage in production server (not scalable)
    - Tightly coupled microservices
 
 3. **Complex State Management**
+
    - React state scattered across multiple concerns
    - No centralized state management
    - Props drilling and complex callback chains
@@ -41,12 +47,14 @@ Transform the monolithic codebase into a maintainable, scalable, and testable ar
 ## 🚀 Phase 1: Backend Service Extraction (Weeks 1-2)
 
 ### 1.1 Extract API Routes from server.js
+
 **Priority: CRITICAL**  
-**Status**: ⏳ Pending  
+**Status**: ⏳ Pending
 
 **Current Problem**: 2,300+ line monolithic server file
 
 **New Structure:**
+
 ```
 src/
 ├── routes/
@@ -76,6 +84,7 @@ src/
 ```
 
 **Implementation Tasks:**
+
 1. ✅ Create router structure and extract routes
 2. ✅ Extract business logic into service classes
 3. ✅ Add input validation middleware
@@ -83,6 +92,7 @@ src/
 5. ✅ Add comprehensive logging
 
 ### 1.2 Extract Data Access Layer
+
 **Create repository pattern for data operations:**
 
 ```javascript
@@ -91,20 +101,35 @@ class PlayerRepository {
   constructor(dataStore) {
     this.dataStore = dataStore;
   }
-  
-  async findAll() { /* implementation */ }
-  async findById(id) { /* implementation */ }
-  async create(playerData) { /* implementation */ }
-  async update(id, playerData) { /* implementation */ }
-  async delete(id) { /* implementation */ }
-  async findByTeam(team) { /* implementation */ }
-  async findByPosition(position) { /* implementation */ }
+
+  async findAll() {
+    /* implementation */
+  }
+  async findById(id) {
+    /* implementation */
+  }
+  async create(playerData) {
+    /* implementation */
+  }
+  async update(id, playerData) {
+    /* implementation */
+  }
+  async delete(id) {
+    /* implementation */
+  }
+  async findByTeam(team) {
+    /* implementation */
+  }
+  async findByPosition(position) {
+    /* implementation */
+  }
 }
 ```
 
 **Deliverables:**
+
 - [ ] PlayerRepository.js
-- [ ] LineupRepository.js  
+- [ ] LineupRepository.js
 - [ ] TeamStackRepository.js
 - [ ] ContestRepository.js
 
@@ -113,11 +138,13 @@ class PlayerRepository {
 ## 🗄️ Phase 2: Database Implementation (Weeks 3-4)
 
 ### 2.1 Database Selection & Setup
+
 **Priority: HIGH**  
 **Status**: ⏳ Pending  
 **Choice**: PostgreSQL (relational data, ACID compliance, JSON support)
 
 **Schema Design:**
+
 ```sql
 -- Core tables
 CREATE TABLE players (
@@ -166,15 +193,18 @@ CREATE TABLE contests (
 ```
 
 ### 2.2 Database Integration
+
 **Technology Stack:**
+
 - **ORM**: Prisma or TypeORM
 - **Migration**: Database migration system
 - **Connection**: Connection pooling
 
 **Implementation:**
+
 ```javascript
 // config/database.js
-const { Pool } = require('pg');
+const { Pool } = require("pg");
 
 const pool = new Pool({
   user: process.env.DB_USER,
@@ -189,6 +219,7 @@ module.exports = pool;
 ```
 
 **Deliverables:**
+
 - [ ] Database schema and migrations
 - [ ] ORM setup and configuration
 - [ ] Data migration scripts from in-memory to database
@@ -199,11 +230,13 @@ module.exports = pool;
 ## ⚛️ Phase 3: Frontend Architecture Refactor (Weeks 5-7)
 
 ### 3.1 Break Down App.js Monolith
+
 **Priority: MEDIUM**  
 **Status**: ⏳ Pending  
 **Current Problem**: 1,460+ line React component
 
 **New Structure:**
+
 ```
 src/
 ├── components/
@@ -251,15 +284,16 @@ src/
 ```
 
 ### 3.2 State Management Implementation
+
 **Technology**: Redux Toolkit
 
 ```javascript
 // store/slices/playersSlice.js
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import playerService from '../services/playerService';
+import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+import playerService from "../services/playerService";
 
 export const fetchPlayers = createAsyncThunk(
-  'players/fetchPlayers',
+  "players/fetchPlayers",
   async (_, { rejectWithValue }) => {
     try {
       return await playerService.getAll();
@@ -270,7 +304,7 @@ export const fetchPlayers = createAsyncThunk(
 );
 
 const playersSlice = createSlice({
-  name: 'players',
+  name: "players",
   initialState: {
     items: [],
     loading: false,
@@ -281,13 +315,13 @@ const playersSlice = createSlice({
       state.items.push(action.payload);
     },
     updatePlayer: (state, action) => {
-      const index = state.items.findIndex(p => p.id === action.payload.id);
+      const index = state.items.findIndex((p) => p.id === action.payload.id);
       if (index !== -1) {
         state.items[index] = action.payload;
       }
     },
     removePlayer: (state, action) => {
-      state.items = state.items.filter(p => p.id !== action.payload);
+      state.items = state.items.filter((p) => p.id !== action.payload);
     },
   },
   extraReducers: (builder) => {
@@ -312,15 +346,25 @@ export default playersSlice.reducer;
 ```
 
 ### 3.3 Custom Hooks Implementation
+
 ```javascript
 // hooks/usePlayerData.js
-import { useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { fetchPlayers, addPlayer, updatePlayer, removePlayer } from '../store/slices/playersSlice';
+import { useEffect } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import {
+  fetchPlayers,
+  addPlayer,
+  updatePlayer,
+  removePlayer,
+} from "../store/slices/playersSlice";
 
 export const usePlayerData = () => {
   const dispatch = useDispatch();
-  const { items: players, loading, error } = useSelector(state => state.players);
+  const {
+    items: players,
+    loading,
+    error,
+  } = useSelector((state) => state.players);
 
   useEffect(() => {
     if (players.length === 0 && !loading) {
@@ -352,6 +396,7 @@ export const usePlayerData = () => {
 ```
 
 **Deliverables:**
+
 - [ ] Component extraction and organization
 - [ ] Redux Toolkit store setup
 - [ ] Custom hooks for business logic
@@ -363,6 +408,7 @@ export const usePlayerData = () => {
 ## 🔗 Phase 4: Service Architecture Improvement (Weeks 8-9)
 
 ### 4.1 Event-Driven Architecture
+
 **Priority**: MEDIUM  
 **Status**: ⏳ Pending  
 **Replace REST polling with WebSocket events:**
@@ -383,7 +429,7 @@ class EventBus {
 
   emit(event, data) {
     if (this.events.has(event)) {
-      this.events.get(event).forEach(callback => callback(data));
+      this.events.get(event).forEach((callback) => callback(data));
     }
   }
 
@@ -402,6 +448,7 @@ module.exports = new EventBus();
 ```
 
 ### 4.2 Service Communication Layer
+
 ```javascript
 // services/ServiceRegistry.js
 class ServiceRegistry {
@@ -430,6 +477,7 @@ module.exports = new ServiceRegistry();
 ```
 
 **Deliverables:**
+
 - [ ] Event bus implementation
 - [ ] Service registry pattern
 - [ ] WebSocket integration
@@ -441,8 +489,9 @@ module.exports = new ServiceRegistry();
 ## 🧠 Phase 5: Optimization Algorithm Unification (Weeks 10-11)
 
 ### 5.1 Strategy Pattern Implementation
+
 **Priority**: MEDIUM  
-**Status**: ⏳ Pending  
+**Status**: ⏳ Pending
 
 ```javascript
 // optimization/strategies/BaseStrategy.js
@@ -453,7 +502,7 @@ class BaseOptimizationStrategy {
   }
 
   async optimize(players, constraints, settings) {
-    throw new Error('optimize method must be implemented');
+    throw new Error("optimize method must be implemented");
   }
 
   validateInputs(players, constraints) {
@@ -464,7 +513,7 @@ class BaseOptimizationStrategy {
 // optimization/strategies/AdvancedStrategy.js
 class AdvancedOptimizationStrategy extends BaseOptimizationStrategy {
   constructor(config) {
-    super('advanced', config);
+    super("advanced", config);
   }
 
   async optimize(players, constraints, settings) {
@@ -493,6 +542,7 @@ class OptimizationEngine {
 ```
 
 **Deliverables:**
+
 - [ ] Strategy pattern implementation
 - [ ] Unified optimization engine
 - [ ] Algorithm comparison framework
@@ -503,13 +553,13 @@ class OptimizationEngine {
 
 ## 📊 Implementation Timeline
 
-| Phase | Duration | Key Deliverables | Risk Level | Status |
-|-------|----------|------------------|------------|---------|
-| 1 | 2 weeks | Service extraction, API routes | Medium | ⏳ Pending |
-| 2 | 2 weeks | Database integration, data persistence | High | ⏳ Pending |
-| 3 | 3 weeks | Frontend refactor, state management | Medium | ⏳ Pending |
-| 4 | 2 weeks | Event-driven architecture | Low | ⏳ Pending |
-| 5 | 2 weeks | Optimization unification | Low | ⏳ Pending |
+| Phase | Duration | Key Deliverables                       | Risk Level | Status     |
+| ----- | -------- | -------------------------------------- | ---------- | ---------- |
+| 1     | 2 weeks  | Service extraction, API routes         | Medium     | ⏳ Pending |
+| 2     | 2 weeks  | Database integration, data persistence | High       | ⏳ Pending |
+| 3     | 3 weeks  | Frontend refactor, state management    | Medium     | ⏳ Pending |
+| 4     | 2 weeks  | Event-driven architecture              | Low        | ⏳ Pending |
+| 5     | 2 weeks  | Optimization unification               | Low        | ⏳ Pending |
 
 **Total Duration**: 11 weeks
 
@@ -518,11 +568,14 @@ class OptimizationEngine {
 ## 🛡️ Risk Mitigation
 
 ### High-Risk Areas:
+
 1. **Database Migration**: Potential data loss
+
    - **Mitigation**: Implement comprehensive backup strategy
    - **Rollback Plan**: Keep in-memory system as fallback
 
 2. **Frontend State Management**: Breaking existing functionality
+
    - **Mitigation**: Incremental migration with feature flags
    - **Testing**: Comprehensive E2E testing suite
 
@@ -535,12 +588,14 @@ class OptimizationEngine {
 ## ✅ Quality Assurance
 
 ### Testing Strategy:
+
 - **Unit Tests**: 80%+ coverage for new services
 - **Integration Tests**: API endpoint testing
 - **E2E Tests**: Critical user journeys
 - **Performance Tests**: Load testing for optimization algorithms
 
 ### Code Quality:
+
 - **ESLint/Prettier**: Consistent code formatting
 - **SonarQube**: Code quality metrics
 - **Husky**: Pre-commit hooks for quality gates
@@ -550,6 +605,7 @@ class OptimizationEngine {
 ## 🚀 Getting Started
 
 ### Immediate Next Steps:
+
 1. **Set up development environment** with new folder structure
 2. **Create feature branch** for Phase 1 work
 3. **Extract first API route** (players.js) as proof of concept
@@ -557,6 +613,7 @@ class OptimizationEngine {
 5. **Add comprehensive testing** for extracted components
 
 ### Environment Setup:
+
 ```bash
 # 1. Create new branch for refactoring
 git checkout -b refactor/phase1-service-extraction
@@ -579,8 +636,9 @@ npm install --save-dev jest supertest @testing-library/react @testing-library/je
 ## 📝 Progress Tracking
 
 ### Phase 1 Progress:
+
 - [ ] Extract player routes
-- [ ] Extract lineup routes  
+- [ ] Extract lineup routes
 - [ ] Extract optimizer routes
 - [ ] Create service layer
 - [ ] Add middleware
@@ -589,6 +647,7 @@ npm install --save-dev jest supertest @testing-library/react @testing-library/je
 - [ ] Write unit tests
 
 ### Phase 2 Progress:
+
 - [ ] Database schema design
 - [ ] Prisma setup
 - [ ] Migration scripts
@@ -597,6 +656,7 @@ npm install --save-dev jest supertest @testing-library/react @testing-library/je
 - [ ] Connection pooling setup
 
 ### Phase 3 Progress:
+
 - [ ] Component breakdown planning
 - [ ] Redux store setup
 - [ ] Custom hooks implementation
@@ -606,6 +666,7 @@ npm install --save-dev jest supertest @testing-library/react @testing-library/je
 - [ ] State management testing
 
 ### Phase 4 Progress:
+
 - [ ] Event bus implementation
 - [ ] WebSocket setup
 - [ ] Service registry
@@ -613,6 +674,7 @@ npm install --save-dev jest supertest @testing-library/react @testing-library/je
 - [ ] API contracts
 
 ### Phase 5 Progress:
+
 - [ ] Strategy pattern design
 - [ ] Algorithm extraction
 - [ ] Optimization engine
@@ -624,19 +686,21 @@ npm install --save-dev jest supertest @testing-library/react @testing-library/je
 ## 📞 Support & Documentation
 
 ### Key Resources:
+
 - **Technical Architecture**: See `docs/ARCHITECTURE.md`
 - **API Documentation**: See `docs/API.md`
 - **Database Schema**: See `docs/DATABASE.md`
 - **Testing Guidelines**: See `docs/TESTING.md`
 
 ### Team Communication:
+
 - **Daily Standups**: Progress updates and blockers
 - **Weekly Reviews**: Phase completion and quality gates
 - **Architecture Reviews**: Major design decisions
 
 ---
 
-*This plan transforms the monolithic codebase into a maintainable, scalable, and testable architecture while preserving all existing functionality. Each phase builds upon the previous one, ensuring minimal disruption to ongoing development.*
+_This plan transforms the monolithic codebase into a maintainable, scalable, and testable architecture while preserving all existing functionality. Each phase builds upon the previous one, ensuring minimal disruption to ongoing development._
 
 **Last Updated**: 2025-01-27  
 **Next Review**: TBD  

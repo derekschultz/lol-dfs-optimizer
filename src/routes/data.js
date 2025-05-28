@@ -1,71 +1,88 @@
-const express = require('express');
-const { catchAsync } = require('../middleware/errorHandler');
+const express = require("express");
+const { catchAsync } = require("../middleware/errorHandler");
 
 const router = express.Router();
 
 // Get player data for AI service
-router.get('/players', catchAsync(async (req, res) => {
-  const dataService = req.app.get('services').data;
+router.get(
+  "/players",
+  catchAsync(async (req, res) => {
+    const dataService = req.app.get("services").data;
 
-  const data = await dataService.getPlayersForAI();
+    const data = await dataService.getPlayersForAI();
 
-  res.json({
-    success: true,
-    data,
-    message: `Retrieved ${data.players.length} players for AI service`
-  });
-}));
+    res.json({
+      success: true,
+      data,
+      message: `Retrieved ${data.players.length} players for AI service`,
+    });
+  })
+);
 
-// Get lineup data for AI service  
-router.get('/lineups', catchAsync(async (req, res) => {
-  const dataService = req.app.get('services').data;
+// Get lineup data for AI service
+router.get(
+  "/lineups",
+  catchAsync(async (req, res) => {
+    const dataService = req.app.get("services").data;
 
-  const data = await dataService.getLineupsForAI();
+    const data = await dataService.getLineupsForAI();
 
-  res.json({
-    success: true,
-    data,
-    message: `Retrieved ${data.lineups.length} lineups for AI service`
-  });
-}));
+    res.json({
+      success: true,
+      data,
+      message: `Retrieved ${data.lineups.length} lineups for AI service`,
+    });
+  })
+);
 
 // Get aggregated exposure data
-router.get('/exposures', catchAsync(async (req, res) => {
-  const dataService = req.app.get('services').data;
+router.get(
+  "/exposures",
+  catchAsync(async (req, res) => {
+    const dataService = req.app.get("services").data;
 
-  const data = await dataService.getExposureData();
+    const data = await dataService.getExposureData();
 
-  res.json({
-    success: true,
-    data,
-    message: 'Exposure data retrieved successfully'
-  });
-}));
+    res.json({
+      success: true,
+      data,
+      message: "Exposure data retrieved successfully",
+    });
+  })
+);
 
 // Get contest metadata and team analysis
-router.get('/contest', catchAsync(async (req, res) => {
-  const dataService = req.app.get('services').data;
+router.get(
+  "/contest",
+  catchAsync(async (req, res) => {
+    const dataService = req.app.get("services").data;
 
-  const data = await dataService.getContestData();
+    const data = await dataService.getContestData();
 
-  res.json({
-    success: true,
-    data,
-    message: 'Contest data retrieved successfully'
-  });
-}));
+    res.json({
+      success: true,
+      data,
+      message: "Contest data retrieved successfully",
+    });
+  })
+);
 
 // Validate data integrity
-router.post('/validate', catchAsync(async (req, res) => {
-  const dataService = req.app.get('services').data;
+router.post(
+  "/validate",
+  catchAsync(async (req, res) => {
+    const dataService = req.app.get("services").data;
 
-  const validation = await dataService.validateData();
+    const validation = await dataService.validateData();
 
-  res.json({
-    success: validation.isValid,
-    data: validation,
-    message: validation.isValid ? 'Data validation passed' : 'Data validation failed'
-  });
-}));
+    res.json({
+      success: validation.isValid,
+      data: validation,
+      message: validation.isValid
+        ? "Data validation passed"
+        : "Data validation failed",
+    });
+  })
+);
 
 module.exports = router;

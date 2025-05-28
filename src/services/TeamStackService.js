@@ -3,8 +3,8 @@
  * Handles all team stack related business logic
  */
 
-const { generateRandomId } = require('../utils/generators');
-const { AppError } = require('../middleware/errorHandler');
+const { generateRandomId } = require("../utils/generators");
+const { AppError } = require("../middleware/errorHandler");
 
 class TeamStackService {
   constructor(teamStackRepository, playerRepository) {
@@ -17,7 +17,7 @@ class TeamStackService {
       const stacks = await this.teamStackRepository.findAll();
       return stacks;
     } catch (error) {
-      throw new AppError('Failed to fetch team stacks', 500);
+      throw new AppError("Failed to fetch team stacks", 500);
     }
   }
 
@@ -30,14 +30,19 @@ class TeamStackService {
         return stacks; // Return raw stacks if no player data
       }
 
-      const enhancedStacks = await this.enhanceStacksWithPlayerData(stacks, players);
-      
+      const enhancedStacks = await this.enhanceStacksWithPlayerData(
+        stacks,
+        players
+      );
+
       // Sort by total projection (descending)
-      enhancedStacks.sort((a, b) => (b.totalProjection || 0) - (a.totalProjection || 0));
-      
+      enhancedStacks.sort(
+        (a, b) => (b.totalProjection || 0) - (a.totalProjection || 0)
+      );
+
       return enhancedStacks;
     } catch (error) {
-      throw new AppError('Failed to fetch enhanced team stacks', 500);
+      throw new AppError("Failed to fetch enhanced team stacks", 500);
     }
   }
 
@@ -45,12 +50,12 @@ class TeamStackService {
     try {
       const stack = await this.teamStackRepository.findById(id);
       if (!stack) {
-        throw new AppError('Team stack not found', 404);
+        throw new AppError("Team stack not found", 404);
       }
       return stack;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to fetch team stack', 500);
+      throw new AppError("Failed to fetch team stack", 500);
     }
   }
 
@@ -67,12 +72,12 @@ class TeamStackService {
     try {
       // Validate stack structure
       this.validateStackData(stackData);
-      
+
       const newStack = await this.teamStackRepository.create(stackData);
       return newStack;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to create team stack', 500);
+      throw new AppError("Failed to create team stack", 500);
     }
   }
 
@@ -80,7 +85,7 @@ class TeamStackService {
     try {
       const existingStack = await this.teamStackRepository.findById(id);
       if (!existingStack) {
-        throw new AppError('Team stack not found', 404);
+        throw new AppError("Team stack not found", 404);
       }
 
       // Validate update data if provided
@@ -88,11 +93,14 @@ class TeamStackService {
         this.validateStackData({ ...existingStack, ...updateData });
       }
 
-      const updatedStack = await this.teamStackRepository.update(id, updateData);
+      const updatedStack = await this.teamStackRepository.update(
+        id,
+        updateData
+      );
       return updatedStack;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to update team stack', 500);
+      throw new AppError("Failed to update team stack", 500);
     }
   }
 
@@ -100,12 +108,12 @@ class TeamStackService {
     try {
       const deletedStack = await this.teamStackRepository.delete(id);
       if (!deletedStack) {
-        throw new AppError('Team stack not found', 404);
+        throw new AppError("Team stack not found", 404);
       }
       return { success: true, deletedStack };
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to delete team stack', 500);
+      throw new AppError("Failed to delete team stack", 500);
     }
   }
 
@@ -115,11 +123,12 @@ class TeamStackService {
       return {
         success: true,
         deletedStacks: result.deletedStacks,
-        notFoundIds: result.notFoundIds.length > 0 ? result.notFoundIds : undefined,
-        message: `Deleted ${result.deletedStacks.length} team stacks successfully`
+        notFoundIds:
+          result.notFoundIds.length > 0 ? result.notFoundIds : undefined,
+        message: `Deleted ${result.deletedStacks.length} team stacks successfully`,
       };
     } catch (error) {
-      throw new AppError('Failed to delete team stacks', 500);
+      throw new AppError("Failed to delete team stacks", 500);
     }
   }
 
@@ -129,38 +138,34 @@ class TeamStackService {
       return {
         success: true,
         count: stacks.length,
-        stacks
+        stacks,
       };
     } catch (error) {
-      throw new AppError('Failed to search team stacks', 500);
+      throw new AppError("Failed to search team stacks", 500);
     }
   }
 
   async getStackStats() {
     try {
-      const [
-        stackSizeDistribution,
-        teamCount,
-        averageStackPlus,
-        totalCount
-      ] = await Promise.all([
-        this.teamStackRepository.getStackSizeDistribution(),
-        this.teamStackRepository.getTeamCount(),
-        this.teamStackRepository.getAverageStackPlus(),
-        this.teamStackRepository.count()
-      ]);
+      const [stackSizeDistribution, teamCount, averageStackPlus, totalCount] =
+        await Promise.all([
+          this.teamStackRepository.getStackSizeDistribution(),
+          this.teamStackRepository.getTeamCount(),
+          this.teamStackRepository.getAverageStackPlus(),
+          this.teamStackRepository.count(),
+        ]);
 
       return {
         overview: {
           totalStacks: totalCount,
           totalTeams: teamCount,
-          ...averageStackPlus
+          ...averageStackPlus,
         },
         stackSizeDistribution,
-        averageStackPlus
+        averageStackPlus,
       };
     } catch (error) {
-      throw new AppError('Failed to calculate team stack statistics', 500);
+      throw new AppError("Failed to calculate team stack statistics", 500);
     }
   }
 
@@ -169,7 +174,7 @@ class TeamStackService {
       const topStacks = await this.teamStackRepository.getTopStacks(limit);
       return topStacks;
     } catch (error) {
-      throw new AppError('Failed to fetch top stacks', 500);
+      throw new AppError("Failed to fetch top stacks", 500);
     }
   }
 
@@ -178,14 +183,14 @@ class TeamStackService {
       const stacksByTier = await this.teamStackRepository.getStacksByTier();
       return stacksByTier;
     } catch (error) {
-      throw new AppError('Failed to get stacks by tier', 500);
+      throw new AppError("Failed to get stacks by tier", 500);
     }
   }
 
   async processStacksCsv(csvData) {
     try {
       const processedStacks = [];
-      
+
       for (const data of csvData) {
         // Parse Stack+ columns (from original parseStacksCSV function)
         const stack = {
@@ -232,7 +237,7 @@ class TeamStackService {
 
       return processedStacks;
     } catch (error) {
-      throw new AppError('Failed to process team stacks CSV data', 500);
+      throw new AppError("Failed to process team stacks CSV data", 500);
     }
   }
 
@@ -251,7 +256,9 @@ class TeamStackService {
       }
 
       teamGroups[player.team].players.push(player);
-      teamGroups[player.team].totalProjection += Number(player.projectedPoints || 0);
+      teamGroups[player.team].totalProjection += Number(
+        player.projectedPoints || 0
+      );
     });
 
     // Enhanced stacks with player data
@@ -277,13 +284,17 @@ class TeamStackService {
       );
 
       // Calculate ownership data
-      const avgTeamOwnership = teamPlayers.length > 0
-        ? teamPlayers.reduce((sum, p) => sum + Number(p.ownership || 0), 0) / teamPlayers.length
-        : 0;
+      const avgTeamOwnership =
+        teamPlayers.length > 0
+          ? teamPlayers.reduce((sum, p) => sum + Number(p.ownership || 0), 0) /
+            teamPlayers.length
+          : 0;
 
-      const avgStackOwnership = stackPlayers.length > 0
-        ? stackPlayers.reduce((sum, p) => sum + Number(p.ownership || 0), 0) / stackPlayers.length
-        : 0;
+      const avgStackOwnership =
+        stackPlayers.length > 0
+          ? stackPlayers.reduce((sum, p) => sum + Number(p.ownership || 0), 0) /
+            stackPlayers.length
+          : 0;
 
       // Add time info (for UI display)
       const times = ["1:00 AM", "2:00 AM", "4:00 AM", "11:00 PM"];
@@ -304,7 +315,7 @@ class TeamStackService {
         time: randomTime,
         status: "—", // Default status
         tier: tierInfo.tier,
-        tierColor: tierInfo.color
+        tierColor: tierInfo.color,
       };
     });
 
@@ -314,16 +325,16 @@ class TeamStackService {
   validateStackData(stackData) {
     const errors = [];
 
-    if (!stackData.team || typeof stackData.team !== 'string') {
-      errors.push('Team is required and must be a string');
+    if (!stackData.team || typeof stackData.team !== "string") {
+      errors.push("Team is required and must be a string");
     }
 
     if (!Array.isArray(stackData.stack) || stackData.stack.length === 0) {
-      errors.push('Stack must be a non-empty array of positions');
+      errors.push("Stack must be a non-empty array of positions");
     }
 
     if (stackData.stack && Array.isArray(stackData.stack)) {
-      const validPositions = ['TOP', 'JNG', 'MID', 'ADC', 'SUP', 'TEAM'];
+      const validPositions = ["TOP", "JNG", "MID", "ADC", "SUP", "TEAM"];
       for (const position of stackData.stack) {
         if (!validPositions.includes(position)) {
           errors.push(`Invalid position in stack: ${position}`);
@@ -331,24 +342,29 @@ class TeamStackService {
       }
     }
 
-    if (stackData.stackPlus !== undefined && 
-        (typeof stackData.stackPlus !== 'number' || isNaN(stackData.stackPlus))) {
-      errors.push('Stack+ rating must be a valid number');
+    if (
+      stackData.stackPlus !== undefined &&
+      (typeof stackData.stackPlus !== "number" || isNaN(stackData.stackPlus))
+    ) {
+      errors.push("Stack+ rating must be a valid number");
     }
 
     if (errors.length > 0) {
-      throw new AppError(`Team stack validation failed: ${errors.join(', ')}`, 400);
+      throw new AppError(
+        `Team stack validation failed: ${errors.join(", ")}`,
+        400
+      );
     }
   }
 
   // Export stacks in various formats
-  async exportStacks(format = 'csv', stackIds = []) {
+  async exportStacks(format = "csv", stackIds = []) {
     try {
       let stacksToExport;
-      
+
       if (stackIds.length > 0) {
         stacksToExport = await Promise.all(
-          stackIds.map(id => this.teamStackRepository.findById(id))
+          stackIds.map((id) => this.teamStackRepository.findById(id))
         );
         stacksToExport = stacksToExport.filter(Boolean);
       } else {
@@ -356,41 +372,51 @@ class TeamStackService {
       }
 
       if (stacksToExport.length === 0) {
-        throw new AppError('No team stacks found to export', 400);
+        throw new AppError("No team stacks found to export", 400);
       }
 
       switch (format.toLowerCase()) {
-        case 'csv':
+        case "csv":
           return this.generateCsvExport(stacksToExport);
-        case 'json':
+        case "json":
           return this.generateJsonExport(stacksToExport);
         default:
-          throw new AppError('Unsupported export format. Use: csv or json', 400);
+          throw new AppError(
+            "Unsupported export format. Use: csv or json",
+            400
+          );
       }
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to export team stacks', 500);
+      throw new AppError("Failed to export team stacks", 500);
     }
   }
 
   generateCsvExport(stacks) {
     const headers = [
-      "Team", "Stack Positions", "Stack+", "Stack+ All Wins", "Stack+ All Losses",
-      "Total Projection", "Stack Projection", "Team Players", "Stack Players"
+      "Team",
+      "Stack Positions",
+      "Stack+",
+      "Stack+ All Wins",
+      "Stack+ All Losses",
+      "Total Projection",
+      "Stack Projection",
+      "Team Players",
+      "Stack Players",
     ];
     const rows = [headers.join(",")];
 
     stacks.forEach((stack) => {
       const row = [
         `"${stack.team || ""}"`,
-        `"${stack.stack ? stack.stack.join(', ') : ""}"`,
+        `"${stack.stack ? stack.stack.join(", ") : ""}"`,
         stack.stackPlus?.toFixed(2) || "0.00",
         stack.stackPlusAllWins?.toFixed(2) || "0.00",
         stack.stackPlusAllLosses?.toFixed(2) || "0.00",
         stack.totalProjection?.toFixed(2) || "0.00",
         stack.stackProjection?.toFixed(2) || "0.00",
         stack.teamPlayerCount || 0,
-        stack.stackPlayerCount || 0
+        stack.stackPlayerCount || 0,
       ];
       rows.push(row.join(","));
     });

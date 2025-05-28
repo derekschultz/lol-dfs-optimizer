@@ -139,15 +139,21 @@ const NexusScoreLineup = ({
   // Generate opponent display
   const getOpponentDisplay = (player) => {
     if (!player) return "-";
-    
+
     // Try to find full player data from playerData prop
     const fullPlayerData = playerData.find(
-      p => p.id === player.id || p.name === player.name
+      (p) => p.id === player.id || p.name === player.name
     );
 
     // Try to extract from player data or full data
-    const matchup = player.matchup || player.opponent || player.opp || 
-                   fullPlayerData?.matchup || fullPlayerData?.opponent || fullPlayerData?.opp || "";
+    const matchup =
+      player.matchup ||
+      player.opponent ||
+      player.opp ||
+      fullPlayerData?.matchup ||
+      fullPlayerData?.opponent ||
+      fullPlayerData?.opp ||
+      "";
 
     // If we have matchup data
     if (matchup) {
@@ -163,8 +169,12 @@ const NexusScoreLineup = ({
     }
 
     // Default opponent display with team colors for prettier display
-    const opponent = player.opponent || player.opp || 
-                    fullPlayerData?.opponent || fullPlayerData?.opp || "";
+    const opponent =
+      player.opponent ||
+      player.opp ||
+      fullPlayerData?.opponent ||
+      fullPlayerData?.opp ||
+      "";
     const isAway = player.isAway || fullPlayerData?.isAway || false;
 
     if (opponent) {

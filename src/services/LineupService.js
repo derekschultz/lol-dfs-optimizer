@@ -3,8 +3,8 @@
  * Handles all lineup-related business logic
  */
 
-const { generateLineupId } = require('../utils/generators');
-const { AppError } = require('../middleware/errorHandler');
+const { generateLineupId } = require("../utils/generators");
+const { AppError } = require("../middleware/errorHandler");
 
 class LineupService {
   constructor(lineupRepository, playerRepository) {
@@ -17,7 +17,7 @@ class LineupService {
       const lineups = await this.lineupRepository.findAll();
       return lineups;
     } catch (error) {
-      throw new AppError('Failed to fetch lineups', 500);
+      throw new AppError("Failed to fetch lineups", 500);
     }
   }
 
@@ -25,12 +25,12 @@ class LineupService {
     try {
       const lineup = await this.lineupRepository.findById(id);
       if (!lineup) {
-        throw new AppError('Lineup not found', 404);
+        throw new AppError("Lineup not found", 404);
       }
       return lineup;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to fetch lineup', 500);
+      throw new AppError("Failed to fetch lineup", 500);
     }
   }
 
@@ -38,29 +38,30 @@ class LineupService {
     try {
       // Validate lineup structure
       this.validateLineupStructure(lineupData);
-      
+
       // Enrich lineup data with calculated fields
       const enrichedLineup = await this.enrichLineupData(lineupData);
-      
+
       const newLineup = await this.lineupRepository.create(enrichedLineup);
       return newLineup;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to create lineup', 500);
+      throw new AppError("Failed to create lineup", 500);
     }
   }
 
   async createLineups(lineupsData) {
     try {
       const enrichedLineups = await Promise.all(
-        lineupsData.map(lineup => this.enrichLineupData(lineup))
+        lineupsData.map((lineup) => this.enrichLineupData(lineup))
       );
-      
-      const newLineups = await this.lineupRepository.createMany(enrichedLineups);
+
+      const newLineups =
+        await this.lineupRepository.createMany(enrichedLineups);
       return newLineups;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to create lineups', 500);
+      throw new AppError("Failed to create lineups", 500);
     }
   }
 
@@ -68,7 +69,7 @@ class LineupService {
     try {
       const existingLineup = await this.lineupRepository.findById(id);
       if (!existingLineup) {
-        throw new AppError('Lineup not found', 404);
+        throw new AppError("Lineup not found", 404);
       }
 
       // Re-enrich lineup data if players or captain changed
@@ -78,11 +79,14 @@ class LineupService {
         enrichedUpdateData = await this.enrichLineupData(updatedLineup);
       }
 
-      const updatedLineup = await this.lineupRepository.update(id, enrichedUpdateData);
+      const updatedLineup = await this.lineupRepository.update(
+        id,
+        enrichedUpdateData
+      );
       return updatedLineup;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to update lineup', 500);
+      throw new AppError("Failed to update lineup", 500);
     }
   }
 
@@ -90,12 +94,12 @@ class LineupService {
     try {
       const deletedLineup = await this.lineupRepository.delete(id);
       if (!deletedLineup) {
-        throw new AppError('Lineup not found', 404);
+        throw new AppError("Lineup not found", 404);
       }
       return { success: true, deletedLineup };
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to delete lineup', 500);
+      throw new AppError("Failed to delete lineup", 500);
     }
   }
 
@@ -105,11 +109,12 @@ class LineupService {
       return {
         success: true,
         deletedLineups: result.deletedLineups,
-        notFoundIds: result.notFoundIds.length > 0 ? result.notFoundIds : undefined,
-        message: `Deleted ${result.deletedLineups.length} lineups successfully`
+        notFoundIds:
+          result.notFoundIds.length > 0 ? result.notFoundIds : undefined,
+        message: `Deleted ${result.deletedLineups.length} lineups successfully`,
       };
     } catch (error) {
-      throw new AppError('Failed to delete lineups', 500);
+      throw new AppError("Failed to delete lineups", 500);
     }
   }
 
@@ -119,41 +124,46 @@ class LineupService {
       return {
         success: true,
         count: lineups.length,
-        lineups
+        lineups,
       };
     } catch (error) {
-      throw new AppError('Failed to search lineups', 500);
+      throw new AppError("Failed to search lineups", 500);
     }
   }
 
   async getLineupStats() {
     try {
-      const [averageStats, teamExposure, positionExposure, totalCount] = await Promise.all([
-        this.lineupRepository.getAverageStats(),
-        this.lineupRepository.getTeamExposure(),
-        this.lineupRepository.getPositionExposure(),
-        this.lineupRepository.count()
-      ]);
+      const [averageStats, teamExposure, positionExposure, totalCount] =
+        await Promise.all([
+          this.lineupRepository.getAverageStats(),
+          this.lineupRepository.getTeamExposure(),
+          this.lineupRepository.getPositionExposure(),
+          this.lineupRepository.count(),
+        ]);
 
       return {
         overview: averageStats,
         teamExposure,
         positionExposure,
-        totalLineups: totalCount
+        totalLineups: totalCount,
       };
     } catch (error) {
-      throw new AppError('Failed to calculate lineup statistics', 500);
+      throw new AppError("Failed to calculate lineup statistics", 500);
     }
   }
 
   async processFromDraftKingsEntries(csvData) {
     try {
       const processedLineups = [];
-      
+
       for (const row of csvData) {
         try {
           // Skip header rows or invalid entries
-          if (row["Entry ID"] === "Entry ID" || !row["Entry ID"] || isNaN(row["Entry ID"])) {
+          if (
+            row["Entry ID"] === "Entry ID" ||
+            !row["Entry ID"] ||
+            isNaN(row["Entry ID"])
+          ) {
             continue;
           }
 
@@ -163,39 +173,39 @@ class LineupService {
             processedLineups.push(lineup);
           }
         } catch (error) {
-          console.warn('Failed to process DraftKings entry:', error.message);
+          console.warn("Failed to process DraftKings entry:", error.message);
           continue;
         }
       }
 
       return processedLineups;
     } catch (error) {
-      throw new AppError('Failed to process DraftKings entries', 500);
+      throw new AppError("Failed to process DraftKings entries", 500);
     }
   }
 
   async processFromJson(jsonData) {
     try {
       if (!Array.isArray(jsonData)) {
-        throw new AppError('JSON data must be an array of lineups', 400);
+        throw new AppError("JSON data must be an array of lineups", 400);
       }
 
-      const processedLineups = jsonData.map(lineup => ({
+      const processedLineups = jsonData.map((lineup) => ({
         ...lineup,
-        id: lineup.id || generateLineupId()
+        id: lineup.id || generateLineupId(),
       }));
 
       return processedLineups;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to process JSON lineup data', 500);
+      throw new AppError("Failed to process JSON lineup data", 500);
     }
   }
 
-  async exportLineups(format = 'csv', lineupIds = []) {
+  async exportLineups(format = "csv", lineupIds = []) {
     try {
       let lineupsToExport;
-      
+
       if (lineupIds.length > 0) {
         lineupsToExport = await this.lineupRepository.findByIds(lineupIds);
       } else {
@@ -203,23 +213,26 @@ class LineupService {
       }
 
       if (lineupsToExport.length === 0) {
-        throw new AppError('No lineups found to export', 400);
+        throw new AppError("No lineups found to export", 400);
       }
 
       switch (format.toLowerCase()) {
-        case 'csv':
+        case "csv":
           return this.generateCsvExport(lineupsToExport);
-        case 'json':
+        case "json":
           return this.generateJsonExport(lineupsToExport);
-        case 'draftkings':
-        case 'dk':
+        case "draftkings":
+        case "dk":
           return this.generateDraftKingsExport(lineupsToExport);
         default:
-          throw new AppError('Unsupported export format. Use: csv, json, or draftkings', 400);
+          throw new AppError(
+            "Unsupported export format. Use: csv, json, or draftkings",
+            400
+          );
       }
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to export lineups', 500);
+      throw new AppError("Failed to export lineups", 500);
     }
   }
 
@@ -227,9 +240,9 @@ class LineupService {
   async simulateLineups(lineupIds, simSettings = {}) {
     try {
       const selectedLineups = await this.lineupRepository.findByIds(lineupIds);
-      
+
       if (selectedLineups.length === 0) {
-        throw new AppError('No valid lineups found for simulation', 400);
+        throw new AppError("No valid lineups found for simulation", 400);
       }
 
       // Calculate exposures
@@ -237,25 +250,41 @@ class LineupService {
 
       // Get player projections for simulation
       const playerProjections = await this.playerRepository.findAll();
-      
+
       // Generate performance metrics based on player projections
       const lineupPerformance = selectedLineups.map((lineup) => {
         // Calculate base projected points using actual player data
         let baseProjection = 0;
-        const cptProj = playerProjections.find((p) => p.name === lineup.cpt.name);
-        if (cptProj) {
-          baseProjection += cptProj.projectedPoints * 1.5; // CPT gets 1.5x points
+
+        // Check if lineup has captain
+        if (lineup.cpt && lineup.cpt.name) {
+          const cptProj = playerProjections.find(
+            (p) => p.name === lineup.cpt.name
+          );
+          if (cptProj) {
+            baseProjection += cptProj.projectedPoints * 1.5; // CPT gets 1.5x points
+          }
         }
 
-        lineup.players.forEach((player) => {
-          const playerProj = playerProjections.find((p) => p.name === player.name);
-          if (playerProj) {
-            baseProjection += playerProj.projectedPoints;
-          }
-        });
+        // Check if lineup has players array
+        if (lineup.players && Array.isArray(lineup.players)) {
+          lineup.players.forEach((player) => {
+            if (player && player.name) {
+              const playerProj = playerProjections.find(
+                (p) => p.name === player.name
+              );
+              if (playerProj) {
+                baseProjection += playerProj.projectedPoints;
+              }
+            }
+          });
+        }
 
         // Calculate placement chances based on projected points
-        const minCashPct = Math.max(0, Math.min(100, 20 + baseProjection * 0.1));
+        const minCashPct = Math.max(
+          0,
+          Math.min(100, 20 + baseProjection * 0.1)
+        );
         const top10Pct = Math.max(0, Math.min(50, 5 + baseProjection * 0.05));
         const firstPlacePct = Math.max(0, Math.min(10, baseProjection * 0.02));
 
@@ -271,7 +300,9 @@ class LineupService {
       });
 
       // Sort by projected points descending
-      lineupPerformance.sort((a, b) => parseFloat(b.projectedPoints) - parseFloat(a.projectedPoints));
+      lineupPerformance.sort(
+        (a, b) => parseFloat(b.projectedPoints) - parseFloat(a.projectedPoints)
+      );
 
       // Generate score distributions
       const scoreDistributions = lineupPerformance.map((perf) => {
@@ -293,7 +324,7 @@ class LineupService {
       };
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to simulate lineups', 500);
+      throw new AppError("Failed to simulate lineups", 500);
     }
   }
 
@@ -301,48 +332,55 @@ class LineupService {
   validateLineupStructure(lineupData) {
     const errors = [];
 
-    if (!lineupData.name || typeof lineupData.name !== 'string') {
-      errors.push('Lineup name is required and must be a string');
+    if (!lineupData.name || typeof lineupData.name !== "string") {
+      errors.push("Lineup name is required and must be a string");
     }
 
     if (!lineupData.cpt || !lineupData.cpt.name) {
-      errors.push('Captain player is required');
+      errors.push("Captain player is required");
     }
 
     if (!Array.isArray(lineupData.players) || lineupData.players.length < 5) {
-      errors.push('At least 5 players are required');
+      errors.push("At least 5 players are required");
     }
 
     if (lineupData.players && lineupData.players.length > 6) {
-      errors.push('Maximum 6 players allowed');
+      errors.push("Maximum 6 players allowed");
     }
 
     if (errors.length > 0) {
-      throw new AppError(`Lineup validation failed: ${errors.join(', ')}`, 400);
+      throw new AppError(`Lineup validation failed: ${errors.join(", ")}`, 400);
     }
   }
 
   async enrichLineupData(lineupData) {
     // Calculate total salary
     const totalSalary = this.lineupRepository.calculateTotalSalary(lineupData);
-    
+
     // Calculate total projection
-    const totalProjection = this.lineupRepository.calculateTotalProjection(lineupData);
-    
+    const totalProjection =
+      this.lineupRepository.calculateTotalProjection(lineupData);
+
     // Calculate NexusScore (simplified version)
     const nexusScore = this.calculateNexusScore(lineupData);
-    
+
     return {
       ...lineupData,
       totalSalary,
       totalProjection: parseFloat(totalProjection.toFixed(2)),
-      nexusScore: parseFloat(nexusScore.toFixed(1))
+      nexusScore: parseFloat(nexusScore.toFixed(1)),
     };
   }
 
   calculateNexusScore(lineup) {
     // Simplified NexusScore calculation
-    const allPlayers = [lineup.cpt, ...(lineup.players || [])];
+    const allPlayers = [];
+    if (lineup.cpt) {
+      allPlayers.push(lineup.cpt);
+    }
+    if (lineup.players && Array.isArray(lineup.players)) {
+      allPlayers.push(...lineup.players);
+    }
     const teamCounts = {};
 
     allPlayers.forEach((player) => {
@@ -357,15 +395,18 @@ class LineupService {
       totalProj += (lineup.cpt.projectedPoints || 0) * 1.5; // CPT gets 1.5x
     }
 
-    totalProj += (lineup.players || [])
-      .reduce((sum, p) => sum + (p.projectedPoints || 0), 0);
+    totalProj += (lineup.players || []).reduce(
+      (sum, p) => sum + (p.projectedPoints || 0),
+      0
+    );
 
     // Calculate average ownership
     const totalOwnership = allPlayers.reduce((sum, p) => {
       return sum + (p.ownership || 0);
     }, 0);
 
-    const avgOwn = allPlayers.length > 0 ? totalOwnership / allPlayers.length : 0;
+    const avgOwn =
+      allPlayers.length > 0 ? totalOwnership / allPlayers.length : 0;
 
     // Calculate stack bonus
     let stackBonus = 0;
@@ -377,7 +418,10 @@ class LineupService {
     const ownership = Math.max(0.1, avgOwn / 100);
     const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership));
     const baseScore = totalProj / 10;
-    const nexusScore = Math.min(65, Math.max(25, baseScore * leverageFactor + stackBonus / 2));
+    const nexusScore = Math.min(
+      65,
+      Math.max(25, baseScore * leverageFactor + stackBonus / 2)
+    );
 
     return nexusScore;
   }
@@ -407,7 +451,7 @@ class LineupService {
     const players = [];
     const positions = ["TOP", "JNG", "MID", "ADC", "SUP", "TEAM"];
 
-    positions.forEach(position => {
+    positions.forEach((position) => {
       if (row[position]) {
         players.push({
           name: this.extractPlayerName(row[position]),
@@ -454,21 +498,29 @@ class LineupService {
 
     lineupList.forEach((lineup) => {
       // Count CPT team
-      const cptTeam = lineup.cpt.team;
-      teamExposure[cptTeam] = (teamExposure[cptTeam] || 0) + 1;
+      if (lineup.cpt && lineup.cpt.team) {
+        const cptTeam = lineup.cpt.team;
+        teamExposure[cptTeam] = (teamExposure[cptTeam] || 0) + 1;
+      }
 
       // Count CPT position
-      const cptPos = lineup.cpt.position;
-      positionExposure[cptPos] = (positionExposure[cptPos] || 0) + 1;
-
-      totalPlayers++;
+      if (lineup.cpt && lineup.cpt.position) {
+        const cptPos = lineup.cpt.position;
+        positionExposure[cptPos] = (positionExposure[cptPos] || 0) + 1;
+        totalPlayers++;
+      }
 
       // Count players
-      lineup.players.forEach((player) => {
-        teamExposure[player.team] = (teamExposure[player.team] || 0) + 1;
-        positionExposure[player.position] = (positionExposure[player.position] || 0) + 1;
-        totalPlayers++;
-      });
+      if (lineup.players && Array.isArray(lineup.players)) {
+        lineup.players.forEach((player) => {
+          if (player && player.team && player.position) {
+            teamExposure[player.team] = (teamExposure[player.team] || 0) + 1;
+            positionExposure[player.position] =
+              (positionExposure[player.position] || 0) + 1;
+            totalPlayers++;
+          }
+        });
+      }
     });
 
     // Convert counts to percentages
@@ -485,15 +537,26 @@ class LineupService {
 
   generateCsvExport(lineups) {
     const headers = [
-      "ID", "Name", "CPT", "TOP", "JNG", "MID", "ADC", "SUP", "TEAM", 
-      "Total Salary", "Total Projection", "NexusScore"
+      "ID",
+      "Name",
+      "CPT",
+      "TOP",
+      "JNG",
+      "MID",
+      "ADC",
+      "SUP",
+      "TEAM",
+      "Total Salary",
+      "Total Projection",
+      "NexusScore",
     ];
     const rows = [headers.join(",")];
 
     lineups.forEach((lineup) => {
       const players = lineup.players || [];
       const totalSalary = this.lineupRepository.calculateTotalSalary(lineup);
-      const totalProjection = this.lineupRepository.calculateTotalProjection(lineup);
+      const totalProjection =
+        this.lineupRepository.calculateTotalProjection(lineup);
 
       const row = [
         lineup.id || "",
@@ -507,7 +570,7 @@ class LineupService {
         `"${players.find((p) => p.position === "TEAM")?.name || ""}"`,
         totalSalary,
         totalProjection.toFixed(2),
-        (lineup.nexusScore || 0).toFixed(1)
+        (lineup.nexusScore || 0).toFixed(1),
       ];
       rows.push(row.join(","));
     });

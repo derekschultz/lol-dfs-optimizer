@@ -202,12 +202,12 @@ class PlayerPredictor {
         championTier === "S"
           ? 1.0
           : championTier === "A"
-          ? 0.8
-          : championTier === "B"
-          ? 0.6
-          : championTier === "C"
-          ? 0.4
-          : 0.2,
+            ? 0.8
+            : championTier === "B"
+              ? 0.6
+              : championTier === "C"
+                ? 0.4
+                : 0.2,
 
       // Historical performance
       vs_opponent_history: this.getOpponentHistory(

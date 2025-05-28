@@ -60,9 +60,8 @@ class RecommendationEngine {
     }
 
     // 4. Add meta-based recommendations
-    const metaRecommendations = await this.generateMetaRecommendations(
-      playerData
-    );
+    const metaRecommendations =
+      await this.generateMetaRecommendations(playerData);
     recommendations.push(...metaRecommendations);
 
     // Cache results for 5 minutes

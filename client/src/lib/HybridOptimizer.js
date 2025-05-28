@@ -471,8 +471,12 @@ class HybridOptimizer {
         TEAM: 1,
       },
       fieldSize: constraintAnalysis.fieldSize || 1000,
-      debugMode: true, // Enable debug mode to track duplicate issues
-      contestInfo: this.contestInfo || { type: 'gpp', fieldSize: 1189, entryFee: 5 },
+      debugMode: false, // Enable debug mode to track duplicate issues
+      contestInfo: this.contestInfo || {
+        type: "gpp",
+        fieldSize: 1189,
+        entryFee: 5,
+      },
     };
 
     const progressStep = 40 / 3; // 40% progress divided by 3 optimizers
@@ -638,13 +642,11 @@ class HybridOptimizer {
         if (algorithm === "monte_carlo") {
           algorithmResults = await optimizer.runSimulation(algorithmCount);
         } else if (algorithm === "genetic") {
-          algorithmResults = await optimizer.runGeneticOptimization(
-            algorithmCount
-          );
+          algorithmResults =
+            await optimizer.runGeneticOptimization(algorithmCount);
         } else if (algorithm === "simulated_annealing") {
-          algorithmResults = await optimizer.runSimulatedAnnealing(
-            algorithmCount
-          );
+          algorithmResults =
+            await optimizer.runSimulatedAnnealing(algorithmCount);
         }
 
         if (algorithmResults && algorithmResults.lineups) {
@@ -823,10 +825,8 @@ class HybridOptimizer {
 
     // Sort all results by their best available score
     results.sort((a, b) => {
-      const scoreA =
-        a.nexusScore || a.geneticFitness || a.annealingScore || 0;
-      const scoreB =
-        b.nexusScore || b.geneticFitness || b.annealingScore || 0;
+      const scoreA = a.nexusScore || a.geneticFitness || a.annealingScore || 0;
+      const scoreB = b.nexusScore || b.geneticFitness || b.annealingScore || 0;
       return scoreB - scoreA;
     });
 
@@ -1233,8 +1233,7 @@ class HybridOptimizer {
           metrics.diversity.length;
 
         // Combine metrics into performance score
-        const performanceScore =
-          avgNexus * 0.6 + avgDiversity * 100 * 0.4;
+        const performanceScore = avgNexus * 0.6 + avgDiversity * 100 * 0.4;
 
         // Update weight (slowly adapt)
         const currentWeight = this.config.performanceWeights[algorithm] || 1.0;
@@ -1407,4 +1406,3 @@ class HybridOptimizer {
 }
 
 module.exports = HybridOptimizer;
-

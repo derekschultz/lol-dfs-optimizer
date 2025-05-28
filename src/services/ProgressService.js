@@ -3,8 +3,8 @@
  * Handles real-time progress tracking and Server-Sent Events (SSE)
  */
 
-const { AppError } = require('../middleware/errorHandler');
-const { generateRandomId } = require('../utils/generators');
+const { AppError } = require("../middleware/errorHandler");
+const { generateRandomId } = require("../utils/generators");
 
 class ProgressService {
   constructor() {
@@ -17,28 +17,28 @@ class ProgressService {
    */
   createProgressSession(req, res) {
     const sessionId = generateRandomId();
-    
+
     // Set SSE headers
     res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Cache-Control'
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Cache-Control",
     });
 
     // Store session
     this.progressSessions.set(sessionId, {
       res,
       progress: 0,
-      status: 'connected',
+      status: "connected",
       isActive: true,
       startTime: Date.now(),
-      clientIP: req.ip || req.connection.remoteAddress
+      clientIP: req.ip || req.connection.remoteAddress,
     });
 
     // Setup progress callbacks
-    const progressCallback = (progress, message = '') => {
+    const progressCallback = (progress, message = "") => {
       this.updateProgress(sessionId, progress, message);
     };
 
@@ -48,36 +48,36 @@ class ProgressService {
 
     this.progressCallbacks.set(sessionId, {
       progressCallback,
-      statusCallback
+      statusCallback,
     });
 
     // Send initial connection event
-    this.sendEvent(sessionId, 'connected', {
+    this.sendEvent(sessionId, "connected", {
       sessionId,
       timestamp: new Date().toISOString(),
-      message: 'Progress session established'
+      message: "Progress session established",
     });
 
     // Handle client disconnect
-    req.on('close', () => {
+    req.on("close", () => {
       this.closeSession(sessionId);
     });
 
-    req.on('aborted', () => {
+    req.on("aborted", () => {
       this.closeSession(sessionId);
     });
 
     return {
       sessionId,
       progressCallback,
-      statusCallback
+      statusCallback,
     };
   }
 
   /**
    * Update progress for a session
    */
-  updateProgress(sessionId, progress, message = '') {
+  updateProgress(sessionId, progress, message = "") {
     const session = this.progressSessions.get(sessionId);
     if (!session || !session.isActive) {
       return false;
@@ -86,10 +86,10 @@ class ProgressService {
     session.progress = Math.max(0, Math.min(100, progress));
     session.lastUpdate = Date.now();
 
-    this.sendEvent(sessionId, 'progress', {
+    this.sendEvent(sessionId, "progress", {
       progress: session.progress,
       message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     return true;
@@ -107,14 +107,18 @@ class ProgressService {
     session.status = status;
     session.lastUpdate = Date.now();
 
-    this.sendEvent(sessionId, 'status', {
+    this.sendEvent(sessionId, "status", {
       status,
       timestamp: new Date().toISOString(),
-      ...data
+      ...data,
     });
 
     // Auto-close session if completed or failed
-    if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+    if (
+      status === "completed" ||
+      status === "failed" ||
+      status === "cancelled"
+    ) {
       setTimeout(() => this.closeSession(sessionId), 1000); // Allow time for final message
     }
 
@@ -144,11 +148,11 @@ class ProgressService {
   /**
    * Send message to specific session
    */
-  sendMessage(sessionId, message, type = 'info') {
-    return this.sendEvent(sessionId, 'message', {
+  sendMessage(sessionId, message, type = "info") {
+    return this.sendEvent(sessionId, "message", {
       message,
       type,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 
@@ -156,10 +160,10 @@ class ProgressService {
    * Send error to specific session
    */
   sendError(sessionId, error, details = {}) {
-    return this.sendEvent(sessionId, 'error', {
+    return this.sendEvent(sessionId, "error", {
       error: error.message || error,
       details,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 
@@ -171,7 +175,7 @@ class ProgressService {
     if (session) {
       session.isActive = false;
       session.endTime = Date.now();
-      
+
       try {
         if (!session.res.destroyed) {
           session.res.end();
@@ -179,7 +183,7 @@ class ProgressService {
       } catch (error) {
         console.error(`Error closing SSE session ${sessionId}:`, error);
       }
-      
+
       this.progressSessions.delete(sessionId);
       this.progressCallbacks.delete(sessionId);
     }
@@ -191,7 +195,7 @@ class ProgressService {
   getSessionInfo(sessionId) {
     const session = this.progressSessions.get(sessionId);
     if (!session) {
-      throw new AppError('Progress session not found', 404);
+      throw new AppError("Progress session not found", 404);
     }
 
     return {
@@ -201,7 +205,9 @@ class ProgressService {
       isActive: session.isActive,
       startTime: session.startTime,
       lastUpdate: session.lastUpdate,
-      duration: session.endTime ? session.endTime - session.startTime : Date.now() - session.startTime
+      duration: session.endTime
+        ? session.endTime - session.startTime
+        : Date.now() - session.startTime,
     };
   }
 
@@ -217,14 +223,14 @@ class ProgressService {
         status: session.status,
         startTime: session.startTime,
         lastUpdate: session.lastUpdate,
-        clientIP: session.clientIP
+        clientIP: session.clientIP,
       }));
   }
 
   /**
    * Broadcast message to all active sessions
    */
-  broadcastMessage(message, type = 'info') {
+  broadcastMessage(message, type = "info") {
     let count = 0;
     for (const [sessionId, session] of this.progressSessions.entries()) {
       if (session.isActive) {
@@ -239,14 +245,15 @@ class ProgressService {
   /**
    * Cleanup old/inactive sessions
    */
-  cleanupSessions(maxAge = 3600000) { // 1 hour default
+  cleanupSessions(maxAge = 3600000) {
+    // 1 hour default
     const now = Date.now();
     const cleaned = [];
 
     for (const [sessionId, session] of this.progressSessions.entries()) {
       const age = now - session.startTime;
       const isStale = !session.isActive || age > maxAge;
-      
+
       // Also check if last update was too long ago
       const lastUpdateAge = session.lastUpdate ? now - session.lastUpdate : age;
       const isStaleUpdate = lastUpdateAge > maxAge;
@@ -272,31 +279,33 @@ class ProgressService {
    */
   createOptimizationTracker(sessionId, totalSteps = 100) {
     let currentStep = 0;
-    
+
     return {
-      step: (message = '') => {
+      step: (message = "") => {
         currentStep++;
         const progress = Math.min(100, (currentStep / totalSteps) * 100);
         this.updateProgress(sessionId, progress, message);
       },
-      
-      setProgress: (progress, message = '') => {
+
+      setProgress: (progress, message = "") => {
         this.updateProgress(sessionId, progress, message);
       },
-      
-      complete: (message = 'Operation completed') => {
+
+      complete: (message = "Operation completed") => {
         this.updateProgress(sessionId, 100, message);
-        this.updateStatus(sessionId, 'completed');
+        this.updateStatus(sessionId, "completed");
       },
-      
-      fail: (error, message = 'Operation failed') => {
+
+      fail: (error, message = "Operation failed") => {
         this.sendError(sessionId, error);
-        this.updateStatus(sessionId, 'failed', { error: error.message || error });
+        this.updateStatus(sessionId, "failed", {
+          error: error.message || error,
+        });
       },
-      
-      cancel: (message = 'Operation cancelled') => {
-        this.updateStatus(sessionId, 'cancelled', { message });
-      }
+
+      cancel: (message = "Operation cancelled") => {
+        this.updateStatus(sessionId, "cancelled", { message });
+      },
     };
   }
 
@@ -305,15 +314,22 @@ class ProgressService {
    */
   getServiceStats() {
     const sessions = Array.from(this.progressSessions.values());
-    const activeSessions = sessions.filter(s => s.isActive);
-    
+    const activeSessions = sessions.filter((s) => s.isActive);
+
     return {
       totalSessions: sessions.length,
       activeSessions: activeSessions.length,
-      averageSessionDuration: sessions.length > 0 ? 
-        sessions.reduce((sum, s) => sum + ((s.endTime || Date.now()) - s.startTime), 0) / sessions.length : 0,
-      oldestActiveSession: activeSessions.length > 0 ? 
-        Math.min(...activeSessions.map(s => s.startTime)) : null
+      averageSessionDuration:
+        sessions.length > 0
+          ? sessions.reduce(
+              (sum, s) => sum + ((s.endTime || Date.now()) - s.startTime),
+              0
+            ) / sessions.length
+          : 0,
+      oldestActiveSession:
+        activeSessions.length > 0
+          ? Math.min(...activeSessions.map((s) => s.startTime))
+          : null,
     };
   }
 }

@@ -1,0 +1,28 @@
+# Ignore node modules
+node_modules/
+
+# Ignore build directories
+build/
+dist/
+out/
+
+# Ignore cache directories
+.cache/
+temp/
+cache/
+
+# Ignore uploads
+uploads/
+
+# Ignore logs
+*.log
+
+# Ignore specific files
+package-lock.json
+ai-service.log
+ai-service-*.log
+server.log
+
+# Ignore minified files
+*.min.js
+*.min.css

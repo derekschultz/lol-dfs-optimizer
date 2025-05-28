@@ -14,8 +14,8 @@ const generateLineupId = () => {
 
 // Generate player ID from name and team
 const generatePlayerId = (name, team) => {
-  const cleanName = name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-  const cleanTeam = team.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const cleanName = name.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  const cleanTeam = team.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
   return `${cleanTeam}_${cleanName}_${Date.now()}`;
 };
 
@@ -28,5 +28,5 @@ module.exports = {
   generateRandomId,
   generateLineupId,
   generatePlayerId,
-  generateEntryId
+  generateEntryId,
 };

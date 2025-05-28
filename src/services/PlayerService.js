@@ -3,8 +3,8 @@
  * Handles all player-related business logic
  */
 
-const { generateRandomId, generatePlayerId } = require('../utils/generators');
-const { AppError } = require('../middleware/errorHandler');
+const { generateRandomId, generatePlayerId } = require("../utils/generators");
+const { AppError } = require("../middleware/errorHandler");
 
 class PlayerService {
   constructor(playerRepository) {
@@ -16,7 +16,7 @@ class PlayerService {
       const players = await this.playerRepository.findAll();
       return players;
     } catch (error) {
-      throw new AppError('Failed to fetch players', 500);
+      throw new AppError("Failed to fetch players", 500);
     }
   }
 
@@ -24,12 +24,12 @@ class PlayerService {
     try {
       const player = await this.playerRepository.findById(id);
       if (!player) {
-        throw new AppError('Player not found', 404);
+        throw new AppError("Player not found", 404);
       }
       return player;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to fetch player', 500);
+      throw new AppError("Failed to fetch player", 500);
     }
   }
 
@@ -47,7 +47,10 @@ class PlayerService {
       const players = await this.playerRepository.findByPosition(position);
       return players;
     } catch (error) {
-      throw new AppError(`Failed to fetch players for position ${position}`, 500);
+      throw new AppError(
+        `Failed to fetch players for position ${position}`,
+        500
+      );
     }
   }
 
@@ -55,14 +58,18 @@ class PlayerService {
     try {
       // Generate ID if not provided
       if (!playerData.id) {
-        playerData.id = playerData.name && playerData.team 
-          ? generatePlayerId(playerData.name, playerData.team)
-          : generateRandomId();
+        playerData.id =
+          playerData.name && playerData.team
+            ? generatePlayerId(playerData.name, playerData.team)
+            : generateRandomId();
       }
 
       // Calculate value (points per $1000)
       if (playerData.salary > 0 && playerData.projectedPoints > 0) {
-        playerData.value = (playerData.projectedPoints / (playerData.salary / 1000)).toFixed(2);
+        playerData.value = (
+          playerData.projectedPoints /
+          (playerData.salary / 1000)
+        ).toFixed(2);
       } else {
         playerData.value = 0;
       }
@@ -74,7 +81,7 @@ class PlayerService {
       return newPlayer;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to create player', 500);
+      throw new AppError("Failed to create player", 500);
     }
   }
 
@@ -82,15 +89,16 @@ class PlayerService {
     try {
       const existingPlayer = await this.playerRepository.findById(id);
       if (!existingPlayer) {
-        throw new AppError('Player not found', 404);
+        throw new AppError("Player not found", 404);
       }
 
       // Recalculate value if salary or projectedPoints changed
       const updatedData = { ...updateData };
       if (updatedData.salary || updatedData.projectedPoints) {
         const salary = updatedData.salary || existingPlayer.salary;
-        const projectedPoints = updatedData.projectedPoints || existingPlayer.projectedPoints;
-        
+        const projectedPoints =
+          updatedData.projectedPoints || existingPlayer.projectedPoints;
+
         if (salary > 0 && projectedPoints > 0) {
           updatedData.value = (projectedPoints / (salary / 1000)).toFixed(2);
         }
@@ -100,7 +108,7 @@ class PlayerService {
       return updatedPlayer;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to update player', 500);
+      throw new AppError("Failed to update player", 500);
     }
   }
 
@@ -108,14 +116,14 @@ class PlayerService {
     try {
       const existingPlayer = await this.playerRepository.findById(id);
       if (!existingPlayer) {
-        throw new AppError('Player not found', 404);
+        throw new AppError("Player not found", 404);
       }
 
       await this.playerRepository.delete(id);
       return { success: true, deletedPlayer: existingPlayer };
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to delete player', 500);
+      throw new AppError("Failed to delete player", 500);
     }
   }
 
@@ -133,7 +141,7 @@ class PlayerService {
               id: player.id,
               name: player.name,
               team: player.team,
-              position: player.position
+              position: player.position,
             });
           } else {
             notFoundIds.push(id);
@@ -147,101 +155,130 @@ class PlayerService {
         success: true,
         deletedPlayers,
         notFoundIds: notFoundIds.length > 0 ? notFoundIds : undefined,
-        message: `Deleted ${deletedPlayers.length} players successfully`
+        message: `Deleted ${deletedPlayers.length} players successfully`,
       };
     } catch (error) {
-      throw new AppError('Failed to delete players', 500);
+      throw new AppError("Failed to delete players", 500);
     }
   }
 
   async processPlayersCsv(csvData) {
     try {
       const processedPlayers = [];
-      
+
       for (const playerData of csvData) {
         // Extract data with flexible column naming (from original parsePlayersCSV)
         const player = {
-          id: playerData.id || playerData.ID || playerData.Id || generateRandomId(),
-          name: playerData.name || playerData.Name || playerData.PLAYER || playerData.Player || "",
+          id:
+            playerData.id ||
+            playerData.ID ||
+            playerData.Id ||
+            generateRandomId(),
+          name:
+            playerData.name ||
+            playerData.Name ||
+            playerData.PLAYER ||
+            playerData.Player ||
+            "",
           team: playerData.team || playerData.Team || playerData.TEAM || "",
-          position: playerData.position || playerData.Position || playerData.POS || playerData.Pos || "",
-          projectedPoints: parseFloat(
-            playerData.projectedPoints ||
-            playerData.Proj ||
-            playerData.FPTS ||
-            playerData.Projection ||
-            playerData.Median ||
-            0
-          ) || 0,
-          ownership: parseFloat(
-            playerData.Own ||
-            playerData.OWN ||
-            playerData.own ||
-            playerData.Ownership ||
-            playerData.OWNERSHIP ||
-            playerData.ownership ||
-            0
-          ) || 0,
-          salary: parseInt(playerData.salary || playerData.Salary || playerData.SALARY || 0) || 0,
-          opp: playerData.opp || playerData.OPP || playerData.Opp || playerData.opponent || playerData.Opponent || "",
+          position:
+            playerData.position ||
+            playerData.Position ||
+            playerData.POS ||
+            playerData.Pos ||
+            "",
+          projectedPoints:
+            parseFloat(
+              playerData.projectedPoints ||
+                playerData.Proj ||
+                playerData.FPTS ||
+                playerData.Projection ||
+                playerData.Median ||
+                0
+            ) || 0,
+          ownership:
+            parseFloat(
+              playerData.Own ||
+                playerData.OWN ||
+                playerData.own ||
+                playerData.Ownership ||
+                playerData.OWNERSHIP ||
+                playerData.ownership ||
+                0
+            ) || 0,
+          salary:
+            parseInt(
+              playerData.salary || playerData.Salary || playerData.SALARY || 0
+            ) || 0,
+          opp:
+            playerData.opp ||
+            playerData.OPP ||
+            playerData.Opp ||
+            playerData.opponent ||
+            playerData.Opponent ||
+            "",
         };
 
         // Only add valid players with a name and projectedPoints > 0
         if (player.name && player.projectedPoints > 0) {
           // Calculate value (points per $1000)
-          player.value = player.salary > 0
-            ? (player.projectedPoints / (player.salary / 1000)).toFixed(2)
-            : 0;
-          
+          player.value =
+            player.salary > 0
+              ? (player.projectedPoints / (player.salary / 1000)).toFixed(2)
+              : 0;
+
           processedPlayers.push(player);
         }
       }
 
       return processedPlayers;
     } catch (error) {
-      throw new AppError('Failed to process players CSV data', 500);
+      throw new AppError("Failed to process players CSV data", 500);
     }
   }
 
   validatePlayerData(playerData) {
     const errors = [];
 
-    if (!playerData.name || typeof playerData.name !== 'string') {
-      errors.push('Name is required and must be a string');
+    if (!playerData.name || typeof playerData.name !== "string") {
+      errors.push("Name is required and must be a string");
     }
 
-    if (!playerData.team || typeof playerData.team !== 'string') {
-      errors.push('Team is required and must be a string');
+    if (!playerData.team || typeof playerData.team !== "string") {
+      errors.push("Team is required and must be a string");
     }
 
-    if (!playerData.position || typeof playerData.position !== 'string') {
-      errors.push('Position is required and must be a string');
+    if (!playerData.position || typeof playerData.position !== "string") {
+      errors.push("Position is required and must be a string");
     }
 
-    const validPositions = ['TOP', 'JNG', 'MID', 'ADC', 'SUP', 'TEAM', 'CPT'];
+    const validPositions = ["TOP", "JNG", "MID", "ADC", "SUP", "TEAM", "CPT"];
     if (playerData.position && !validPositions.includes(playerData.position)) {
-      errors.push(`Position must be one of: ${validPositions.join(', ')}`);
+      errors.push(`Position must be one of: ${validPositions.join(", ")}`);
     }
 
-    if (typeof playerData.salary !== 'number' || playerData.salary < 0) {
-      errors.push('Salary must be a non-negative number');
+    if (typeof playerData.salary !== "number" || playerData.salary < 0) {
+      errors.push("Salary must be a non-negative number");
     }
 
-    if (typeof playerData.projectedPoints !== 'number' || playerData.projectedPoints < 0) {
-      errors.push('Projected points must be a non-negative number');
+    if (
+      typeof playerData.projectedPoints !== "number" ||
+      playerData.projectedPoints < 0
+    ) {
+      errors.push("Projected points must be a non-negative number");
     }
 
     if (errors.length > 0) {
-      throw new AppError(`Player validation failed: ${errors.join(', ')}`, 400);
+      throw new AppError(`Player validation failed: ${errors.join(", ")}`, 400);
     }
   }
 
   async getTeamStats() {
     try {
       const players = await this.playerRepository.findAll();
-      
+
       if (players.length === 0) {
-        throw new AppError('No player projections available', 400);
+        throw new AppError("No player projections available", 400);
       }
 
       // Group players by team
@@ -260,7 +297,9 @@ class PlayerService {
         }
 
         teamMap[player.team].players.push(player);
-        teamMap[player.team].totalProjection += Number(player.projectedPoints || 0);
+        teamMap[player.team].totalProjection += Number(
+          player.projectedPoints || 0
+        );
         teamMap[player.team].totalSalary += Number(player.salary || 0);
       });
 
@@ -271,9 +310,10 @@ class PlayerService {
           .map((p) => Number(p.ownership || 0))
           .filter((o) => !isNaN(o));
 
-        const avgOwnership = ownerships.length > 0
-          ? ownerships.reduce((sum, o) => sum + o, 0) / ownerships.length
-          : 0;
+        const avgOwnership =
+          ownerships.length > 0
+            ? ownerships.reduce((sum, o) => sum + o, 0) / ownerships.length
+            : 0;
 
         // Add positions breakdown
         const positionCounts = {
@@ -285,7 +325,10 @@ class PlayerService {
         };
 
         team.players.forEach((player) => {
-          if (player.position && positionCounts[player.position] !== undefined) {
+          if (
+            player.position &&
+            positionCounts[player.position] !== undefined
+          ) {
             positionCounts[player.position]++;
           }
         });
@@ -293,7 +336,8 @@ class PlayerService {
         return {
           ...team,
           playerCount,
-          avgProjection: playerCount > 0 ? team.totalProjection / playerCount : 0,
+          avgProjection:
+            playerCount > 0 ? team.totalProjection / playerCount : 0,
           avgSalary: playerCount > 0 ? team.totalSalary / playerCount : 0,
           avgOwnership,
           positionCounts,
@@ -306,7 +350,7 @@ class PlayerService {
       return teamStats;
     } catch (error) {
       if (error.statusCode) throw error;
-      throw new AppError('Failed to calculate team stats', 500);
+      throw new AppError("Failed to calculate team stats", 500);
     }
   }
 }

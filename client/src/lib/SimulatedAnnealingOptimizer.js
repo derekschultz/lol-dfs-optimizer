@@ -87,9 +87,8 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
         );
 
         // Phase 3: Generate multiple solutions from best (10% of run progress)
-        const runSolutions = await this._generateVariationsFromBest(
-          lineupsPerRun
-        );
+        const runSolutions =
+          await this._generateVariationsFromBest(lineupsPerRun);
         solutions.push(...runSolutions);
 
         this.updateProgress(runProgressStart + 18, `run_${run}_completed`);
@@ -355,10 +354,13 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
     if (!currentPlayer) return;
 
     // Find better alternatives
-    const usedIds = new Set([
-      lineup.cpt.id,
-      ...lineup.players.map((p) => p.id),
-    ]);
+    const usedIds = new Set();
+    if (lineup.cpt && lineup.cpt.id) {
+      usedIds.add(lineup.cpt.id);
+    }
+    if (lineup.players) {
+      lineup.players.filter((p) => p && p.id).forEach((p) => usedIds.add(p.id));
+    }
     const alternatives = this.playerPool.filter(
       (player) =>
         player.position === randomPosition &&
@@ -515,10 +517,18 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
    * Neighbor move: optimize salary usage
    */
   async _neighborOptimizeSalary(lineup) {
+    // Check for valid lineup
+    if (!lineup || !lineup.cpt || !lineup.players) {
+      return;
+    }
+
     // Calculate current salary usage
     const currentSalary =
-      lineup.cpt.salary +
-      lineup.players.reduce((sum, p) => sum + (p.salary || 0), 0);
+      (lineup.cpt.salary || 0) +
+      lineup.players.reduce(
+        (sum, p) => sum + (p && p.salary ? p.salary : 0),
+        0
+      );
     const remainingSalary = this.config.salaryCap - currentSalary;
 
     if (remainingSalary > 1000) {
@@ -528,7 +538,7 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
           (p) =>
             p.position === player.position &&
             p.id !== player.id &&
-            p.id !== lineup.cpt.id &&
+            p.id !== (lineup.cpt && lineup.cpt.id) &&
             !lineup.players.some((lp) => lp.id === p.id) &&
             this._safeParseFloat(p.salary, 0) > (player.salary || 0) &&
             this._safeParseFloat(p.salary, 0) - (player.salary || 0) <=
@@ -546,7 +556,7 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
           (p) =>
             p.position === targetPlayer.position &&
             p.id !== targetPlayer.id &&
-            p.id !== lineup.cpt.id &&
+            p.id !== (lineup.cpt && lineup.cpt.id) &&
             !lineup.players.some((lp) => lp.id === p.id) &&
             this._safeParseFloat(p.salary, 0) > (targetPlayer.salary || 0) &&
             this._safeParseFloat(p.salary, 0) - (targetPlayer.salary || 0) <=
@@ -701,6 +711,12 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
    */
   async _evaluateLineup(lineup) {
     // Fast evaluation similar to genetic fitness but optimized for annealing
+
+    // Check for null lineup or missing components
+    if (!lineup || !lineup.cpt || !lineup.players) {
+      return 0; // Return 0 score for invalid lineups
+    }
+
     let score = 0;
 
     // Base projection
@@ -712,9 +728,14 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
     }
 
     lineup.players.forEach((player) => {
-      const poolPlayer = this.playerPool.find((p) => p.id === player.id);
-      if (poolPlayer) {
-        totalProjection += this._safeParseFloat(poolPlayer.projectedPoints, 0);
+      if (player && player.id) {
+        const poolPlayer = this.playerPool.find((p) => p.id === player.id);
+        if (poolPlayer) {
+          totalProjection += this._safeParseFloat(
+            poolPlayer.projectedPoints,
+            0
+          );
+        }
       }
     });
 
@@ -799,9 +820,16 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
    * Calculate salary efficiency score
    */
   _calculateSalaryEfficiencyScore(lineup) {
+    if (!lineup || !lineup.cpt || !lineup.players) {
+      return 0;
+    }
+
     const totalSalary =
-      lineup.cpt.salary +
-      lineup.players.reduce((sum, p) => sum + (p.salary || 0), 0);
+      (lineup.cpt.salary || 0) +
+      lineup.players.reduce(
+        (sum, p) => sum + (p && p.salary ? p.salary : 0),
+        0
+      );
     const salaryUsage = totalSalary / this.config.salaryCap;
 
     // Bonus for using 95-100% of salary cap
@@ -899,4 +927,3 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
 }
 
 module.exports = SimulatedAnnealingOptimizer;
-

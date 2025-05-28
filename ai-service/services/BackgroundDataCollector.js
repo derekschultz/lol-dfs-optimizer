@@ -690,22 +690,25 @@ class BackgroundDataCollector {
     setTimeout(tryInitialCollection, 10000);
 
     // Set interval for every 30 minutes
-    setInterval(async () => {
-      if (this.needsCollection()) {
-        // Also check for data before scheduled collection
-        const liveData = await this.dataCollector.fetchLiveData();
-        if (
-          liveData.success &&
-          liveData.players &&
-          liveData.players.length > 0
-        ) {
-          console.log("⏰ Starting scheduled data collection...");
-          await this.collectAllData();
-        } else {
-          console.log("⏰ Scheduled collection skipped - no player data");
+    setInterval(
+      async () => {
+        if (this.needsCollection()) {
+          // Also check for data before scheduled collection
+          const liveData = await this.dataCollector.fetchLiveData();
+          if (
+            liveData.success &&
+            liveData.players &&
+            liveData.players.length > 0
+          ) {
+            console.log("⏰ Starting scheduled data collection...");
+            await this.collectAllData();
+          } else {
+            console.log("⏰ Scheduled collection skipped - no player data");
+          }
         }
-      }
-    }, 30 * 60 * 1000); // 30 minutes
+      },
+      30 * 60 * 1000
+    ); // 30 minutes
   }
 
   // Get status of background collector
