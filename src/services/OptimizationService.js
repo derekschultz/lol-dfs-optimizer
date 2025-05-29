@@ -81,16 +81,49 @@ class OptimizationService {
           results: results.lineups,
         });
 
-        // Store generated lineups
+        // Store generated lineups (with additional deduplication check)
         const savedLineups = [];
+        const existingLineups = await this.lineupRepository.findAll();
+        const existingSignatures = new Set();
+
+        // Create signatures for existing lineups
+        existingLineups.forEach((lineup) => {
+          const allPlayerIds = new Set();
+          if (lineup.cpt?.id) allPlayerIds.add(String(lineup.cpt.id));
+          if (lineup.players) {
+            lineup.players.forEach((p) => {
+              if (p?.id) allPlayerIds.add(String(p.id));
+            });
+          }
+          if (allPlayerIds.size > 0) {
+            existingSignatures.add(Array.from(allPlayerIds).sort().join("|"));
+          }
+        });
+
         for (const lineup of results.lineups) {
-          const savedLineup = await this.lineupRepository.create({
-            ...lineup,
-            algorithm,
-            optimizationId,
-            generatedAt: new Date().toISOString(),
-          });
-          savedLineups.push(savedLineup);
+          // Check if this lineup composition already exists
+          const allPlayerIds = new Set();
+          if (lineup.cpt?.id) allPlayerIds.add(String(lineup.cpt.id));
+          if (lineup.players) {
+            lineup.players.forEach((p) => {
+              if (p?.id) allPlayerIds.add(String(p.id));
+            });
+          }
+
+          const signature = Array.from(allPlayerIds).sort().join("|");
+
+          if (!existingSignatures.has(signature)) {
+            const savedLineup = await this.lineupRepository.create({
+              ...lineup,
+              algorithm,
+              optimizationId,
+              generatedAt: new Date().toISOString(),
+            });
+            savedLineups.push(savedLineup);
+            existingSignatures.add(signature);
+          } else {
+            console.log("Skipping duplicate lineup composition:", signature);
+          }
         }
 
         return {

@@ -18,13 +18,13 @@ class SimulatedAnnealingOptimizer extends AdvancedOptimizer {
 
     // Simulated annealing specific configuration
     this.annealingConfig = {
-      initialTemperature: 1000, // Starting temperature
+      initialTemperature: 1500, // Starting temperature (moderate increase)
       finalTemperature: 0.1, // Ending temperature
-      coolingRate: 0.95, // Temperature reduction factor
-      maxIterations: 10000, // Maximum iterations
-      maxStagnation: 500, // Iterations without improvement before reheat
-      reheatFactor: 2.0, // Temperature multiplier for reheating
-      neighborhoodSize: 5, // Number of neighbors to try per iteration
+      coolingRate: 0.93, // Temperature reduction factor (slightly slower cooling)
+      maxIterations: 12000, // Maximum iterations (moderate increase)
+      maxStagnation: 400, // Iterations without improvement before reheat
+      reheatFactor: 2.5, // Temperature multiplier for reheating (moderate increase)
+      neighborhoodSize: 6, // Number of neighbors to try per iteration (moderate increase)
       acceptanceThreshold: 0.01, // Minimum acceptance probability
       ...config.annealing,
     };

@@ -570,8 +570,8 @@ class HybridOptimizer {
     } = this.constraintAnalysis || {};
     const fieldSize = this.contestInfo?.fieldSize || 1000;
 
-    // High constraint complexity - use constraint-focused approach
-    if (constraintCount > 5 || complexityScore > 15) {
+    // Significantly raised threshold - force balanced strategy for diversity
+    if (constraintCount > 50 || complexityScore > 100) {
       return "constraint_focused";
     }
 
@@ -582,7 +582,8 @@ class HybridOptimizer {
         return "cash_game";
       case "gpp":
       case "tournament":
-        return fieldSize > 5000 ? "contrarian" : "tournament";
+        // Force balanced strategy for diversity (was returning single algorithm "tournament")
+        return "balanced";
     }
 
     // Field size considerations
@@ -613,19 +614,47 @@ class HybridOptimizer {
     for (const [algorithm, percentage] of Object.entries(distribution)) {
       if (this.isCancelled) throw new Error("Hybrid optimization cancelled");
 
-      const algorithmCount = Math.round(count * percentage);
+      // Generate significantly more lineups to account for high duplicate rate
+      const baseCount = Math.round(count * percentage);
+      const extraCount = Math.ceil(baseCount * 1.5); // 150% buffer for duplicates (was 30%)
+      const algorithmCount = baseCount + extraCount;
       if (algorithmCount === 0) continue;
 
       this.updateStatus(
-        `Running ${algorithm} optimization (${algorithmCount} lineups)...`
+        `Running ${algorithm} optimization (${baseCount} lineups)...`
       );
 
+      // Temporarily intercept status updates from the child optimizer to show correct count
+      const originalStatusCallback = this.onStatusUpdate;
+      this.onStatusUpdate = (status) => {
+        // Replace algorithm's buffered count with user's requested baseCount in status messages
+        let correctedStatus = status;
+        if (
+          status &&
+          typeof status === "string" &&
+          status.includes(`${algorithmCount}`)
+        ) {
+          correctedStatus = status.replace(`${algorithmCount}`, `${baseCount}`);
+        }
+        if (originalStatusCallback) {
+          originalStatusCallback(correctedStatus);
+        }
+      };
+
+      const optimizer = this.optimizers[algorithm];
+      let optimizerOriginalProgressCallback, optimizerOriginalStatusCallback;
+
       try {
-        const optimizer = this.optimizers[algorithm];
         if (!optimizer) {
           console.warn(`Optimizer ${algorithm} not available, skipping...`);
           continue;
         }
+
+        // Temporarily disable the optimizer's callbacks to prevent confusing progress messages
+        optimizerOriginalProgressCallback = optimizer.onProgress;
+        optimizerOriginalStatusCallback = optimizer.onStatusUpdate;
+        optimizer.onProgress = null;
+        optimizer.onStatusUpdate = null;
 
         // Merge strategy config with custom config
         const algorithmConfig = {
@@ -636,6 +665,15 @@ class HybridOptimizer {
             ...customConfig[algorithm],
           },
         };
+
+        // Force high diversity for hybrid mode
+        algorithmConfig.randomness = 0.8; // High randomness for all algorithms
+        algorithmConfig.diversityBoost = true; // Flag for algorithms to increase diversity
+
+        // Apply config to optimizer for diversity
+        if (optimizer.updateConfig) {
+          optimizer.updateConfig(algorithmConfig);
+        }
 
         let algorithmResults;
 
@@ -660,6 +698,13 @@ class HybridOptimizer {
       } catch (error) {
         console.error(`Error running ${algorithm} optimization:`, error);
         // Continue with other algorithms
+      } finally {
+        // Restore original callbacks
+        this.onStatusUpdate = originalStatusCallback;
+        if (optimizer) {
+          optimizer.onProgress = optimizerOriginalProgressCallback;
+          optimizer.onStatusUpdate = optimizerOriginalStatusCallback;
+        }
       }
 
       totalProgress += 100 / algorithmKeys.length;
@@ -793,18 +838,25 @@ class HybridOptimizer {
 
     let results;
 
-    switch (algorithm) {
-      case "monte_carlo":
-        results = await optimizer.runSimulation(count);
-        break;
-      case "genetic":
-        results = await optimizer.runGeneticOptimization(count);
-        break;
-      case "simulated_annealing":
-        results = await optimizer.runSimulatedAnnealing(count);
-        break;
-      default:
-        throw new Error(`Unsupported algorithm: ${algorithm}`);
+    try {
+      switch (algorithm) {
+        case "monte_carlo":
+          results = await optimizer.runSimulation(count);
+          break;
+        case "genetic":
+          results = await optimizer.runGeneticOptimization(count);
+          break;
+        case "simulated_annealing":
+          console.log("Starting simulated annealing optimization...");
+          results = await optimizer.runSimulatedAnnealing(count);
+          console.log("Simulated annealing completed, results:", results);
+          break;
+        default:
+          throw new Error(`Unsupported algorithm: ${algorithm}`);
+      }
+    } catch (error) {
+      console.error(`Error in ${algorithm} optimization:`, error);
+      throw error;
     }
 
     // Tag lineups with source algorithm
@@ -812,9 +864,80 @@ class HybridOptimizer {
       results.lineups.forEach((lineup) => {
         lineup.sourceAlgorithm = algorithm;
       });
+
+      // Apply deduplication to single algorithm results
+      const deduplicatedLineups = this._deduplicateLineups(
+        results.lineups,
+        count
+      );
+
+      results.lineups = deduplicatedLineups;
     }
 
     return results;
+  }
+
+  /**
+   * Deduplicate lineups based on player composition
+   */
+  _deduplicateLineups(lineups, targetCount) {
+    if (!lineups || lineups.length === 0) return [];
+
+    // Sort by best available score
+    lineups.sort((a, b) => {
+      const scoreA = a.nexusScore || a.geneticFitness || a.annealingScore || 0;
+      const scoreB = b.nexusScore || b.geneticFitness || b.annealingScore || 0;
+      return scoreB - scoreA;
+    });
+
+    // Remove duplicates
+    const uniqueResults = [];
+    const seenLineups = new Set();
+
+    for (const lineup of lineups) {
+      try {
+        // Validate lineup structure first
+        if (!lineup) {
+          continue;
+        }
+
+        // Collect ALL unique player IDs, handling captain overlap
+        const allPlayerIds = new Set();
+
+        // Add captain ID if it exists
+        if (lineup.cpt?.id !== undefined && lineup.cpt?.id !== null) {
+          allPlayerIds.add(String(lineup.cpt.id));
+        }
+
+        // Add regular player IDs if they exist (Set automatically handles duplicates)
+        if (lineup.players && Array.isArray(lineup.players)) {
+          lineup.players.forEach((player, index) => {
+            if (!player) {
+              return;
+            }
+            if (player.id !== undefined && player.id !== null) {
+              allPlayerIds.add(String(player.id));
+            }
+          });
+        }
+
+        // Create signature only if we have valid player IDs
+        if (allPlayerIds.size > 0) {
+          const lineupSignature = Array.from(allPlayerIds).sort().join("|");
+
+          if (!seenLineups.has(lineupSignature)) {
+            seenLineups.add(lineupSignature);
+            uniqueResults.push(lineup);
+
+            if (uniqueResults.length >= targetCount) break;
+          }
+        }
+      } catch (error) {
+        // Skip problematic lineups
+      }
+    }
+
+    return uniqueResults.slice(0, targetCount);
   }
 
   /**
@@ -835,18 +958,39 @@ class HybridOptimizer {
     const seenLineups = new Set();
 
     for (const lineup of results) {
-      const playerIds = [lineup.cpt?.id, ...lineup.players.map((p) => p.id)];
-      const lineupSignature = playerIds.sort().join("|");
+      // Collect ALL unique player IDs, handling captain overlap
+      const allPlayerIds = new Set();
 
-      if (!seenLineups.has(lineupSignature)) {
-        seenLineups.add(lineupSignature);
-        uniqueResults.push(lineup);
+      // Add captain ID if it exists
+      if (lineup.cpt?.id !== undefined && lineup.cpt?.id !== null) {
+        allPlayerIds.add(String(lineup.cpt.id));
+      }
 
-        if (uniqueResults.length >= targetCount) break;
+      // Add regular player IDs if they exist (Set automatically handles duplicates)
+      if (lineup.players && Array.isArray(lineup.players)) {
+        lineup.players.forEach((player) => {
+          if (player?.id !== undefined && player?.id !== null) {
+            allPlayerIds.add(String(player.id));
+          }
+        });
+      }
+
+      // Create signature only if we have valid player IDs
+      if (allPlayerIds.size > 0) {
+        const lineupSignature = Array.from(allPlayerIds).sort().join("|");
+
+        if (!seenLineups.has(lineupSignature)) {
+          seenLineups.add(lineupSignature);
+          uniqueResults.push(lineup);
+
+          if (uniqueResults.length >= targetCount) break;
+        }
       }
     }
 
-    return uniqueResults.slice(0, targetCount);
+    const finalResults = uniqueResults.slice(0, targetCount);
+
+    return finalResults;
   }
 
   /**
