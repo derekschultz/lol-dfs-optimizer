@@ -109,7 +109,7 @@ const NexusScoreTester = ({ playerData = [], lineups = [], onSaveFormula }) => {
     } finally {
       setIsCalculating(false);
     }
-  }, [playerData, lineups, formulas, calculateComparisonMetrics]);
+  }, [playerData, lineups, formulas]);
 
   // Process formulas in batches to keep UI responsive
   const processFormulasBatched = async (
