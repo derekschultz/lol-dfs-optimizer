@@ -16,18 +16,21 @@ class GeneticOptimizer extends AdvancedOptimizer {
   constructor(config = {}) {
     super(config);
 
-    // Genetic algorithm specific configuration
+    // Genetic algorithm specific configuration - tuned for maximum diversity
     this.geneticConfig = {
       populationSize: 100, // Number of lineups in each generation
       generations: 50, // Number of evolution cycles
-      elitePercentage: 0.2, // Top 20% automatically survive
-      crossoverRate: 0.7, // 70% of offspring from crossover
-      mutationRate: 0.15, // 15% chance of mutation per gene
-      tournamentSize: 5, // Tournament selection size
-      diversityWeight: 0.3, // Weight for maintaining diversity
-      maxStagnation: 10, // Generations without improvement before restart
+      elitePercentage: 0.05, // Drastically reduced to 5% - minimal elites
+      crossoverRate: 0.4, // Further reduced - favor random generation over crossover
+      mutationRate: 0.6, // Even higher mutation rate for maximum diversity
+      tournamentSize: 2, // Minimal selection pressure
+      diversityWeight: 0.7, // Heavy emphasis on diversity
+      maxStagnation: 3, // Restart very quickly if converging
       ...config.genetic,
     };
+
+    // Disable debug mode to reduce logging
+    this.config.debugMode = false;
 
     // Evolution tracking
     this.currentGeneration = 0;
@@ -117,31 +120,85 @@ class GeneticOptimizer extends AdvancedOptimizer {
       this.updateStatus("Selecting final lineups...");
       this.updateProgress(80, "final_selection");
 
-      // Sort by fitness and select top lineups
-      population.sort((a, b) => b.fitness - a.fitness);
-      const selectedLineups = population
-        .slice(0, count)
-        .map((ind) => ind.lineup);
+      // Debug population state
+      const validPopulation = population.filter(
+        (ind) => ind && ind.lineup && ind.lineup.cpt && ind.lineup.players
+      );
+      this.debugLog(
+        `GeneticOptimizer: Final population size: ${population.length}, valid: ${validPopulation.length}`
+      );
+      this.debugLog(
+        `GeneticOptimizer: Fitness range: ${Math.min(...validPopulation.map((p) => p.fitness || 0))} - ${Math.max(...validPopulation.map((p) => p.fitness || 0))}`
+      );
+
+      // Use diversity-based selection instead of just taking top fitness
+      const selectedLineups = this._selectDiverseLineups(population, count);
+
+      this.debugLog(
+        `GeneticOptimizer: Selected ${selectedLineups.length} lineups for simulation (requested: ${count})`
+      );
 
       // Run full Monte Carlo simulation on selected lineups
       this.updateStatus("Running final simulation...");
       const simulatedResults = [];
 
+      this.debugLog(
+        `GeneticOptimizer: Starting simulation of ${selectedLineups.length} lineups`
+      );
+
       for (let i = 0; i < selectedLineups.length; i++) {
         if (this.isCancelled) throw new Error("Genetic optimization cancelled");
 
-        const result = await this._simulateLineup(selectedLineups[i]);
-        simulatedResults.push(result);
+        try {
+          const result = await this._simulateLineup(selectedLineups[i]);
+          if (result !== null && result !== undefined) {
+            simulatedResults.push(result);
+          } else {
+            console.log(
+              `GeneticOptimizer: Simulation failed for lineup ${i + 1} - null result`
+            );
+          }
+        } catch (error) {
+          console.log(
+            `GeneticOptimizer: Simulation error for lineup ${i + 1}: ${error.message}`
+          );
+        }
 
+        // Update progress and status to show current lineup count
         const simProgress = 80 + ((i + 1) / selectedLineups.length) * 20;
         this.updateProgress(simProgress, "final_simulation");
+        this.updateStatus(
+          `Simulating lineups... (${simulatedResults.length}/${selectedLineups.length} completed)`
+        );
+
+        // Add small delay to see progress
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
 
+      this.debugLog(
+        `GeneticOptimizer: Simulation complete. ${simulatedResults.length}/${selectedLineups.length} lineups succeeded`
+      );
+
       // Calculate NexusScores and final ranking
-      simulatedResults.forEach((result) => {
-        const nexusResult = this._calculateNexusScore(result);
-        result.nexusScore = nexusResult.score;
-        result.scoreComponents = nexusResult.components;
+      this.debugLog(
+        `GeneticOptimizer: Calculating NexusScores for ${simulatedResults.length} lineups`
+      );
+
+      simulatedResults.forEach((result, index) => {
+        try {
+          const nexusResult = this._calculateNexusScore(result);
+          result.nexusScore = nexusResult.score;
+          result.scoreComponents = nexusResult.components;
+          this.debugLog(
+            `GeneticOptimizer: NexusScore calculated for lineup ${index + 1}: ${nexusResult.score}`
+          );
+        } catch (error) {
+          this.debugLog(
+            `GeneticOptimizer: NexusScore calculation failed for lineup ${index + 1}: ${error.message}`
+          );
+          result.nexusScore = 0;
+          result.scoreComponents = {};
+        }
       });
 
       // Sort by combined genetic fitness and simulation results
@@ -152,12 +209,20 @@ class GeneticOptimizer extends AdvancedOptimizer {
         return bScore - aScore;
       });
 
+      this.debugLog(
+        `GeneticOptimizer: Final ranking complete. Top lineup score: ${simulatedResults[0]?.nexusScore || "N/A"}`
+      );
+
       this.updateProgress(100, "completed");
       this.updateStatus(
         `Genetic optimization completed: ${simulatedResults.length} lineups`
       );
 
-      return {
+      this.debugLog(
+        `GeneticOptimizer: Returning ${simulatedResults.length} final lineups`
+      );
+
+      const result = {
         lineups: simulatedResults,
         summary: this._getGeneticSummary(simulatedResults),
         evolution: {
@@ -168,6 +233,11 @@ class GeneticOptimizer extends AdvancedOptimizer {
           ),
         },
       };
+
+      this.debugLog(
+        `GeneticOptimizer: Result object created with ${result.lineups.length} lineups`
+      );
+      return result;
     } catch (error) {
       this.updateStatus(`Error: ${error.message}`);
       this.updateProgress(100, "error");
@@ -188,44 +258,72 @@ class GeneticOptimizer extends AdvancedOptimizer {
       if (this.isCancelled)
         throw new Error("Population initialization cancelled");
 
-      try {
-        // Use different strategies for initial diversity
-        const strategy = this._getInitializationStrategy(i, populationSize);
-        const lineup = await this._generateLineupWithStrategy(strategy);
+      let retryCount = 0;
+      const maxRetries = 5; // Limit retries to prevent infinite loops
+      let success = false;
 
-        // Only add to population if lineup was successfully generated
-        if (lineup && lineup.cpt && lineup.players) {
-          population.push({
-            lineup,
-            fitness: 0,
-            age: 0,
-            strategy: strategy.name,
-          });
-        } else {
-          // Retry this index if lineup generation failed
+      while (!success && retryCount < maxRetries) {
+        try {
+          // Use different strategies for initial diversity
+          const strategy = this._getInitializationStrategy(i, populationSize);
+          const lineup = await this._generateLineupWithStrategy(strategy);
+
+          // Only add to population if lineup was successfully generated
+          if (lineup && lineup.cpt && lineup.players) {
+            population.push({
+              lineup,
+              fitness: 0,
+              age: 0,
+              strategy: strategy.name,
+            });
+            this.debugLog(
+              `GeneticOptimizer: Added individual ${i + 1}/${populationSize} to population (${population.length} total)`
+            );
+            success = true;
+          } else {
+            // Retry this index if lineup generation failed
+            retryCount++;
+            this.debugLog(
+              `Invalid lineup generated for individual ${i}, retry ${retryCount}/${maxRetries}... (lineup: ${!!lineup}, cpt: ${!!lineup?.cpt}, players: ${lineup?.players?.length || 0})`
+            );
+          }
+        } catch (error) {
+          // If lineup generation fails, try again with relaxed constraints
+          retryCount++;
           this.debugLog(
-            `Invalid lineup generated for individual ${i}, retrying...`
+            `Failed to generate individual ${i}, retry ${retryCount}/${maxRetries}: ${error.message}`
           );
-          i--; // Retry this index
         }
-      } catch (error) {
-        // If lineup generation fails, try again with relaxed constraints
-        this.debugLog(`Failed to generate individual ${i}, retrying...`);
-        i--; // Retry this index
+      }
+
+      if (!success) {
+        this.debugLog(
+          `GeneticOptimizer: Failed to generate individual ${i} after ${maxRetries} retries, skipping...`
+        );
+        // Don't increment i, so we'll try to generate the next individual
       }
 
       // Update progress occasionally
       if (i % 10 === 0) {
         const initProgress = (i / populationSize) * 20;
         this.updateProgress(initProgress, "creating_population");
-        this.updateStatus(`Creating population: ${i}/${populationSize}`);
+        this.updateStatus(
+          `Creating population: ${population.length}/${populationSize}`
+        );
         await this.yieldToUI();
       }
     }
 
     this.debugLog(
-      `Created initial population of ${population.length} individuals`
+      `Created initial population of ${population.length} individuals (target: ${populationSize})`
     );
+
+    if (population.length < populationSize * 0.5) {
+      this.debugLog(
+        `GeneticOptimizer: WARNING - Only created ${population.length}/${populationSize} individuals. This may limit final lineup count.`
+      );
+    }
+
     return population;
   }
 
@@ -269,7 +367,29 @@ class GeneticOptimizer extends AdvancedOptimizer {
 
     try {
       const lineup = await this._buildLineup([]);
+      if (!lineup) {
+        this.debugLog(
+          `GeneticOptimizer: _buildLineup returned null for strategy ${strategy.name}`
+        );
+      } else if (!lineup.cpt) {
+        this.debugLog(
+          `GeneticOptimizer: Generated lineup has no captain for strategy ${strategy.name}`
+        );
+      } else if (!lineup.players || lineup.players.length === 0) {
+        this.debugLog(
+          `GeneticOptimizer: Generated lineup has no players for strategy ${strategy.name}`
+        );
+      } else {
+        this.debugLog(
+          `GeneticOptimizer: Successfully generated lineup for strategy ${strategy.name} - CPT: ${lineup.cpt.name}, Players: ${lineup.players.length}`
+        );
+      }
       return lineup;
+    } catch (error) {
+      this.debugLog(
+        `GeneticOptimizer: Error generating lineup with strategy ${strategy.name}: ${error.message}`
+      );
+      return null;
     } finally {
       // Restore original config
       this.config = originalConfig;
@@ -312,6 +432,7 @@ class GeneticOptimizer extends AdvancedOptimizer {
     }
 
     // Set fitness to 0 for invalid individuals that weren't evaluated
+    let invalidCount = 0;
     population.forEach((individual) => {
       if (
         !individual ||
@@ -320,8 +441,13 @@ class GeneticOptimizer extends AdvancedOptimizer {
         !individual.lineup.players
       ) {
         individual.fitness = 0;
+        invalidCount++;
       }
     });
+
+    this.debugLog(
+      `GeneticOptimizer: Population evaluation complete. Valid: ${validIndividuals.length}, Invalid: ${invalidCount}, Total: ${population.length}`
+    );
   }
 
   /**
@@ -397,10 +523,13 @@ class GeneticOptimizer extends AdvancedOptimizer {
       }
     });
 
-    // Exponential bonus for larger stacks
+    // Exponential bonus for larger stacks (but cap at 4 players max)
     let synergyBonus = 0;
     Object.values(teamCounts).forEach((count) => {
-      if (count >= 3) {
+      if (count > 4) {
+        // Heavily penalize stacks with more than 4 players
+        fitness -= count * 100;
+      } else if (count >= 3) {
         synergyBonus += Math.pow(count - 2, 1.5) * 15;
       }
     });
@@ -485,9 +614,16 @@ class GeneticOptimizer extends AdvancedOptimizer {
     }));
     newPopulation.push(...elite);
 
-    // Generate offspring to fill rest of population
-    while (newPopulation.length < populationSize) {
+    // Generate offspring to fill rest of population with enforced diversity
+    let attempts = 0;
+    const maxAttempts = populationSize * 5; // Prevent infinite loops
+
+    while (newPopulation.length < populationSize && attempts < maxAttempts) {
+      attempts++;
       if (this.isCancelled) throw new Error("Generation evolution cancelled");
+
+      let offspring = null;
+      let strategy = "random";
 
       if (Math.random() < this.geneticConfig.crossoverRate) {
         // Crossover
@@ -495,61 +631,71 @@ class GeneticOptimizer extends AdvancedOptimizer {
         const parent2 = this._tournamentSelection(population);
 
         try {
-          const offspring = await this._crossover(parent1, parent2);
+          offspring = await this._crossover(parent1, parent2);
+          strategy = "crossover";
 
           // Check if offspring is valid (not null due to stack constraints)
           if (offspring === null) {
             throw new Error("Invalid stack pattern in offspring");
           }
 
-          // Mutation
-          if (Math.random() < this.geneticConfig.mutationRate) {
-            await this._mutate(offspring);
-          }
+          // Force mutation on ALL crossover offspring for maximum diversity
+          await this._mutate(offspring);
+          strategy = "crossover_mutated";
+        } catch (error) {
+          // If crossover fails, generate random individual instead
+          offspring = null;
+        }
+      }
 
-          // Only add if offspring is valid
-          if (offspring && offspring.cpt && offspring.players) {
+      // If crossover failed or we're generating random individuals
+      if (!offspring) {
+        try {
+          // Force high randomness for diversity
+          const originalRandomness = this.config.randomness;
+          this.config.randomness = Math.min(0.9, originalRandomness + 0.3);
+
+          offspring = await this._buildLineup([]);
+          strategy = "random_diverse";
+
+          // Restore original randomness
+          this.config.randomness = originalRandomness;
+        } catch (error) {
+          // Skip if generation fails
+          continue;
+        }
+      }
+
+      // Check if offspring is valid and diverse enough
+      if (offspring && offspring.cpt && offspring.players) {
+        // First check if lineup meets basic constraints (salary, positions, etc.)
+        const isValid = this._isValidLineup(
+          offspring,
+          newPopulation.map((ind) => ind.lineup)
+        );
+
+        if (isValid) {
+          // Check diversity against existing population (for elite + new individuals)
+          const isDiverse = this._isLineupDiverseEnough(
+            offspring,
+            newPopulation
+          );
+
+          if (isDiverse || newPopulation.length < populationSize * 0.7) {
+            // Accept if diverse enough, or if we're still building initial population (relaxed threshold)
             newPopulation.push({
               lineup: offspring,
               fitness: 0,
               age: 0,
-              strategy: "crossover",
+              strategy: strategy,
             });
           }
-        } catch (error) {
-          // If crossover fails, add a random individual
-          try {
-            const randomLineup = await this._buildLineup([]);
-            // Only add if random lineup is valid
-            if (randomLineup && randomLineup.cpt && randomLineup.players) {
-              newPopulation.push({
-                lineup: randomLineup,
-                fitness: 0,
-                age: 0,
-                strategy: "random",
-              });
-            }
-          } catch (randomError) {
-            // Skip if we can't generate anything
-            continue;
-          }
-        }
-      } else {
-        // Random individual for diversity
-        try {
-          const randomLineup = await this._buildLineup([]);
-          // Only add if random lineup is valid
-          if (randomLineup && randomLineup.cpt && randomLineup.players) {
-            newPopulation.push({
-              lineup: randomLineup,
-              fitness: 0,
-              age: 0,
-              strategy: "random",
-            });
-          }
-        } catch (error) {
-          // Skip if generation fails
-          continue;
+          // If not diverse enough, continue loop to generate another candidate
+        } else {
+          // If not valid (salary cap, etc.), continue loop to generate another candidate
+          this.debugLog(
+            `GeneticOptimizer: Rejected invalid offspring (${strategy})`
+          );
         }
       }
     }
@@ -646,7 +792,7 @@ class GeneticOptimizer extends AdvancedOptimizer {
   }
 
   /**
-   * Mutate a lineup
+   * Mutate a lineup - now performs multiple mutations for maximum diversity
    */
   async _mutate(individual) {
     // Check for valid individual
@@ -655,24 +801,32 @@ class GeneticOptimizer extends AdvancedOptimizer {
     }
 
     const mutationTypes = ["swap_player", "swap_captain", "swap_team_stack"];
-    const mutationType =
-      mutationTypes[Math.floor(Math.random() * mutationTypes.length)];
 
-    try {
-      switch (mutationType) {
-        case "swap_player":
-          await this._mutateSwapPlayer(individual);
-          break;
-        case "swap_captain":
-          await this._mutateSwapCaptain(individual);
-          break;
-        case "swap_team_stack":
-          await this._mutateSwapTeamStack(individual);
-          break;
+    // Perform 1-3 mutations per individual for maximum diversity
+    const numMutations = Math.floor(Math.random() * 3) + 1;
+
+    for (let i = 0; i < numMutations; i++) {
+      const mutationType =
+        mutationTypes[Math.floor(Math.random() * mutationTypes.length)];
+
+      try {
+        switch (mutationType) {
+          case "swap_player":
+            await this._mutateSwapPlayer(individual);
+            break;
+          case "swap_captain":
+            await this._mutateSwapCaptain(individual);
+            break;
+          case "swap_team_stack":
+            await this._mutateSwapTeamStack(individual);
+            break;
+        }
+      } catch (error) {
+        this.debugLog(
+          `Mutation ${i + 1}/${numMutations} failed: ${error.message}`
+        );
+        // Mutation failure is not critical - continue with other mutations
       }
-    } catch (error) {
-      this.debugLog(`Mutation failed: ${error.message}`);
-      // Mutation failure is not critical - individual remains unchanged
     }
   }
 
@@ -804,6 +958,139 @@ class GeneticOptimizer extends AdvancedOptimizer {
   }
 
   /**
+   * Select diverse lineups from population using fitness + diversity
+   */
+  _selectDiverseLineups(population, count) {
+    // Filter out invalid lineups
+    const validPopulation = population.filter(
+      (ind) => ind && ind.lineup && ind.lineup.cpt && ind.lineup.players
+    );
+
+    if (validPopulation.length === 0) {
+      this.debugLog("GeneticOptimizer: No valid lineups in population");
+      return [];
+    }
+
+    if (validPopulation.length <= count) {
+      this.debugLog(
+        `GeneticOptimizer: Population size (${validPopulation.length}) <= requested count (${count}), returning all`
+      );
+      return validPopulation.map((ind) => ind.lineup);
+    }
+
+    // Sort by fitness first
+    validPopulation.sort((a, b) => b.fitness - a.fitness);
+
+    const selectedLineups = [];
+    const selectedIndividuals = [];
+
+    // Always include the best lineup
+    selectedLineups.push(validPopulation[0].lineup);
+    selectedIndividuals.push(validPopulation[0]);
+    this.debugLog(
+      `GeneticOptimizer: Selected best lineup (fitness: ${validPopulation[0].fitness})`
+    );
+
+    // For remaining slots, balance fitness and diversity
+    for (let i = 1; i < count && selectedLineups.length < count; i++) {
+      let bestCandidate = null;
+      let bestScore = -Infinity;
+
+      // Evaluate remaining candidates
+      for (const candidate of validPopulation) {
+        // Skip if already selected
+        if (selectedIndividuals.includes(candidate)) continue;
+
+        // Calculate combined score: fitness + diversity bonus
+        const fitnessScore = candidate.fitness || 0;
+        const diversityScore = this._calculateDiversityScore(
+          candidate.lineup,
+          selectedLineups
+        );
+
+        // Weight: 50% fitness, 50% diversity (increased diversity weight)
+        const combinedScore = fitnessScore * 0.5 + diversityScore * 100 * 0.5;
+
+        if (combinedScore > bestScore) {
+          bestScore = combinedScore;
+          bestCandidate = candidate;
+        }
+      }
+
+      if (bestCandidate) {
+        selectedLineups.push(bestCandidate.lineup);
+        selectedIndividuals.push(bestCandidate);
+        this.debugLog(
+          `GeneticOptimizer: Selected diverse lineup ${selectedLineups.length} (fitness: ${bestCandidate.fitness}, combined score: ${bestScore.toFixed(2)})`
+        );
+      } else {
+        // Fallback: just take next highest fitness if no diverse candidate found
+        const fallback = validPopulation.find(
+          (ind) => !selectedIndividuals.includes(ind)
+        );
+        if (fallback) {
+          selectedLineups.push(fallback.lineup);
+          selectedIndividuals.push(fallback);
+          this.debugLog(
+            `GeneticOptimizer: Selected fallback lineup ${selectedLineups.length} (fitness: ${fallback.fitness})`
+          );
+        }
+      }
+    }
+
+    this.debugLog(
+      `GeneticOptimizer: Diverse selection complete: ${selectedLineups.length} lineups`
+    );
+    return selectedLineups;
+  }
+
+  /**
+   * Calculate diversity score of a lineup compared to already selected lineups
+   */
+  _calculateDiversityScore(lineup, selectedLineups) {
+    if (selectedLineups.length === 0) return 1.0;
+
+    let totalDistance = 0;
+    for (const selected of selectedLineups) {
+      const distance = this._calculateLineupDistance(lineup, selected);
+      totalDistance += distance;
+    }
+
+    return totalDistance / selectedLineups.length;
+  }
+
+  /**
+   * Get a lineup signature for debugging
+   */
+  _getLineupSignature(lineup) {
+    if (!lineup || !lineup.cpt || !lineup.players) return "invalid";
+
+    const allIds = [lineup.cpt.id, ...lineup.players.map((p) => p.id)].sort();
+    return allIds.join("|");
+  }
+
+  /**
+   * Check if a lineup is diverse enough compared to existing population
+   */
+  _isLineupDiverseEnough(lineup, existingPopulation) {
+    if (existingPopulation.length === 0) return true;
+
+    // Reduced diversity threshold to allow more variation
+    const minDiversityThreshold = 0.1; // At least 10% different players (was 15%)
+
+    for (const existing of existingPopulation) {
+      if (!existing.lineup) continue;
+
+      const distance = this._calculateLineupDistance(lineup, existing.lineup);
+      if (distance < minDiversityThreshold) {
+        return false; // Too similar to existing lineup
+      }
+    }
+
+    return true; // Diverse enough
+  }
+
+  /**
    * Validate and fix lineup constraints
    */
   async _validateAndFixLineup(lineup) {
@@ -885,23 +1172,21 @@ class GeneticOptimizer extends AdvancedOptimizer {
     const counts = Object.values(teamCounts).sort((a, b) => b - a);
     const stackPattern = counts.join("-");
 
-    // Must be exactly 4-3 or 4-2-1 pattern
-    const isValid43Stack =
-      counts.length === 2 && counts[0] === 4 && counts[1] === 3;
-    const isValid421Stack =
-      counts.length === 3 &&
-      counts[0] === 4 &&
-      counts[1] === 2 &&
-      counts[2] === 1;
-
-    if (!isValid43Stack && !isValid421Stack) {
+    // First check: No team can have more than 4 players (including captain)
+    const maxTeamPlayers = Math.max(...counts);
+    if (maxTeamPlayers > 4) {
       this.debugLog(
-        `GeneticOptimizer: Invalid stack pattern ${stackPattern}, attempting to fix...`
+        `GeneticOptimizer: Team has ${maxTeamPlayers} players (max: 4), attempting to fix...`
       );
-      // For now, return null to indicate this lineup should be discarded
-      // A more sophisticated fix could be implemented later
       return null;
     }
+
+    // Allow any valid stacking pattern as long as no team exceeds 4 players
+    // The max team constraint check above already handles the 4-player limit
+    this.debugLog(`GeneticOptimizer: Valid stack pattern ${stackPattern}`);
+
+    // Optional: Could add preference for specific patterns in fitness function
+    // but don't reject lineups here for having different stack patterns
 
     // Check DraftKings rule: players must be from at least 2 games (no full game stacks)
     const games = new Set();
@@ -931,6 +1216,21 @@ class GeneticOptimizer extends AdvancedOptimizer {
     if (games.size < 2) {
       this.debugLog(
         `GeneticOptimizer: players from only ${games.size} game(s) (DraftKings requires at least 2 games)`
+      );
+      return null;
+    }
+
+    // Check salary cap constraint
+    const totalSalary =
+      this._safeParseFloat(lineup.cpt.salary, 0) +
+      lineup.players.reduce(
+        (sum, player) => sum + this._safeParseFloat(player.salary, 0),
+        0
+      );
+
+    if (totalSalary > this.config.salaryCap) {
+      this.debugLog(
+        `GeneticOptimizer: Lineup rejected - salary $${totalSalary} exceeds cap $${this.config.salaryCap}`
       );
       return null;
     }

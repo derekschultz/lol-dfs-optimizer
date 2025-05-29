@@ -3901,7 +3901,7 @@ class AdvancedOptimizer {
     // Validate lineup structure
     if (!lineup || !lineup.cpt || !lineup.players) {
       console.warn("Invalid lineup structure in _simulateLineup:", lineup);
-      return 0;
+      return null;
     }
 
     // Get all player IDs in the lineup, with safety checks
@@ -3921,10 +3921,10 @@ class AdvancedOptimizer {
       });
     }
 
-    // If no valid player IDs found, return 0
+    // If no valid player IDs found, return null
     if (playerIds.length === 0) {
       console.warn("No valid player IDs found in lineup:", lineup);
-      return 0;
+      return null;
     }
 
     // Get their simulated performances

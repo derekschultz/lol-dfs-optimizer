@@ -25,6 +25,7 @@ class ProgressService {
       Connection: "keep-alive",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "Cache-Control",
+      "X-Accel-Buffering": "no", // Disable Nginx buffering
     });
 
     // Store session
@@ -137,6 +138,10 @@ class ProgressService {
     try {
       const eventData = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
       session.res.write(eventData);
+      // Force flush to ensure immediate delivery
+      if (session.res.flush && typeof session.res.flush === "function") {
+        session.res.flush();
+      }
       return true;
     } catch (error) {
       console.error(`Error sending SSE event to session ${sessionId}:`, error);

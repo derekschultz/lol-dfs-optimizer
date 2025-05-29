@@ -615,6 +615,7 @@ class HybridOptimizer {
 
     let totalProgress = 0;
     const algorithmKeys = Object.keys(distribution);
+    let totalLineupsGenerated = 0;
 
     for (const [algorithm, percentage] of Object.entries(distribution)) {
       if (this.isCancelled) throw new Error("Hybrid optimization cancelled");
@@ -626,8 +627,15 @@ class HybridOptimizer {
       if (algorithmCount === 0) continue;
 
       this.updateStatus(
-        `Running ${algorithm} optimization (${baseCount} lineups)...`
+        `Running ${algorithm} optimization (${baseCount} of ${count} total lineups)...`
       );
+
+      // Add a small delay to ensure status is visible
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Store the original callbacks before we override anything
+      const originalHybridStatusCallback = this.onStatusUpdate;
+      const originalHybridProgressCallback = this.onProgress;
 
       // Temporarily intercept status updates from the child optimizer to show correct count
       const originalStatusCallback = this.onStatusUpdate;
@@ -648,6 +656,8 @@ class HybridOptimizer {
 
       const optimizer = this.optimizers[algorithm];
       let optimizerOriginalProgressCallback, optimizerOriginalStatusCallback;
+      let progressInterval = null; // Declare progressInterval here so it's accessible in finally block
+      let algorithmResults = null; // Declare algorithmResults here so it's accessible in finally block
 
       try {
         if (!optimizer) {
@@ -660,35 +670,86 @@ class HybridOptimizer {
         optimizerOriginalStatusCallback = optimizer.onStatusUpdate;
 
         let lineupCounter = 0;
-        let progressInterval;
 
         optimizer.onProgress = (progress, stage) => {
-          // Calculate lineup count based on progress within this algorithm
-          if (progress > 0) {
+          // For genetic algorithm, show evolution progress instead of lineup count
+          if (algorithm === "genetic") {
+            if (stage === "initializing_genetic") {
+              this.updateStatus(
+                `Genetic optimization: Initializing... (${totalLineupsGenerated}/${count} total)`
+              );
+            } else if (
+              stage === "population_created" ||
+              stage === "creating_population"
+            ) {
+              this.updateStatus(
+                `Genetic optimization: Creating initial population... ${Math.round(progress)}% (${totalLineupsGenerated}/${count} total)`
+              );
+            } else if (stage && stage.includes("evolving")) {
+              this.updateStatus(
+                `Genetic optimization: Evolving population... ${Math.round(progress)}% (${totalLineupsGenerated}/${count} total)`
+              );
+            } else if (stage === "final_selection") {
+              this.updateStatus(
+                `Genetic optimization: Selecting best ${baseCount} lineups from population (${totalLineupsGenerated}/${count} total)`
+              );
+            } else if (stage === "final_simulation") {
+              // During simulation, show actual lineup progress
+              // The genetic optimizer already shows detailed progress during simulation
+              // Just forward it as-is
+            } else if (stage === "completed") {
+              this.updateStatus(
+                `Genetic optimization: Completed (${totalLineupsGenerated}/${count} total)`
+              );
+            } else {
+              // For any other genetic stages, just show progress
+              this.updateStatus(
+                `Genetic optimization: ${Math.round(progress)}% (${totalLineupsGenerated}/${count} total)`
+              );
+            }
+          } else {
+            // For other algorithms (monte_carlo, simulated_annealing), show lineup count
             lineupCounter = Math.floor((progress / 100) * baseCount);
-            this.updateStatus(
-              `${algorithm} optimization: ${lineupCounter} of ${baseCount} lineups generated`
-            );
+            const currentTotal = totalLineupsGenerated + lineupCounter;
+            // Only show the message if we have a meaningful update
+            if (progress === 0) {
+              this.updateStatus(
+                `${algorithm} optimization: Starting... (${totalLineupsGenerated}/${count} total)`
+              );
+            } else {
+              this.updateStatus(
+                `${algorithm} optimization: ${lineupCounter} of ${baseCount} lineups (${currentTotal}/${count} total)`
+              );
+            }
           }
         };
 
         optimizer.onStatusUpdate = (status) => {
-          // Forward status updates but add lineup count context
-          this.updateStatus(`${algorithm}: ${status}`);
+          // Forward status updates without prefix for genetic (it has its own clear messages)
+          if (algorithm === "genetic") {
+            this.updateStatus(status);
+          } else {
+            // Add algorithm prefix for other optimizers
+            this.updateStatus(`${algorithm}: ${status}`);
+          }
         };
 
         // Start a simulated progress counter in case the optimizer doesn't send progress updates
-        progressInterval = setInterval(() => {
-          if (lineupCounter < baseCount) {
-            lineupCounter = Math.min(
-              lineupCounter + Math.ceil(baseCount / 20),
-              baseCount
-            );
-            this.updateStatus(
-              `${algorithm} optimization: ${lineupCounter} of ${baseCount} lineups generated`
-            );
-          }
-        }, 500); // Update every 500ms
+        // Skip for genetic algorithm as it has its own progress tracking
+        if (algorithm !== "genetic") {
+          progressInterval = setInterval(() => {
+            if (lineupCounter < baseCount) {
+              lineupCounter = Math.min(
+                lineupCounter + Math.ceil(baseCount / 20),
+                baseCount
+              );
+              const currentTotal = totalLineupsGenerated + lineupCounter;
+              this.updateStatus(
+                `${algorithm} optimization: ${lineupCounter} of ${baseCount} lineups (${currentTotal}/${count} total)`
+              );
+            }
+          }, 500); // Update every 500ms
+        }
 
         // Merge strategy config with custom config
         const algorithmConfig = {
@@ -709,7 +770,7 @@ class HybridOptimizer {
           optimizer.updateConfig(algorithmConfig);
         }
 
-        let algorithmResults;
+        // algorithmResults is already declared outside the try block
 
         if (algorithm === "monte_carlo") {
           algorithmResults = await optimizer.runSimulation(algorithmCount);
@@ -721,6 +782,12 @@ class HybridOptimizer {
             await optimizer.runSimulatedAnnealing(algorithmCount);
         }
 
+        // Clear the progress interval immediately after algorithm completes
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
+
         if (algorithmResults && algorithmResults.lineups) {
           // Tag lineups with their source algorithm
           algorithmResults.lineups.forEach((lineup) => {
@@ -729,9 +796,10 @@ class HybridOptimizer {
 
           results.push(...algorithmResults.lineups);
 
-          // Final count update for this algorithm
-          this.updateStatus(
-            `${algorithm} optimization completed: ${Math.min(algorithmResults.lineups.length, baseCount)} lineups`
+          // Track total lineups generated so far
+          totalLineupsGenerated += Math.min(
+            algorithmResults.lineups.length,
+            baseCount
           );
         }
       } catch (error) {
@@ -741,11 +809,31 @@ class HybridOptimizer {
         // Clean up progress interval and restore original callbacks
         if (progressInterval) {
           clearInterval(progressInterval);
+          progressInterval = null;
         }
         this.onStatusUpdate = originalStatusCallback;
         if (optimizer) {
           optimizer.onProgress = optimizerOriginalProgressCallback;
           optimizer.onStatusUpdate = optimizerOriginalStatusCallback;
+        }
+
+        // Now send the completion status AFTER restoring callbacks
+        if (algorithmResults && algorithmResults.lineups) {
+          const actualCount = Math.min(
+            algorithmResults.lineups.length,
+            baseCount
+          );
+          const completionMessage =
+            algorithm === "genetic"
+              ? `Genetic optimization completed: Selected ${actualCount} lineups (${totalLineupsGenerated}/${count} total)`
+              : `${algorithm} optimization completed: ${actualCount} lineups (${totalLineupsGenerated}/${count} total)`;
+
+          // Wait a bit to ensure status is sent
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          this.updateStatus(completionMessage);
+
+          // Add delay to ensure status is visible
+          await new Promise((resolve) => setTimeout(resolve, 800));
         }
       }
 
@@ -757,11 +845,21 @@ class HybridOptimizer {
         Math.min(progressScale.end - 5, scaledProgress),
         `${algorithm}_completed`
       );
+
+      // Yield control to allow UI updates
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
     // Combine and rank results
     this.updateStatus("Combining and ranking results...");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     const combinedResults = this._combineResults(results, count);
+
+    // Update final status with total count
+    this.updateStatus(
+      `Hybrid optimization completed: ${combinedResults.length} of ${count} lineups generated`
+    );
 
     return {
       lineups: combinedResults,
@@ -931,29 +1029,27 @@ class HybridOptimizer {
           continue;
         }
 
-        // Collect ALL unique player IDs, handling captain overlap
-        const allPlayerIds = new Set();
+        // Create lineup signature that includes captain position to differentiate lineups with same players but different captains
+        const captainId = lineup.cpt?.id;
+        const playerIds = [];
 
-        // Add captain ID if it exists
-        if (lineup.cpt?.id !== undefined && lineup.cpt?.id !== null) {
-          allPlayerIds.add(String(lineup.cpt.id));
-        }
-
-        // Add regular player IDs if they exist (Set automatically handles duplicates)
+        // Add all player IDs (including captain as regular player)
         if (lineup.players && Array.isArray(lineup.players)) {
-          lineup.players.forEach((player, index) => {
-            if (!player) {
-              return;
-            }
-            if (player.id !== undefined && player.id !== null) {
-              allPlayerIds.add(String(player.id));
+          lineup.players.forEach((player) => {
+            if (player?.id !== undefined && player?.id !== null) {
+              playerIds.push(String(player.id));
             }
           });
         }
 
-        // Create signature only if we have valid player IDs
-        if (allPlayerIds.size > 0) {
-          const lineupSignature = Array.from(allPlayerIds).sort().join("|");
+        // Create signature with captain designation to allow same players with different captains
+        if (
+          captainId !== undefined &&
+          captainId !== null &&
+          playerIds.length > 0
+        ) {
+          const sortedPlayerIds = playerIds.sort();
+          const lineupSignature = `CPT:${captainId}|PLAYERS:${sortedPlayerIds.join(",")}`;
 
           if (!seenLineups.has(lineupSignature)) {
             seenLineups.add(lineupSignature);
@@ -988,26 +1084,27 @@ class HybridOptimizer {
     const seenLineups = new Set();
 
     for (const lineup of results) {
-      // Collect ALL unique player IDs, handling captain overlap
-      const allPlayerIds = new Set();
+      // Create lineup signature that includes captain position to differentiate lineups with same players but different captains
+      const captainId = lineup.cpt?.id;
+      const playerIds = [];
 
-      // Add captain ID if it exists
-      if (lineup.cpt?.id !== undefined && lineup.cpt?.id !== null) {
-        allPlayerIds.add(String(lineup.cpt.id));
-      }
-
-      // Add regular player IDs if they exist (Set automatically handles duplicates)
+      // Add all player IDs (excluding captain to avoid double-counting)
       if (lineup.players && Array.isArray(lineup.players)) {
         lineup.players.forEach((player) => {
           if (player?.id !== undefined && player?.id !== null) {
-            allPlayerIds.add(String(player.id));
+            playerIds.push(String(player.id));
           }
         });
       }
 
-      // Create signature only if we have valid player IDs
-      if (allPlayerIds.size > 0) {
-        const lineupSignature = Array.from(allPlayerIds).sort().join("|");
+      // Create signature with captain designation
+      if (
+        captainId !== undefined &&
+        captainId !== null &&
+        playerIds.length > 0
+      ) {
+        const sortedPlayerIds = playerIds.sort();
+        const lineupSignature = `CPT:${captainId}|PLAYERS:${sortedPlayerIds.join(",")}`;
 
         if (!seenLineups.has(lineupSignature)) {
           seenLineups.add(lineupSignature);

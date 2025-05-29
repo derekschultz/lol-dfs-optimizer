@@ -283,29 +283,44 @@ const HybridOptimizerUI = ({
           setStatus(data.status);
 
           // Parse lineup counts from status messages
+          // Look for total count pattern first (X/Y total)
+          const totalMatch = data.status.match(/\((\d+)\/(\d+)\s+total\)/);
           const lineupMatch = data.status.match(/(\d+)\s+of\s+(\d+)/);
           const generatingMatch = data.status.match(
-            /Running.*optimization.*\((\d+)\s+lineups\)/
+            /Running.*optimization.*\((\d+)\s+of\s+(\d+)\s+total/
           );
           const candidatesMatch = data.status.match(
             /Generating\s+(\d+)\s+lineup\s+candidates/
           );
+          // New pattern for completion messages - more flexible
+          const completedMatch = data.status.match(
+            /(optimization completed):\s*(?:Selected\s+)?(\d+)\s+lineups?\s+\((\d+)\/(\d+)\s+total\)/i
+          );
 
-          if (lineupMatch) {
+          if (completedMatch) {
+            // Handle completion messages (e.g. "Genetic optimization completed: Selected 6 lineups (12/20 total)")
+            setCurrentLineupCount(parseInt(completedMatch[3]));
+            setTargetLineupCount(parseInt(completedMatch[4]));
+          } else if (totalMatch) {
+            // Use the total count if available
+            setCurrentLineupCount(parseInt(totalMatch[1]));
+            setTargetLineupCount(parseInt(totalMatch[2]));
+          } else if (lineupMatch) {
             setCurrentLineupCount(parseInt(lineupMatch[1]));
             setTargetLineupCount(parseInt(lineupMatch[2]));
           } else if (generatingMatch) {
-            setTargetLineupCount(parseInt(generatingMatch[1]));
-            setCurrentLineupCount(0);
+            // Don't reset to 0 if we already have progress
+            setTargetLineupCount(parseInt(generatingMatch[2]));
           } else if (candidatesMatch) {
             setTargetLineupCount(parseInt(candidatesMatch[1]));
             setCurrentLineupCount(0);
           }
 
-          // Close connection only when we receive completion status
+          // Close connection only when we receive final completion status
           if (
             data.status === "Simulation completed successfully" ||
-            data.status.includes("optimization completed")
+            data.status.includes("Hybrid optimization completed") ||
+            data.status.includes("Portfolio optimization completed")
           ) {
             eventSource.close();
             if (progressTimer) {
