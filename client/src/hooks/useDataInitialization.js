@@ -31,8 +31,9 @@ export const useDataInitialization = () => {
           }),
         ]);
 
+        let processedPlayers = [];
         if (playersRes) {
-          const processedPlayers = playersRes.map((player) => ({
+          processedPlayers = playersRes.map((player) => ({
             ...player,
             projectedPoints:
               player.projectedPoints !== undefined
@@ -49,8 +50,11 @@ export const useDataInitialization = () => {
         }
 
         if (stacksRes) {
+          // Use the processedPlayers from above instead of playerData from state
           const enhancedStacks = stacksRes.map((stack) => {
-            const teamPlayers = playerData.filter((p) => p.team === stack.team);
+            const teamPlayers = processedPlayers.filter(
+              (p) => p.team === stack.team
+            );
             const totalProjection = teamPlayers.reduce(
               (sum, p) => sum + (p.projectedPoints || 0),
               0
@@ -85,20 +89,24 @@ export const useDataInitialization = () => {
 
             let totalProj = 0;
             if (lineup.cpt) {
-              const cptPlayer = playerData.find((p) => p.id === lineup.cpt.id);
+              const cptPlayer = processedPlayers.find(
+                (p) => p.id === lineup.cpt.id
+              );
               const cptProj = cptPlayer?.projectedPoints || 0;
               totalProj += cptProj * 1.5;
             }
 
             totalProj += (lineup.players || [])
               .map((p) => {
-                const fullPlayer = playerData.find((fp) => fp.id === p.id);
+                const fullPlayer = processedPlayers.find(
+                  (fp) => fp.id === p.id
+                );
                 return fullPlayer?.projectedPoints || p.projectedPoints || 0;
               })
               .reduce((sum, proj) => sum + proj, 0);
 
             const totalOwnership = allPlayers.reduce((sum, p) => {
-              const fullPlayer = playerData.find((fp) => fp.id === p.id);
+              const fullPlayer = processedPlayers.find((fp) => fp.id === p.id);
               return sum + (fullPlayer?.ownership || p.ownership || 0);
             }, 0);
 

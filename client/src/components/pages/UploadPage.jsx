@@ -6,47 +6,146 @@ import { useNotification } from "../../contexts/NotificationContext";
 // import { playerService, teamService, lineupService } from "../../services";
 
 const UploadPage = () => {
-  const { setIsLoading, importMethod, setImportMethod } = useApp();
+  const { setIsLoading, importMethod, setImportMethod, setActiveTab } =
+    useApp();
   const { playerData, setPlayerData, stackData, setStackData } = usePlayer();
-  const { lineups } = useLineup();
+  const { lineups, setLineups } = useLineup();
   const { displayNotification } = useNotification();
+
+  /**
+   * Read a preview of the file contents
+   */
+  const readFilePreview = (file, maxChars = 1000) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target.result;
+        resolve(content.slice(0, maxChars));
+      };
+      reader.onerror = (error) => {
+        reject(new Error(`Error reading file: ${error.message}`));
+      };
+      reader.readAsText(file);
+    });
+  };
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    setIsLoading(true);
+    const fileExt = file.name.split(".").pop().toLowerCase();
+    let isLolFormat = false;
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      setIsLoading(true);
+      displayNotification(`Processing ${file.name}...`);
 
-      const fileName = file.name.toLowerCase();
-      let endpoint = "";
+      let endpoint;
       let successMessage = "";
 
-      if (fileName.includes("roo") || fileName.includes("projections")) {
-        endpoint = "/players/projections/upload";
-        successMessage = "Player projections uploaded successfully!";
-      } else if (fileName.includes("stack")) {
-        endpoint = "/teams/stacks/upload";
-        successMessage = "Team stacks uploaded successfully!";
-      } else if (
-        fileName.includes("draftkings") ||
-        fileName.includes("dk") ||
-        importMethod === "dkImport" ||
-        importMethod === "dkSalaries"
-      ) {
-        if (importMethod === "dkSalaries") {
+      // Check file format first
+      if (fileExt === "csv") {
+        // Preview file content to detect format
+        const fileContent = await readFilePreview(file, 2000);
+
+        // Improved detection logic - more specific identification of file types
+        const isDraftKingsFile =
+          fileContent.includes("Entry ID") &&
+          (fileContent.includes("Contest ID") ||
+            fileContent.includes("Contest Name"));
+
+        const isDraftKingsSalariesFile =
+          fileContent.includes("Position") &&
+          fileContent.includes("Name + ID") &&
+          fileContent.includes("Salary") &&
+          fileContent.includes("TeamAbbrev");
+
+        const isRooProjectionsFile =
+          fileContent.includes("Median") &&
+          (fileContent.includes("Floor") || fileContent.includes("Ceiling"));
+
+        const isStacksFile =
+          fileContent.includes("Stack+") ||
+          (fileContent.includes("Team") && fileContent.includes("Stack")) ||
+          fileContent.includes("Fantasy");
+
+        // Check for LoL format as a fallback
+        isLolFormat =
+          fileContent.includes("TOP") &&
+          fileContent.includes("JNG") &&
+          fileContent.includes("MID") &&
+          fileContent.includes("ADC") &&
+          fileContent.includes("SUP");
+
+        // Set endpoint based on detected file type
+        if (isRooProjectionsFile) {
+          displayNotification(
+            "Detected ROO format with player projections",
+            "info"
+          );
           endpoint = "/players/projections/upload";
-          successMessage = "DraftKings salaries uploaded successfully!";
+          successMessage = "Player projections uploaded successfully!";
+        } else if (isStacksFile) {
+          displayNotification("Detected team stacks file", "info");
+          endpoint = "/teams/stacks/upload";
+          successMessage = "Team stacks uploaded successfully!";
+        } else if (isDraftKingsSalariesFile || importMethod === "dkSalaries") {
+          displayNotification(
+            "Importing DraftKings salaries and player IDs",
+            "info"
+          );
+          endpoint = "/draftkings/import";
+          successMessage = "DraftKings salaries imported successfully!";
+        } else if (isDraftKingsFile || importMethod === "dkImport") {
+          displayNotification(
+            "Importing DraftKings contest data and player IDs",
+            "info"
+          );
+          endpoint = "/draftkings/import";
+          successMessage = "DraftKings contest data imported successfully!";
+        } else if (isLolFormat) {
+          if (importMethod === "dkImport") {
+            displayNotification(
+              "Importing DraftKings contest data and player IDs",
+              "info"
+            );
+            endpoint = "/draftkings/import";
+            successMessage = "DraftKings contest data imported successfully!";
+          } else {
+            displayNotification(
+              "Detected League of Legends DraftKings format",
+              "info"
+            );
+            endpoint = "/lineups/dkentries";
+            successMessage = "DraftKings entries uploaded successfully!";
+          }
         } else {
-          endpoint = "/lineups/dkentries";
-          successMessage = "DraftKings entries uploaded successfully!";
+          // If we can't detect the file type, show error
+          displayNotification(
+            "Unknown CSV file type. Unable to process the file.",
+            "warning"
+          );
+          setIsLoading(false);
+          return;
         }
+      } else if (fileExt === "json") {
+        endpoint = "/lineups/import";
+        successMessage = "Lineups imported successfully!";
       } else {
-        endpoint = "/players/projections/upload";
-        successMessage = "File uploaded successfully!";
+        displayNotification("Unsupported file type", "error");
+        setIsLoading(false);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("originalFilename", file.name);
+      formData.append("fileSize", file.size);
+      formData.append("contentType", file.type);
+
+      // Flag if this is LoL format
+      if (endpoint.includes("dkentries") && isLolFormat) {
+        formData.append("format", "lol");
       }
 
       const response = await fetch(`http://localhost:3001${endpoint}`, {
@@ -55,16 +154,34 @@ const UploadPage = () => {
       });
 
       if (!response.ok) {
-        throw new Error(
-          `Upload failed: ${response.status} ${response.statusText}`
-        );
+        let errorMessage = `Upload failed: ${response.status} ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          if (errorData && errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (parseError) {
+          // If we can't parse JSON, try text
+          try {
+            const errorText = await response.text();
+            if (errorText) errorMessage += ` - ${errorText}`;
+          } catch (textError) {
+            // Ignore if we can't get text either
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
 
       if (endpoint.includes("projections")) {
-        const processedPlayers =
-          result.players?.map((player) => ({
+        // Refresh player data from the server after upload
+        const playersRes = await fetch(
+          `http://localhost:3001/players/projections`
+        );
+        if (playersRes.ok) {
+          const rawPlayers = await playersRes.json();
+          const processedPlayers = rawPlayers.map((player) => ({
             ...player,
             projectedPoints:
               player.projectedPoints !== undefined
@@ -74,11 +191,15 @@ const UploadPage = () => {
               player.ownership !== undefined
                 ? Number(player.ownership)
                 : undefined,
-          })) || [];
-        setPlayerData(processedPlayers);
+          }));
+          setPlayerData(processedPlayers);
+        }
       } else if (endpoint.includes("stacks")) {
-        const enhancedStacks =
-          result.stacks?.map((stack) => {
+        // Refresh team stacks from the server after upload
+        const stacksRes = await fetch(`http://localhost:3001/teams/stacks`);
+        if (stacksRes.ok) {
+          const stacks = await stacksRes.json();
+          const enhancedStacks = stacks.map((stack) => {
             const teamPlayers = playerData.filter((p) => p.team === stack.team);
             const totalProjection = teamPlayers.reduce(
               (sum, p) => sum + (p.projectedPoints || 0),
@@ -93,8 +214,37 @@ const UploadPage = () => {
                 Math.max(1, teamPlayers.length),
               status: "—",
             };
-          }) || [];
-        setStackData(enhancedStacks);
+          });
+          setStackData(enhancedStacks);
+        }
+      }
+
+      // Handle other upload types
+      if (endpoint.includes("dkentries") || endpoint.includes("lineups")) {
+        if (result.lineups && Array.isArray(result.lineups)) {
+          // Add NexusScore to lineups
+          const enhancedLineups = result.lineups.map((lineup) => {
+            // Simulate NexusScore
+            const nexusScore = Math.round(Math.random() * 50 + 70); // Random score between 70-120
+
+            return {
+              ...lineup,
+              nexusScore,
+            };
+          });
+
+          setLineups((prevLineups) => {
+            const existingIds = new Set(prevLineups.map((l) => l.id));
+            const newLineups = enhancedLineups.filter(
+              (l) => !existingIds.has(l.id)
+            );
+            return [...prevLineups, ...newLineups];
+          });
+          displayNotification(`Loaded ${result.lineups.length} lineups!`);
+
+          // Switch to the lineups tab after successful load
+          setActiveTab("lineups");
+        }
       }
 
       displayNotification(successMessage);
@@ -104,6 +254,8 @@ const UploadPage = () => {
       displayNotification(`Error uploading file: ${error.message}`, "error");
     } finally {
       setIsLoading(false);
+      // Reset file input to allow uploading the same file again
+      event.target.value = "";
     }
   };
 
