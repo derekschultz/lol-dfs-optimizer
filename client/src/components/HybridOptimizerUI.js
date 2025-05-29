@@ -47,6 +47,8 @@ const HybridOptimizerUI = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customConfig, setCustomConfig] = useState({});
   const [sessionId, setSessionId] = useState(null);
+  const [currentLineupCount, setCurrentLineupCount] = useState(0);
+  const [targetLineupCount, setTargetLineupCount] = useState(0);
 
   // Auto-initialize when data is available - simplified
   useEffect(() => {
@@ -240,6 +242,12 @@ const HybridOptimizerUI = ({
     setIsOptimizing(true);
     setProgress(0);
     setStatus("Starting optimization...");
+    setCurrentLineupCount(0);
+    setTargetLineupCount(
+      optimizationMode === "portfolio"
+        ? portfolioConfig.portfolioSize
+        : lineupCount
+    );
 
     // Initialize optimizer if not already done
     let currentSessionId = sessionId;
@@ -268,17 +276,37 @@ const HybridOptimizerUI = ({
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log("[SSE Client] Received:", data);
         if (data.progress !== undefined && data.progress !== null) {
-          console.log("[SSE Client] Setting progress to:", data.progress);
           setProgress(data.progress);
         }
         if (data.status) {
-          console.log("[SSE Client] Setting status to:", data.status);
           setStatus(data.status);
 
+          // Parse lineup counts from status messages
+          const lineupMatch = data.status.match(/(\d+)\s+of\s+(\d+)/);
+          const generatingMatch = data.status.match(
+            /Running.*optimization.*\((\d+)\s+lineups\)/
+          );
+          const candidatesMatch = data.status.match(
+            /Generating\s+(\d+)\s+lineup\s+candidates/
+          );
+
+          if (lineupMatch) {
+            setCurrentLineupCount(parseInt(lineupMatch[1]));
+            setTargetLineupCount(parseInt(lineupMatch[2]));
+          } else if (generatingMatch) {
+            setTargetLineupCount(parseInt(generatingMatch[1]));
+            setCurrentLineupCount(0);
+          } else if (candidatesMatch) {
+            setTargetLineupCount(parseInt(candidatesMatch[1]));
+            setCurrentLineupCount(0);
+          }
+
           // Close connection only when we receive completion status
-          if (data.status === "Simulation completed successfully") {
+          if (
+            data.status === "Simulation completed successfully" ||
+            data.status.includes("optimization completed")
+          ) {
             eventSource.close();
             if (progressTimer) {
               clearInterval(progressTimer);
@@ -661,39 +689,77 @@ const HybridOptimizerUI = ({
   };
 
   /**
-   * Render progress bar
+   * Render enhanced progress bar
    */
   const renderProgress = () => {
     if (!isOptimizing && !isInitializing) return null;
 
+    const isPortfolio = optimizationMode === "portfolio";
+    const title = isPortfolio
+      ? "🧬 Portfolio Optimization"
+      : "🧬 Hybrid Optimization";
+
     return (
       <div className="loading-overlay">
         <div className="loading-card">
-          <h3 className="loading-title">Running Hybrid Optimization</h3>
-
-          <div className="loading-progress">
-            <div
-              className="loading-bar"
-              style={{ width: `${progress}%` }}
-            ></div>
+          <div className="loading-header">
+            <h3 className="loading-title">{title}</h3>
+            <div className="loading-meta">
+              {targetLineupCount > 0 && (
+                <div className="lineup-counter">
+                  <span className="counter-current">{currentLineupCount}</span>
+                  <span className="counter-separator">/</span>
+                  <span className="counter-target">{targetLineupCount}</span>
+                  <span className="counter-label">lineups</span>
+                </div>
+              )}
+              <div className="progress-percentage">{Math.round(progress)}%</div>
+            </div>
           </div>
 
-          <p className="loading-text">{status || getProgressStatusMessage()}</p>
+          <div className="enhanced-progress-container">
+            <div className="enhanced-progress-track">
+              <div
+                className="enhanced-progress-bar"
+                style={{
+                  width: `${Math.max(2, progress)}%`,
+                  transition: "width 0.3s ease-out",
+                }}
+              >
+                <div className="progress-shine"></div>
+              </div>
+            </div>
+            <div className="progress-markers">
+              <div className="marker" style={{ left: "25%" }}>
+                25%
+              </div>
+              <div className="marker" style={{ left: "50%" }}>
+                50%
+              </div>
+              <div className="marker" style={{ left: "75%" }}>
+                75%
+              </div>
+            </div>
+          </div>
+
+          <div className="loading-status">
+            <div className="status-text">
+              {status || getProgressStatusMessage()}
+            </div>
+            {isPortfolio && (
+              <div className="portfolio-info">
+                Generating{" "}
+                {portfolioConfig.portfolioSize * portfolioConfig.bulkMultiplier}{" "}
+                candidates → Selecting top {portfolioConfig.portfolioSize}
+              </div>
+            )}
+          </div>
 
           <button
+            className="cancel-button"
             onClick={() => {
               setIsOptimizing(false);
               setIsInitializing(false);
-            }}
-            style={{
-              marginTop: "10px",
-              padding: "4px 12px",
-              background: "rgba(239, 68, 68, 0.2)",
-              color: "#ef4444",
-              border: "1px solid #ef4444",
-              borderRadius: "4px",
-              fontSize: "12px",
-              cursor: "pointer",
             }}
           >
             Cancel
@@ -1874,6 +1940,194 @@ const HybridOptimizerUI = ({
           border-radius: 4px;
           border: 1px solid rgba(0, 123, 255, 0.3);
           border-left: 4px solid #007bff;
+        }
+
+        /* Enhanced Loading Overlay Styles */
+        .loading-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.8);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 9999;
+          backdrop-filter: blur(4px);
+        }
+
+        .loading-card {
+          background: #1a202c;
+          border-radius: 12px;
+          padding: 30px;
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+          min-width: 500px;
+          max-width: 600px;
+          text-align: center;
+          border: 1px solid #2d3748;
+        }
+
+        .loading-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 25px;
+        }
+
+        .loading-title {
+          margin: 0;
+          font-size: 20px;
+          color: #e2e8f0;
+          font-weight: 600;
+        }
+
+        .loading-meta {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+        }
+
+        .lineup-counter {
+          display: flex;
+          align-items: baseline;
+          gap: 2px;
+          font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+          background: #2d3748;
+          padding: 4px 8px;
+          border-radius: 6px;
+          border: 1px solid #4a5568;
+        }
+
+        .counter-current {
+          font-size: 18px;
+          font-weight: 700;
+          color: #63b3ed;
+        }
+
+        .counter-separator {
+          font-size: 16px;
+          color: #a0aec0;
+          margin: 0 2px;
+        }
+
+        .counter-target {
+          font-size: 16px;
+          font-weight: 600;
+          color: #cbd5e0;
+        }
+
+        .counter-label {
+          font-size: 12px;
+          color: #a0aec0;
+          margin-left: 4px;
+        }
+
+        .progress-percentage {
+          font-size: 18px;
+          font-weight: 700;
+          color: #63b3ed;
+          background: #2d3748;
+          padding: 6px 12px;
+          border-radius: 6px;
+          border: 1px solid #4a5568;
+          min-width: 50px;
+        }
+
+        .enhanced-progress-container {
+          position: relative;
+          margin-bottom: 20px;
+        }
+
+        .enhanced-progress-track {
+          width: 100%;
+          height: 12px;
+          background: linear-gradient(to right, #2d3748, #4a5568);
+          border-radius: 8px;
+          overflow: hidden;
+          border: 1px solid #4a5568;
+          box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .enhanced-progress-bar {
+          height: 100%;
+          background: linear-gradient(90deg, #4299e1, #3182ce, #2b6cb0);
+          border-radius: 8px;
+          position: relative;
+          min-width: 2%;
+          box-shadow: 0 2px 4px rgba(66, 153, 225, 0.3);
+        }
+
+        .progress-shine {
+          position: absolute;
+          top: 0;
+          left: -50%;
+          width: 50%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+          animation: shine 2s infinite;
+        }
+
+        @keyframes shine {
+          0% { left: -50%; }
+          100% { left: 150%; }
+        }
+
+        .progress-markers {
+          position: absolute;
+          top: 16px;
+          left: 0;
+          right: 0;
+          height: 16px;
+          pointer-events: none;
+        }
+
+        .marker {
+          position: absolute;
+          transform: translateX(-50%);
+          font-size: 10px;
+          color: #a0aec0;
+          font-weight: 500;
+        }
+
+        .loading-status {
+          margin-bottom: 20px;
+        }
+
+        .status-text {
+          font-size: 14px;
+          color: #cbd5e0;
+          margin-bottom: 8px;
+          font-weight: 500;
+          min-height: 20px;
+        }
+
+        .portfolio-info {
+          font-size: 12px;
+          color: #a0aec0;
+          font-style: italic;
+          background: #2d3748;
+          padding: 6px 12px;
+          border-radius: 6px;
+          border-left: 3px solid #4299e1;
+        }
+
+        .cancel-button {
+          background: linear-gradient(135deg, #feb2b2, #fc8181);
+          color: #742a2a;
+          border: 1px solid #fc8181;
+          padding: 8px 16px;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .cancel-button:hover {
+          background: linear-gradient(135deg, #fc8181, #f56565);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 8px rgba(252, 129, 129, 0.3);
         }
       `}</style>
     </div>

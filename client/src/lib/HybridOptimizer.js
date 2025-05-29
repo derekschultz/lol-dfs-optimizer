@@ -655,11 +655,40 @@ class HybridOptimizer {
           continue;
         }
 
-        // Temporarily disable the optimizer's callbacks to prevent confusing progress messages
+        // Temporarily override the optimizer's callbacks to show lineup counts
         optimizerOriginalProgressCallback = optimizer.onProgress;
         optimizerOriginalStatusCallback = optimizer.onStatusUpdate;
-        optimizer.onProgress = null;
-        optimizer.onStatusUpdate = null;
+
+        let lineupCounter = 0;
+        let progressInterval;
+
+        optimizer.onProgress = (progress, stage) => {
+          // Calculate lineup count based on progress within this algorithm
+          if (progress > 0) {
+            lineupCounter = Math.floor((progress / 100) * baseCount);
+            this.updateStatus(
+              `${algorithm} optimization: ${lineupCounter} of ${baseCount} lineups generated`
+            );
+          }
+        };
+
+        optimizer.onStatusUpdate = (status) => {
+          // Forward status updates but add lineup count context
+          this.updateStatus(`${algorithm}: ${status}`);
+        };
+
+        // Start a simulated progress counter in case the optimizer doesn't send progress updates
+        progressInterval = setInterval(() => {
+          if (lineupCounter < baseCount) {
+            lineupCounter = Math.min(
+              lineupCounter + Math.ceil(baseCount / 20),
+              baseCount
+            );
+            this.updateStatus(
+              `${algorithm} optimization: ${lineupCounter} of ${baseCount} lineups generated`
+            );
+          }
+        }, 500); // Update every 500ms
 
         // Merge strategy config with custom config
         const algorithmConfig = {
@@ -699,12 +728,20 @@ class HybridOptimizer {
           });
 
           results.push(...algorithmResults.lineups);
+
+          // Final count update for this algorithm
+          this.updateStatus(
+            `${algorithm} optimization completed: ${Math.min(algorithmResults.lineups.length, baseCount)} lineups`
+          );
         }
       } catch (error) {
         console.error(`Error running ${algorithm} optimization:`, error);
         // Continue with other algorithms
       } finally {
-        // Restore original callbacks
+        // Clean up progress interval and restore original callbacks
+        if (progressInterval) {
+          clearInterval(progressInterval);
+        }
         this.onStatusUpdate = originalStatusCallback;
         if (optimizer) {
           optimizer.onProgress = optimizerOriginalProgressCallback;
