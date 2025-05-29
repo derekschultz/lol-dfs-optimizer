@@ -283,37 +283,40 @@ const HybridOptimizerUI = ({
           setStatus(data.status);
 
           // Parse lineup counts from status messages
-          // Look for total count pattern first (X/Y total)
-          const totalMatch = data.status.match(/\((\d+)\/(\d+)\s+total\)/);
-          const lineupMatch = data.status.match(/(\d+)\s+of\s+(\d+)/);
-          const generatingMatch = data.status.match(
-            /Running.*optimization.*\((\d+)\s+of\s+(\d+)\s+total/
-          );
-          const candidatesMatch = data.status.match(
-            /Generating\s+(\d+)\s+lineup\s+candidates/
-          );
-          // New pattern for completion messages - more flexible
+          // Prioritize completion messages first to avoid interference
           const completedMatch = data.status.match(
             /(optimization completed):\s*(?:Selected\s+)?(\d+)\s+lineups?\s+\((\d+)\/(\d+)\s+total\)/i
           );
 
           if (completedMatch) {
-            // Handle completion messages (e.g. "Genetic optimization completed: Selected 6 lineups (12/20 total)")
-            setCurrentLineupCount(parseInt(completedMatch[3]));
-            setTargetLineupCount(parseInt(completedMatch[4]));
-          } else if (totalMatch) {
-            // Use the total count if available
-            setCurrentLineupCount(parseInt(totalMatch[1]));
-            setTargetLineupCount(parseInt(totalMatch[2]));
-          } else if (lineupMatch) {
-            setCurrentLineupCount(parseInt(lineupMatch[1]));
-            setTargetLineupCount(parseInt(lineupMatch[2]));
-          } else if (generatingMatch) {
-            // Don't reset to 0 if we already have progress
-            setTargetLineupCount(parseInt(generatingMatch[2]));
-          } else if (candidatesMatch) {
-            setTargetLineupCount(parseInt(candidatesMatch[1]));
-            setCurrentLineupCount(0);
+            // Handle completion messages (e.g. "Genetic optimization completed: Selected 6 lineups (18/20 total)")
+            const currentCount = parseInt(completedMatch[3]);
+            const totalCount = parseInt(completedMatch[4]);
+            console.log(
+              `[UI] Completion message parsed: ${currentCount}/${totalCount} from "${data.status}"`
+            );
+            setCurrentLineupCount(currentCount);
+            setTargetLineupCount(totalCount);
+          } else {
+            // Only update counts from specific progress messages, not from algorithm status messages
+            const lineupMatch = data.status.match(
+              /(\d+)\s+of\s+(\d+)\s+lineups/
+            );
+            const candidatesMatch = data.status.match(
+              /Generating\s+(\d+)\s+lineup\s+candidates/
+            );
+
+            if (lineupMatch && !data.status.includes("total")) {
+              // Only update from progress messages that don't include "total" (to avoid interference)
+              const newCurrent = parseInt(lineupMatch[1]);
+              const newTarget = parseInt(lineupMatch[2]);
+              setCurrentLineupCount((prev) => Math.max(prev, newCurrent));
+              setTargetLineupCount(newTarget);
+            } else if (candidatesMatch) {
+              setTargetLineupCount(parseInt(candidatesMatch[1]));
+              setCurrentLineupCount(0);
+            }
+            // Ignore other progress messages that might have confusing counts
           }
 
           // Close connection only when we receive final completion status

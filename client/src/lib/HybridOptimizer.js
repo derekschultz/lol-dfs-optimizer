@@ -672,6 +672,13 @@ class HybridOptimizer {
         let lineupCounter = 0;
 
         optimizer.onProgress = (progress, stage) => {
+          // Calculate expected total count including current algorithm's progress
+          const currentAlgorithmProgress = Math.floor(
+            (progress / 100) * baseCount
+          );
+          const expectedCurrentTotal =
+            totalLineupsGenerated + currentAlgorithmProgress;
+
           // For genetic algorithm, show evolution progress instead of lineup count
           if (algorithm === "genetic") {
             if (stage === "initializing_genetic") {
@@ -683,15 +690,15 @@ class HybridOptimizer {
               stage === "creating_population"
             ) {
               this.updateStatus(
-                `Genetic optimization: Creating initial population... ${Math.round(progress)}% (${totalLineupsGenerated}/${count} total)`
+                `Genetic optimization: Creating initial population... ${Math.round(progress)}% (${expectedCurrentTotal}/${count} total)`
               );
             } else if (stage && stage.includes("evolving")) {
               this.updateStatus(
-                `Genetic optimization: Evolving population... ${Math.round(progress)}% (${totalLineupsGenerated}/${count} total)`
+                `Genetic optimization: Evolving population... ${Math.round(progress)}% (${expectedCurrentTotal}/${count} total)`
               );
             } else if (stage === "final_selection") {
               this.updateStatus(
-                `Genetic optimization: Selecting best ${baseCount} lineups from population (${totalLineupsGenerated}/${count} total)`
+                `Genetic optimization: Selecting best ${baseCount} lineups from population (${expectedCurrentTotal}/${count} total)`
               );
             } else if (stage === "final_simulation") {
               // During simulation, show actual lineup progress
@@ -699,18 +706,17 @@ class HybridOptimizer {
               // Just forward it as-is
             } else if (stage === "completed") {
               this.updateStatus(
-                `Genetic optimization: Completed (${totalLineupsGenerated}/${count} total)`
+                `Genetic optimization: Completed (${expectedCurrentTotal}/${count} total)`
               );
             } else {
               // For any other genetic stages, just show progress
               this.updateStatus(
-                `Genetic optimization: ${Math.round(progress)}% (${totalLineupsGenerated}/${count} total)`
+                `Genetic optimization: ${Math.round(progress)}% (${expectedCurrentTotal}/${count} total)`
               );
             }
           } else {
             // For other algorithms (monte_carlo, simulated_annealing), show lineup count
             lineupCounter = Math.floor((progress / 100) * baseCount);
-            const currentTotal = totalLineupsGenerated + lineupCounter;
             // Only show the message if we have a meaningful update
             if (progress === 0) {
               this.updateStatus(
@@ -718,7 +724,7 @@ class HybridOptimizer {
               );
             } else {
               this.updateStatus(
-                `${algorithm} optimization: ${lineupCounter} of ${baseCount} lineups (${currentTotal}/${count} total)`
+                `${algorithm} optimization: ${lineupCounter} of ${baseCount} lineups (${expectedCurrentTotal}/${count} total)`
               );
             }
           }
@@ -796,7 +802,7 @@ class HybridOptimizer {
 
           results.push(...algorithmResults.lineups);
 
-          // Track total lineups generated so far
+          // Update total count immediately after algorithm completes
           totalLineupsGenerated += Math.min(
             algorithmResults.lineups.length,
             baseCount
@@ -823,6 +829,7 @@ class HybridOptimizer {
             algorithmResults.lineups.length,
             baseCount
           );
+
           const completionMessage =
             algorithm === "genetic"
               ? `Genetic optimization completed: Selected ${actualCount} lineups (${totalLineupsGenerated}/${count} total)`
