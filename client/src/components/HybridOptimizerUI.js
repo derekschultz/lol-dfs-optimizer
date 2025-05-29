@@ -268,10 +268,13 @@ const HybridOptimizerUI = ({
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        if (data.progress !== undefined) {
+        console.log("[SSE Client] Received:", data);
+        if (data.progress !== undefined && data.progress !== null) {
+          console.log("[SSE Client] Setting progress to:", data.progress);
           setProgress(data.progress);
         }
         if (data.status) {
+          console.log("[SSE Client] Setting status to:", data.status);
           setStatus(data.status);
 
           // Close connection only when we receive completion status

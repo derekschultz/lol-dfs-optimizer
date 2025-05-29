@@ -600,7 +600,12 @@ class HybridOptimizer {
   /**
    * Run hybrid optimization (mix of algorithms)
    */
-  async _runHybridOptimization(count, strategy, customConfig) {
+  async _runHybridOptimization(
+    count,
+    strategy,
+    customConfig,
+    progressScale = { start: 0, end: 100 }
+  ) {
     const distribution = strategy.distribution || {
       monte_carlo: 0.6,
       genetic: 0.3,
@@ -708,8 +713,11 @@ class HybridOptimizer {
       }
 
       totalProgress += 100 / algorithmKeys.length;
+      const scaledProgress =
+        progressScale.start +
+        (totalProgress / 100) * (progressScale.end - progressScale.start);
       this.updateProgress(
-        Math.min(95, totalProgress),
+        Math.min(progressScale.end - 5, scaledProgress),
         `${algorithm}_completed`
       );
     }
@@ -729,6 +737,10 @@ class HybridOptimizer {
    * Run portfolio optimization
    */
   async _runPortfolioOptimization(strategy, customConfig) {
+    // Reset progress to 0 when starting portfolio optimization
+    this.updateProgress(0, "portfolio_starting");
+    this.updateStatus("Starting portfolio optimization...");
+
     const config = { ...strategy.config, ...customConfig };
     const portfolioSize = config.portfolioSize || 20;
     const bulkCount = portfolioSize * (config.bulkGenerationMultiplier || 25);
@@ -736,12 +748,14 @@ class HybridOptimizer {
     this.updateStatus(
       `Generating ${bulkCount} lineup candidates for portfolio...`
     );
+    this.updateProgress(5, "portfolio_bulk_generation");
 
-    // Generate bulk lineups using hybrid approach
+    // Generate bulk lineups using hybrid approach - use 5-75% of progress bar
     const bulkResults = await this._runHybridOptimization(
       bulkCount,
       strategy,
-      customConfig
+      customConfig,
+      { start: 5, end: 75 }
     );
 
     if (
@@ -753,9 +767,16 @@ class HybridOptimizer {
     }
 
     this.updateStatus("Calculating NexusScore for all candidates...");
+    this.updateProgress(80, "portfolio_scoring");
 
     // Calculate NexusScore for all lineups
-    const candidates = bulkResults.lineups.map((lineup) => {
+    const candidates = bulkResults.lineups.map((lineup, index) => {
+      if (index % 50 === 0) {
+        this.updateProgress(
+          80 + (index / bulkResults.lineups.length) * 10,
+          "portfolio_scoring"
+        );
+      }
       const nexusResult = this._calculateNexusScore(lineup);
       lineup.nexusScore = nexusResult.score;
       lineup.scoreComponents = nexusResult.components;
@@ -768,42 +789,16 @@ class HybridOptimizer {
     this.updateStatus(
       "Selecting portfolio lineups with barbell distribution..."
     );
+    this.updateProgress(95, "portfolio_selection");
 
     // Select portfolio with barbell distribution
     const portfolio = this._selectBarbellPortfolio(candidates, config);
 
-    console.log(`🏆 Portfolio created: ${portfolio.length} lineups`);
-    console.log(
-      `   - High-floor: ${
-        portfolio.filter((l) => l.barbellCategory === "highFloor").length
-      }`
-    );
-    console.log(
-      `   - High-ceiling: ${
-        portfolio.filter((l) => l.barbellCategory === "highCeiling").length
-      }`
-    );
-    console.log(
-      `   - Balanced: ${
-        portfolio.filter((l) => l.barbellCategory === "balanced").length
-      }`
-    );
-    console.log(
-      `   - 4-3 stacks: ${
-        portfolio.filter((l) => l.stackType === "4-3").length
-      }`
-    );
-    console.log(
-      `   - 4-2-1 stacks: ${
-        portfolio.filter((l) => l.stackType === "4-2-1").length
-      }`
-    );
-    console.log(
-      `   - NexusScore range: ${Math.min(
-        ...portfolio.map((l) => l.nexusScore)
-      ).toFixed(1)} to ${Math.max(
-        ...portfolio.map((l) => l.nexusScore)
-      ).toFixed(1)}`
+    // Portfolio stats logging removed for cleaner output
+
+    this.updateProgress(100, "portfolio_completed");
+    this.updateStatus(
+      `Portfolio optimization completed: ${portfolio.length} lineups selected`
     );
 
     return {
@@ -847,9 +842,7 @@ class HybridOptimizer {
           results = await optimizer.runGeneticOptimization(count);
           break;
         case "simulated_annealing":
-          console.log("Starting simulated annealing optimization...");
           results = await optimizer.runSimulatedAnnealing(count);
-          console.log("Simulated annealing completed, results:", results);
           break;
         default:
           throw new Error(`Unsupported algorithm: ${algorithm}`);

@@ -66,7 +66,6 @@ router.post(
           res.write(
             `data: ${JSON.stringify({
               status,
-              progress: null,
             })}\n\n`
           );
         } catch (err) {

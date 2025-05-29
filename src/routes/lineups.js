@@ -395,38 +395,8 @@ router.post(
         const instance = optimizerInstances.get(sessionId);
         const optimizer = instance.optimizer;
 
-        // Update progress callbacks to use current connections
-        optimizer.setProgressCallback((progress, stage) => {
-          const connections = progressConnections.get(sessionId) || [];
-          connections.forEach((res) => {
-            try {
-              res.write(
-                `data: ${JSON.stringify({
-                  progress: Number(progress.toFixed(2)),
-                  stage,
-                })}\n\n`
-              );
-            } catch (err) {
-              // Connection might be closed
-            }
-          });
-        });
-
-        optimizer.setStatusCallback((status) => {
-          const connections = progressConnections.get(sessionId) || [];
-          connections.forEach((res) => {
-            try {
-              res.write(
-                `data: ${JSON.stringify({
-                  status,
-                  progress: null,
-                })}\n\n`
-              );
-            } catch (err) {
-              // Connection might be closed
-            }
-          });
-        });
+        // Progress callbacks should already be set up from the /optimizer/initialize endpoint
+        // Don't override them here - they're connected to the SSE stream
 
         // Use the existing optimizer directly
         let result;
@@ -470,6 +440,7 @@ router.post(
       strategy: strategy,
       exposureLimits: customConfig.exposureSettings || {},
       contestInfo: customConfig.contestInfo || {},
+      customConfig: customConfig, // Pass the full customConfig for portfolio settings
       sessionId,
     });
 

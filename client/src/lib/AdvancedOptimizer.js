@@ -3898,8 +3898,34 @@ class AdvancedOptimizer {
    * Simulate a lineup across all iterations
    */
   async _simulateLineup(lineup) {
-    // Get all player IDs in the lineup
-    const playerIds = [lineup.cpt.id, ...lineup.players.map((p) => p.id)];
+    // Validate lineup structure
+    if (!lineup || !lineup.cpt || !lineup.players) {
+      console.warn("Invalid lineup structure in _simulateLineup:", lineup);
+      return 0;
+    }
+
+    // Get all player IDs in the lineup, with safety checks
+    const playerIds = [];
+
+    // Add captain ID if it exists
+    if (lineup.cpt && lineup.cpt.id !== undefined) {
+      playerIds.push(lineup.cpt.id);
+    }
+
+    // Add player IDs if they exist
+    if (Array.isArray(lineup.players)) {
+      lineup.players.forEach((p) => {
+        if (p && p.id !== undefined) {
+          playerIds.push(p.id);
+        }
+      });
+    }
+
+    // If no valid player IDs found, return 0
+    if (playerIds.length === 0) {
+      console.warn("No valid player IDs found in lineup:", lineup);
+      return 0;
+    }
 
     // Get their simulated performances
     const performances = [];
