@@ -193,12 +193,21 @@ class GeneticOptimizer extends AdvancedOptimizer {
         const strategy = this._getInitializationStrategy(i, populationSize);
         const lineup = await this._generateLineupWithStrategy(strategy);
 
-        population.push({
-          lineup,
-          fitness: 0,
-          age: 0,
-          strategy: strategy.name,
-        });
+        // Only add to population if lineup was successfully generated
+        if (lineup && lineup.cpt && lineup.players) {
+          population.push({
+            lineup,
+            fitness: 0,
+            age: 0,
+            strategy: strategy.name,
+          });
+        } else {
+          // Retry this index if lineup generation failed
+          this.debugLog(
+            `Invalid lineup generated for individual ${i}, retrying...`
+          );
+          i--; // Retry this index
+        }
       } catch (error) {
         // If lineup generation fails, try again with relaxed constraints
         this.debugLog(`Failed to generate individual ${i}, retrying...`);
@@ -271,18 +280,27 @@ class GeneticOptimizer extends AdvancedOptimizer {
    * Evaluate fitness for entire population
    */
   async _evaluatePopulation(population) {
+    // Filter out individuals with null lineups before evaluation
+    const validIndividuals = population.filter(
+      (individual) =>
+        individual &&
+        individual.lineup &&
+        individual.lineup.cpt &&
+        individual.lineup.players
+    );
+
     const batchSize = 10;
-    const batches = Math.ceil(population.length / batchSize);
+    const batches = Math.ceil(validIndividuals.length / batchSize);
 
     for (let batch = 0; batch < batches; batch++) {
       if (this.isCancelled) throw new Error("Population evaluation cancelled");
 
       const startIdx = batch * batchSize;
-      const endIdx = Math.min(startIdx + batchSize, population.length);
+      const endIdx = Math.min(startIdx + batchSize, validIndividuals.length);
 
       // Evaluate batch in parallel
       await Promise.all(
-        population.slice(startIdx, endIdx).map(async (individual) => {
+        validIndividuals.slice(startIdx, endIdx).map(async (individual) => {
           individual.fitness = await this._calculateGeneticFitness(
             individual.lineup
           );
@@ -292,6 +310,18 @@ class GeneticOptimizer extends AdvancedOptimizer {
 
       await this.yieldToUI();
     }
+
+    // Set fitness to 0 for invalid individuals that weren't evaluated
+    population.forEach((individual) => {
+      if (
+        !individual ||
+        !individual.lineup ||
+        !individual.lineup.cpt ||
+        !individual.lineup.players
+      ) {
+        individual.fitness = 0;
+      }
+    });
   }
 
   /**
@@ -305,6 +335,11 @@ class GeneticOptimizer extends AdvancedOptimizer {
     // 4. Position impact
     // 5. Constraint satisfaction
 
+    // Check for null lineup or missing components
+    if (!lineup || !lineup.cpt || !lineup.players) {
+      return 0; // Return 0 fitness for invalid lineups
+    }
+
     let fitness = 0;
 
     // 1. Base projection score
@@ -316,9 +351,14 @@ class GeneticOptimizer extends AdvancedOptimizer {
     }
 
     lineup.players.forEach((player) => {
-      const poolPlayer = this.playerPool.find((p) => p.id === player.id);
-      if (poolPlayer) {
-        totalProjection += this._safeParseFloat(poolPlayer.projectedPoints, 0);
+      if (player && player.id) {
+        const poolPlayer = this.playerPool.find((p) => p.id === player.id);
+        if (poolPlayer) {
+          totalProjection += this._safeParseFloat(
+            poolPlayer.projectedPoints,
+            0
+          );
+        }
       }
     });
 
@@ -397,7 +437,15 @@ class GeneticOptimizer extends AdvancedOptimizer {
     let bonus = 0;
 
     // Player exposure satisfaction
-    const allPlayerIds = [lineup.cpt.id, ...lineup.players.map((p) => p.id)];
+    const allPlayerIds = [];
+    if (lineup.cpt && lineup.cpt.id) {
+      allPlayerIds.push(lineup.cpt.id);
+    }
+    if (lineup.players) {
+      allPlayerIds.push(
+        ...lineup.players.filter((p) => p && p.id).map((p) => p.id)
+      );
+    }
     allPlayerIds.forEach((playerId) => {
       const exposure = this.playerExposures.find((pe) => pe.id === playerId);
       if (exposure) {
@@ -459,22 +507,28 @@ class GeneticOptimizer extends AdvancedOptimizer {
             await this._mutate(offspring);
           }
 
-          newPopulation.push({
-            lineup: offspring,
-            fitness: 0,
-            age: 0,
-            strategy: "crossover",
-          });
+          // Only add if offspring is valid
+          if (offspring && offspring.cpt && offspring.players) {
+            newPopulation.push({
+              lineup: offspring,
+              fitness: 0,
+              age: 0,
+              strategy: "crossover",
+            });
+          }
         } catch (error) {
           // If crossover fails, add a random individual
           try {
             const randomLineup = await this._buildLineup([]);
-            newPopulation.push({
-              lineup: randomLineup,
-              fitness: 0,
-              age: 0,
-              strategy: "random",
-            });
+            // Only add if random lineup is valid
+            if (randomLineup && randomLineup.cpt && randomLineup.players) {
+              newPopulation.push({
+                lineup: randomLineup,
+                fitness: 0,
+                age: 0,
+                strategy: "random",
+              });
+            }
           } catch (randomError) {
             // Skip if we can't generate anything
             continue;
@@ -484,12 +538,15 @@ class GeneticOptimizer extends AdvancedOptimizer {
         // Random individual for diversity
         try {
           const randomLineup = await this._buildLineup([]);
-          newPopulation.push({
-            lineup: randomLineup,
-            fitness: 0,
-            age: 0,
-            strategy: "random",
-          });
+          // Only add if random lineup is valid
+          if (randomLineup && randomLineup.cpt && randomLineup.players) {
+            newPopulation.push({
+              lineup: randomLineup,
+              fitness: 0,
+              age: 0,
+              strategy: "random",
+            });
+          }
         } catch (error) {
           // Skip if generation fails
           continue;
@@ -526,6 +583,16 @@ class GeneticOptimizer extends AdvancedOptimizer {
    * Crossover two parent lineups
    */
   async _crossover(parent1, parent2) {
+    // Check for valid parents
+    if (
+      !parent1?.lineup?.cpt ||
+      !parent2?.lineup?.cpt ||
+      !parent1?.lineup?.players ||
+      !parent2?.lineup?.players
+    ) {
+      return null;
+    }
+
     const offspring = {
       id: `genetic_${Date.now()}_${Math.random()}`,
       name: `Genetic Lineup ${this.currentGeneration}`,
@@ -582,6 +649,11 @@ class GeneticOptimizer extends AdvancedOptimizer {
    * Mutate a lineup
    */
   async _mutate(individual) {
+    // Check for valid individual
+    if (!individual || !individual.cpt || !individual.players) {
+      return;
+    }
+
     const mutationTypes = ["swap_player", "swap_captain", "swap_team_stack"];
     const mutationType =
       mutationTypes[Math.floor(Math.random() * mutationTypes.length)];
@@ -736,7 +808,15 @@ class GeneticOptimizer extends AdvancedOptimizer {
    */
   async _validateAndFixLineup(lineup) {
     // Check for duplicates
-    const playerIds = [lineup.cpt.id, ...lineup.players.map((p) => p.id)];
+    const playerIds = [];
+    if (lineup.cpt && lineup.cpt.id) {
+      playerIds.push(lineup.cpt.id);
+    }
+    if (lineup.players) {
+      playerIds.push(
+        ...lineup.players.filter((p) => p && p.id).map((p) => p.id)
+      );
+    }
     const uniqueIds = new Set(playerIds);
 
     if (uniqueIds.size !== playerIds.length) {
@@ -874,12 +954,16 @@ class GeneticOptimizer extends AdvancedOptimizer {
       try {
         const strategy = this._getInitializationStrategy(i, newCount);
         const lineup = await this._generateLineupWithStrategy(strategy);
-        newIndividuals.push({
-          lineup,
-          fitness: 0,
-          age: 0,
-          strategy: strategy.name,
-        });
+
+        // Only add if lineup is valid
+        if (lineup && lineup.cpt && lineup.players) {
+          newIndividuals.push({
+            lineup,
+            fitness: 0,
+            age: 0,
+            strategy: strategy.name,
+          });
+        }
       } catch (error) {
         // Skip failed generations
         continue;
@@ -895,14 +979,25 @@ class GeneticOptimizer extends AdvancedOptimizer {
   _calculatePopulationDiversity(population) {
     if (population.length < 2) return 0;
 
+    // Filter out individuals with null or invalid lineups
+    const validIndividuals = population.filter(
+      (individual) =>
+        individual &&
+        individual.lineup &&
+        individual.lineup.cpt &&
+        individual.lineup.players
+    );
+
+    if (validIndividuals.length < 2) return 0;
+
     let totalDistance = 0;
     let comparisons = 0;
 
-    for (let i = 0; i < population.length; i++) {
-      for (let j = i + 1; j < population.length; j++) {
+    for (let i = 0; i < validIndividuals.length; i++) {
+      for (let j = i + 1; j < validIndividuals.length; j++) {
         const distance = this._calculateLineupDistance(
-          population[i].lineup,
-          population[j].lineup
+          validIndividuals[i].lineup,
+          validIndividuals[j].lineup
         );
         totalDistance += distance;
         comparisons++;
@@ -916,8 +1011,25 @@ class GeneticOptimizer extends AdvancedOptimizer {
    * Calculate distance between two lineups
    */
   _calculateLineupDistance(lineup1, lineup2) {
-    const ids1 = new Set([lineup1.cpt.id, ...lineup1.players.map((p) => p.id)]);
-    const ids2 = new Set([lineup2.cpt.id, ...lineup2.players.map((p) => p.id)]);
+    // Check for null lineups
+    if (!lineup1 || !lineup2) {
+      return 1; // Maximum distance for null lineups
+    }
+
+    // Safely extract player IDs with null checks
+    const getPlayerIds = (lineup) => {
+      const ids = [];
+      if (lineup.cpt && lineup.cpt.id) {
+        ids.push(lineup.cpt.id);
+      }
+      if (lineup.players) {
+        ids.push(...lineup.players.filter((p) => p && p.id).map((p) => p.id));
+      }
+      return ids;
+    };
+
+    const ids1 = new Set(getPlayerIds(lineup1));
+    const ids2 = new Set(getPlayerIds(lineup2));
 
     const intersection = new Set([...ids1].filter((id) => ids2.has(id)));
     const union = new Set([...ids1, ...ids2]);
@@ -953,4 +1065,3 @@ class GeneticOptimizer extends AdvancedOptimizer {
 }
 
 module.exports = GeneticOptimizer;
-

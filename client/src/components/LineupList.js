@@ -178,7 +178,10 @@ const LineupList = ({
         // Scale down to reasonable range (25-65)
         // Average lineup has ~350 points, divide by 10 for base score of 35
         const baseScore = totalProj / 10;
-        const nexusScore = Math.min(65, Math.max(25, baseScore * leverageFactor + stackBonus / 2));
+        const nexusScore = Math.min(
+          65,
+          Math.max(25, baseScore * leverageFactor + stackBonus / 2)
+        );
 
         // Calculate ROI if contest info is available
         let roi = null;
@@ -186,14 +189,20 @@ const LineupList = ({
           // Create enriched lineup with projected points for ROI calculation
           const enrichedLineup = {
             ...lineup,
-            cpt: lineup.cpt ? {
-              ...lineup.cpt,
-              projectedPoints: playersWithData.find(p => p.id === lineup.cpt.id)?.projectedPoints || 0
-            } : null,
-            players: lineup.players?.map(player => ({
+            cpt: lineup.cpt
+              ? {
+                  ...lineup.cpt,
+                  projectedPoints:
+                    playersWithData.find((p) => p.id === lineup.cpt.id)
+                      ?.projectedPoints || 0,
+                }
+              : null,
+            players: lineup.players?.map((player) => ({
               ...player,
-              projectedPoints: playersWithData.find(p => p.id === player.id)?.projectedPoints || 0
-            }))
+              projectedPoints:
+                playersWithData.find((p) => p.id === player.id)
+                  ?.projectedPoints || 0,
+            })),
           };
           const roiResult = calculateLineupROI(enrichedLineup, contestInfo);
           roi = roiResult.roi;
@@ -529,32 +538,46 @@ const LineupList = ({
               ${Math.round(globalStats.avgSalary).toLocaleString()}
             </span>
           </div>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative" }}>
-            <span 
-              style={{ color: "#90cdf4", marginBottom: "0.25rem", cursor: "help" }}
-              onMouseEnter={() => setShowTooltip('nexus')}
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              position: "relative",
+            }}
+          >
+            <span
+              style={{
+                color: "#90cdf4",
+                marginBottom: "0.25rem",
+                cursor: "help",
+              }}
+              onMouseEnter={() => setShowTooltip("nexus")}
               onMouseLeave={() => setShowTooltip(null)}
               title="NexusScore: A proprietary scoring algorithm that evaluates lineup quality based on projections, ownership leverage, and team stacking"
             >
               Average NexusScore ⓘ
             </span>
-            {showTooltip === 'nexus' && (
-              <div style={{
-                position: "absolute",
-                top: "100%",
-                left: "0",
-                backgroundColor: "#1a202c",
-                border: "1px solid #2d3748",
-                borderRadius: "4px",
-                padding: "8px",
-                boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
-                zIndex: 1000,
-                maxWidth: "250px",
-                fontSize: "0.75rem",
-                color: "#e2e8f0",
-                lineHeight: "1.4"
-              }}>
-                A proprietary scoring algorithm that evaluates lineup quality based on projections, ownership leverage, and team stacking
+            {showTooltip === "nexus" && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: "0",
+                  backgroundColor: "#1a202c",
+                  border: "1px solid #2d3748",
+                  borderRadius: "4px",
+                  padding: "8px",
+                  boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
+                  zIndex: 1000,
+                  maxWidth: "250px",
+                  fontSize: "0.75rem",
+                  color: "#e2e8f0",
+                  lineHeight: "1.4",
+                }}
+              >
+                A proprietary scoring algorithm that evaluates lineup quality
+                based on projections, ownership leverage, and team stacking
               </div>
             )}
             <span
@@ -567,32 +590,47 @@ const LineupList = ({
               {globalStats.avgNexusScore.toFixed(2)}
             </span>
           </div>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative" }}>
-            <span 
-              style={{ color: "#90cdf4", marginBottom: "0.25rem", cursor: "help" }}
-              onMouseEnter={() => setShowTooltip('roi')}
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              position: "relative",
+            }}
+          >
+            <span
+              style={{
+                color: "#90cdf4",
+                marginBottom: "0.25rem",
+                cursor: "help",
+              }}
+              onMouseEnter={() => setShowTooltip("roi")}
               onMouseLeave={() => setShowTooltip(null)}
               title="ROI: Return on Investment calculated using expected value from finish distributions, considering lineup strength, correlation, and contest payout structure"
             >
               Average ROI ⓘ
             </span>
-            {showTooltip === 'roi' && (
-              <div style={{
-                position: "absolute",
-                top: "100%",
-                left: "0",
-                backgroundColor: "#1a202c",
-                border: "1px solid #2d3748",
-                borderRadius: "4px",
-                padding: "8px",
-                boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
-                zIndex: 1000,
-                maxWidth: "250px",
-                fontSize: "0.75rem",
-                color: "#e2e8f0",
-                lineHeight: "1.4"
-              }}>
-                Return on Investment calculated using expected value from finish distributions, considering lineup strength, correlation, and contest payout structure
+            {showTooltip === "roi" && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: "0",
+                  backgroundColor: "#1a202c",
+                  border: "1px solid #2d3748",
+                  borderRadius: "4px",
+                  padding: "8px",
+                  boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
+                  zIndex: 1000,
+                  maxWidth: "250px",
+                  fontSize: "0.75rem",
+                  color: "#e2e8f0",
+                  lineHeight: "1.4",
+                }}
+              >
+                Return on Investment calculated using expected value from finish
+                distributions, considering lineup strength, correlation, and
+                contest payout structure
               </div>
             )}
             <span
@@ -925,7 +963,7 @@ const LineupList = ({
         >
           <button
             onClick={() => setSortBy("nexusScore")}
-            onMouseEnter={() => setShowTooltip('sort-nexus')}
+            onMouseEnter={() => setShowTooltip("sort-nexus")}
             onMouseLeave={() => setShowTooltip(null)}
             style={{
               padding: "0.5rem 0.75rem",
@@ -941,7 +979,7 @@ const LineupList = ({
           </button>
           <button
             onClick={() => setSortBy("roi")}
-            onMouseEnter={() => setShowTooltip('sort-roi')}
+            onMouseEnter={() => setShowTooltip("sort-roi")}
             onMouseLeave={() => setShowTooltip(null)}
             style={{
               padding: "0.5rem 0.75rem",
@@ -1097,7 +1135,7 @@ const LineupList = ({
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         {currentLineups.map((lineup, index) => (
           <NexusScoreLineup
-            key={lineup.id || `lineup-${index}`}
+            key={`${lineup.id || `lineup-${index}`}-${index}`}
             lineup={{
               ...lineup,
               // Pass the calculated metrics

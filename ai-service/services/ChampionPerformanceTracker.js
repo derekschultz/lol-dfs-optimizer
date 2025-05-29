@@ -1222,14 +1222,14 @@ class ChampionPerformanceTracker {
       player1Form.consistency === "high"
         ? 2
         : player1Form.consistency === "medium"
-        ? 1
-        : 0;
+          ? 1
+          : 0;
     const p2Consistency =
       player2Form.consistency === "high"
         ? 2
         : player2Form.consistency === "medium"
-        ? 1
-        : 0;
+          ? 1
+          : 0;
 
     const p1Score =
       (player1Form.recentAvgFantasy || 0) +
@@ -1248,8 +1248,8 @@ class ChampionPerformanceTracker {
           p1Consistency > p2Consistency
             ? player1Name
             : p2Consistency > p1Consistency
-            ? player2Name
-            : "tied",
+              ? player2Name
+              : "tied",
         recent_form:
           (player1Form.recentAvgFantasy || 0) >
           (player2Form.recentAvgFantasy || 0)

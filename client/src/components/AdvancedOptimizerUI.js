@@ -58,10 +58,14 @@ const NexusScoreCard = ({ score, components }) => {
   // Determine color based on score
   // Gradient from red (80) to yellow (120) to green (160+)
   let scoreColor = "#ef4444"; // Red for <100
-  if (score >= 160) scoreColor = "#10b981"; // Green for 160+
-  else if (score >= 140) scoreColor = "#22c55e"; // Light green for 140-160
-  else if (score >= 120) scoreColor = "#84cc16"; // Lime for 120-140
-  else if (score >= 100) scoreColor = "#eab308"; // Yellow for 100-120
+  if (score >= 160)
+    scoreColor = "#10b981"; // Green for 160+
+  else if (score >= 140)
+    scoreColor = "#22c55e"; // Light green for 140-160
+  else if (score >= 120)
+    scoreColor = "#84cc16"; // Lime for 120-140
+  else if (score >= 100)
+    scoreColor = "#eab308"; // Yellow for 100-120
   else if (score >= 80) scoreColor = "#f97316"; // Orange for 80-100
 
   return (
@@ -1097,8 +1101,8 @@ const AdvancedOptimizerUI = ({
           player.projectedPoints !== null
             ? Number(player.projectedPoints)
             : player.Median !== undefined && player.Median !== null
-            ? Number(player.Median)
-            : 0;
+              ? Number(player.Median)
+              : 0;
 
         teams[player.team].totalProjection += projPoints;
         teams[player.team].count++;

@@ -341,8 +341,8 @@ const StackExposure = ({
           {!playerData || playerData.length === 0
             ? "Upload player projections (ROO) and team stacks to view and set target exposures"
             : lineups.length > 0
-            ? `Track and manage team stack exposure percentages across your ${lineups.length} lineups`
-            : "Set target stack exposure percentages before generating lineups"}
+              ? `Track and manage team stack exposure percentages across your ${lineups.length} lineups`
+              : "Set target stack exposure percentages before generating lineups"}
         </p>
       </div>
 
@@ -690,26 +690,26 @@ const StackExposure = ({
                             ? team.fourManExp > 30
                               ? "#10B981"
                               : team.fourManExp > 15
-                              ? "#F59E0B"
-                              : "#EF4444"
+                                ? "#F59E0B"
+                                : "#EF4444"
                             : activeStackSize === "3"
-                            ? team.threeManExp > 30
-                              ? "#10B981"
-                              : team.threeManExp > 15
-                              ? "#F59E0B"
-                              : "#EF4444"
-                            : team.twoManExp > 30
-                            ? "#10B981"
-                            : team.twoManExp > 15
-                            ? "#F59E0B"
-                            : "#EF4444",
+                              ? team.threeManExp > 30
+                                ? "#10B981"
+                                : team.threeManExp > 15
+                                  ? "#F59E0B"
+                                  : "#EF4444"
+                              : team.twoManExp > 30
+                                ? "#10B981"
+                                : team.twoManExp > 15
+                                  ? "#F59E0B"
+                                  : "#EF4444",
                       }}
                     >
                       {activeStackSize === "all" || activeStackSize === "4"
                         ? team.fourManExp
                         : activeStackSize === "3"
-                        ? team.threeManExp
-                        : team.twoManExp}
+                          ? team.threeManExp
+                          : team.twoManExp}
                       %
                     </span>
                   </td>

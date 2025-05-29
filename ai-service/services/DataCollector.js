@@ -753,21 +753,21 @@ class DataCollector {
       // Fetch data from main server endpoints
       const [playersRes, lineupsRes, exposuresRes, contestRes] =
         await Promise.allSettled([
-          axios.get(`${MAIN_SERVER_URL}/api/data/players`),
-          axios.get(`${MAIN_SERVER_URL}/api/data/lineups`),
-          axios.get(`${MAIN_SERVER_URL}/api/data/exposures`),
-          axios.get(`${MAIN_SERVER_URL}/api/data/contest`),
+          axios.get(`${MAIN_SERVER_URL}/data/players`),
+          axios.get(`${MAIN_SERVER_URL}/data/lineups`),
+          axios.get(`${MAIN_SERVER_URL}/data/exposures`),
+          axios.get(`${MAIN_SERVER_URL}/data/contest`),
         ]);
 
       // Process the results
       const players =
         playersRes.status === "fulfilled" && playersRes.value.data.success
-          ? playersRes.value.data.data
+          ? playersRes.value.data.data.players || []
           : [];
 
       const lineups =
         lineupsRes.status === "fulfilled" && lineupsRes.value.data.success
-          ? lineupsRes.value.data.data
+          ? lineupsRes.value.data.data.lineups || []
           : [];
 
       const exposures =

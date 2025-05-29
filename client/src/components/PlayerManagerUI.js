@@ -141,13 +141,13 @@ const PlayerManagerUI = ({
       onPlayersUpdated(updatedPlayers);
 
       displayNotification(
-        `Successfully deleted ${result.deletedPlayers.length} players`,
+        `Successfully deleted ${result.data.deletedPlayers.length} players`,
         "success"
       );
 
-      if (result.notFoundIds && result.notFoundIds.length > 0) {
+      if (result.data.notFoundIds && result.data.notFoundIds.length > 0) {
         displayNotification(
-          `Warning: ${result.notFoundIds.length} players were not found`,
+          `Warning: ${result.data.notFoundIds.length} players were not found`,
           "warning"
         );
       }
@@ -238,7 +238,7 @@ const PlayerManagerUI = ({
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr",
-          gap: "1rem",
+          gap: "2rem",
           marginBottom: "1rem",
         }}
       >

@@ -7,11 +7,15 @@
     "start": "concurrently --names \"MAIN,CLIENT,AI\" --prefix-colors \"cyan,yellow,magenta\" \"npm run server\" \"npm run client\" \"npm run ai-service\"",
     "start-basic": "concurrently --names \"MAIN,CLIENT\" --prefix-colors \"cyan,yellow\" \"npm run server\" \"npm run client\"",
     "server": "node server.js",
+    "server-refactored": "node src/server-refactored.js",
+    "test-refactored": "node test-refactored-api.js",
     "client": "cd client && npm start",
     "ai-service": "cd ai-service && npm start",
     "build": "cd client && npm run build",
     "install-all": "npm install && cd client && npm install && cd ../ai-service && npm install",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "format": "prettier --write \"**/*.{js,jsx,json,css,md}\"",
+    "prepare": "husky"
   },
   "keywords": [
     "fantasy",
@@ -35,10 +39,16 @@
     "multer": "^1.4.5-lts.1",
     "papaparse": "^5.4.1"
   },
+  "lint-staged": {
+    "**/*.{js,jsx,json,css,md}": "prettier --write"
+  },
   "devDependencies": {
     "autoprefixer": "^10.4.21",
     "concurrently": "^8.2.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.0",
     "postcss": "^8.5.3",
+    "prettier": "^3.5.3",
     "tailwindcss": "^4.1.7"
   }
 }

@@ -18,7 +18,16 @@
 body {
   background-color: var(--bg-dark);
   color: var(--text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    sans-serif;
   line-height: 1.5;
   margin: 0;
   padding: 0;
@@ -70,7 +79,9 @@ body {
   font-weight: 500;
   margin-right: 0.5rem;
   padding: 0.5rem 1rem;
-  transition: background-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
 }
 
 .tab:hover {
@@ -274,8 +285,12 @@ td {
 }
 
 @keyframes loading {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(400%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
 }
 
 .loading-text {
@@ -388,13 +403,27 @@ td {
 }
 
 /* Position-specific colors */
-.position-top { color: #4fd1c5; }
-.position-jng { color: #68d391; }
-.position-mid { color: #f687b3; }
-.position-adc { color: #63b3ed; }
-.position-sup { color: #f6ad55; }
-.position-team { color: #9f7aea; }
-.position-cpt { color: #48bb78; }
+.position-top {
+  color: #4fd1c5;
+}
+.position-jng {
+  color: #68d391;
+}
+.position-mid {
+  color: #f687b3;
+}
+.position-adc {
+  color: #63b3ed;
+}
+.position-sup {
+  color: #f6ad55;
+}
+.position-team {
+  color: #9f7aea;
+}
+.position-cpt {
+  color: #48bb78;
+}
 
 /* NexusScore-specific styles */
 .nexus-score {

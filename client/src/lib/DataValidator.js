@@ -19,11 +19,11 @@ class DataValidator {
       minProjection: 0,
       maxOwnership: 100,
       minOwnership: 0,
-      requiredPositions: ['TOP', 'JNG', 'MID', 'ADC', 'SUP'],
-      optionalPositions: ['TEAM'],
+      requiredPositions: ["TOP", "JNG", "MID", "ADC", "SUP"],
+      optionalPositions: ["TEAM"],
       minTeamsRequired: 2,
       maxPlayersPerTeam: 4,
-      ...config
+      ...config,
     };
 
     this.validationResults = {
@@ -34,7 +34,7 @@ class DataValidator {
       teamCount: 0,
       positionBreakdown: {},
       ownershipStats: {},
-      projectionStats: {}
+      projectionStats: {},
     };
   }
 
@@ -45,7 +45,7 @@ class DataValidator {
     this.resetValidation();
 
     if (!Array.isArray(players) || players.length === 0) {
-      this.addError('Player pool must be a non-empty array');
+      this.addError("Player pool must be a non-empty array");
       return this.getResults();
     }
 
@@ -86,23 +86,25 @@ class DataValidator {
       errors: [],
       warnings: [],
       stackCount: 0,
-      teamsWithStacks: new Set()
+      teamsWithStacks: new Set(),
     };
 
     if (!Array.isArray(stacks)) {
-      results.errors.push('Team stacks must be an array');
+      results.errors.push("Team stacks must be an array");
       return results;
     }
 
     if (stacks.length === 0) {
-      results.warnings.push('No team stacks provided - optimizer will create default stacks');
+      results.warnings.push(
+        "No team stacks provided - optimizer will create default stacks"
+      );
       results.isValid = true;
       return results;
     }
 
     // Get available teams from player pool
     const availableTeams = new Set(
-      playerPool.filter(p => p.team).map(p => p.team)
+      playerPool.filter((p) => p.team).map((p) => p.team)
     );
 
     stacks.forEach((stack, index) => {
@@ -114,20 +116,23 @@ class DataValidator {
 
       // Check if team exists in player pool
       if (!availableTeams.has(stack.team)) {
-        results.errors.push(`Stack ${index}: Team '${stack.team}' not found in player pool`);
+        results.errors.push(
+          `Stack ${index}: Team '${stack.team}' not found in player pool`
+        );
         return;
       }
 
       // Validate stack positions
       if (stack.stack && Array.isArray(stack.stack)) {
         const invalidPositions = stack.stack.filter(
-          pos => !this.config.requiredPositions.includes(pos) &&
-                 !this.config.optionalPositions.includes(pos)
+          (pos) =>
+            !this.config.requiredPositions.includes(pos) &&
+            !this.config.optionalPositions.includes(pos)
         );
 
         if (invalidPositions.length > 0) {
           results.errors.push(
-            `Stack ${index}: Invalid positions [${invalidPositions.join(', ')}]`
+            `Stack ${index}: Invalid positions [${invalidPositions.join(", ")}]`
           );
         }
       }
@@ -157,45 +162,52 @@ class DataValidator {
     const errors = [];
 
     if (!lineup) {
-      errors.push('Lineup is null or undefined');
+      errors.push("Lineup is null or undefined");
       return { isValid: false, errors };
     }
 
     // Validate captain
     if (!lineup.cpt) {
-      errors.push('Lineup missing captain');
+      errors.push("Lineup missing captain");
     } else {
       if (!lineup.cpt.id || !lineup.cpt.name) {
-        errors.push('Captain missing id or name');
+        errors.push("Captain missing id or name");
       }
-      if (lineup.cpt.position !== 'CPT') {
-        errors.push('Captain position must be CPT');
+      if (lineup.cpt.position !== "CPT") {
+        errors.push("Captain position must be CPT");
       }
     }
 
     // Validate players array
     if (!Array.isArray(lineup.players)) {
-      errors.push('Lineup players must be an array');
+      errors.push("Lineup players must be an array");
     } else {
       // Check position requirements
-      const positions = lineup.players.map(p => p.position);
+      const positions = lineup.players.map((p) => p.position);
       const positionCounts = {};
 
-      positions.forEach(pos => {
+      positions.forEach((pos) => {
         positionCounts[pos] = (positionCounts[pos] || 0) + 1;
       });
 
       // Check required positions
-      this.config.requiredPositions.forEach(pos => {
+      this.config.requiredPositions.forEach((pos) => {
         if ((positionCounts[pos] || 0) !== 1) {
-          errors.push(`Must have exactly 1 ${pos} player, found ${positionCounts[pos] || 0}`);
+          errors.push(
+            `Must have exactly 1 ${pos} player, found ${
+              positionCounts[pos] || 0
+            }`
+          );
         }
       });
 
       // Check for duplicates
-      const playerIds = [lineup.cpt?.id, ...lineup.players.map(p => p.id)].filter(Boolean);
+      const playerIds = [
+        lineup.cpt?.id,
+        ...lineup.players.map((p) => p.id),
+      ].filter(Boolean);
       if (new Set(playerIds).size !== playerIds.length) {
-        errors.push('Lineup contains duplicate players');
+        errors.push("Lineup contains duplicate players");
       }
     }
 
@@ -212,14 +224,14 @@ class DataValidator {
       teamCount: 0,
       positionBreakdown: {},
       ownershipStats: {},
-      projectionStats: {}
+      projectionStats: {},
     };
   }
 
   validatePlayerStructures(players) {
     players.forEach((player, index) => {
       // Required fields
-      if (!player.name || typeof player.name !== 'string') {
+      if (!player.name || typeof player.name !== "string") {
         this.addError(`Player ${index}: Missing or invalid name`);
       }
 
@@ -227,16 +239,19 @@ class DataValidator {
         this.addError(`Player ${index}: Missing player ID`);
       }
 
-      if (!player.position || typeof player.position !== 'string') {
+      if (!player.position || typeof player.position !== "string") {
         this.addError(`Player ${index}: Missing or invalid position`);
       }
 
-      if (!player.team || typeof player.team !== 'string') {
+      if (!player.team || typeof player.team !== "string") {
         this.addError(`Player ${index}: Missing or invalid team`);
       }
 
       // Numeric fields
-      if (player.projectedPoints === undefined || player.projectedPoints === null) {
+      if (
+        player.projectedPoints === undefined ||
+        player.projectedPoints === null
+      ) {
         this.addError(`Player ${player.name}: Missing projected points`);
       }
 
@@ -253,26 +268,31 @@ class DataValidator {
   validatePositions(players) {
     const positionCounts = {};
 
-    players.forEach(player => {
+    players.forEach((player) => {
       if (player.position) {
-        positionCounts[player.position] = (positionCounts[player.position] || 0) + 1;
+        positionCounts[player.position] =
+          (positionCounts[player.position] || 0) + 1;
       }
     });
 
     // Check required positions
-    this.config.requiredPositions.forEach(position => {
+    this.config.requiredPositions.forEach((position) => {
       const count = positionCounts[position] || 0;
       if (count === 0) {
         this.addError(`No players found for required position: ${position}`);
       } else if (count < 2) {
-        this.addWarning(`Only ${count} player(s) for position ${position} - limited lineup diversity`);
+        this.addWarning(
+          `Only ${count} player(s) for position ${position} - limited lineup diversity`
+        );
       }
     });
 
     // Check for invalid positions
-    Object.keys(positionCounts).forEach(position => {
-      if (!this.config.requiredPositions.includes(position) &&
-          !this.config.optionalPositions.includes(position)) {
+    Object.keys(positionCounts).forEach((position) => {
+      if (
+        !this.config.requiredPositions.includes(position) &&
+        !this.config.optionalPositions.includes(position)
+      ) {
         this.addWarning(`Unknown position found: ${position}`);
       }
     });
@@ -284,7 +304,7 @@ class DataValidator {
     const teamCounts = {};
     const teams = new Set();
 
-    players.forEach(player => {
+    players.forEach((player) => {
       if (player.team) {
         teams.add(player.team);
         teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
@@ -294,62 +314,83 @@ class DataValidator {
     this.validationResults.teamCount = teams.size;
 
     if (teams.size < this.config.minTeamsRequired) {
-      this.addError(`Need at least ${this.config.minTeamsRequired} teams, found ${teams.size}`);
+      this.addError(
+        `Need at least ${this.config.minTeamsRequired} teams, found ${teams.size}`
+      );
     }
 
     // Check team balance
     Object.entries(teamCounts).forEach(([team, count]) => {
-      if (count > this.config.maxPlayersPerTeam + 1) { // +1 for potential TEAM player
-        this.addWarning(`Team ${team} has ${count} players - may cause stacking limitations`);
+      if (count > this.config.maxPlayersPerTeam + 1) {
+        // +1 for potential TEAM player
+        this.addWarning(
+          `Team ${team} has ${count} players - may cause stacking limitations`
+        );
       }
       if (count < this.config.requiredPositions.length) {
-        this.addWarning(`Team ${team} has only ${count} players - incomplete position coverage`);
+        this.addWarning(
+          `Team ${team} has only ${count} players - incomplete position coverage`
+        );
       }
     });
   }
 
   validateSalaries(players) {
-    players.forEach(player => {
+    players.forEach((player) => {
       const salary = parseFloat(player.salary);
 
       if (isNaN(salary)) {
-        this.addError(`Player ${player.name}: Invalid salary value (${player.salary})`);
+        this.addError(
+          `Player ${player.name}: Invalid salary value (${player.salary})`
+        );
         return;
       }
 
       if (salary < this.config.minSalary) {
-        this.addWarning(`Player ${player.name}: Unusually low salary ($${salary})`);
+        this.addWarning(
+          `Player ${player.name}: Unusually low salary ($${salary})`
+        );
       }
 
       if (salary > this.config.maxSalary) {
-        this.addWarning(`Player ${player.name}: Unusually high salary ($${salary})`);
+        this.addWarning(
+          `Player ${player.name}: Unusually high salary ($${salary})`
+        );
       }
     });
 
     // Check if lineups are mathematically possible
     const lowestSalaryLineup = this.calculateMinimumSalaryLineup(players);
     if (lowestSalaryLineup > this.config.salaryCap) {
-      this.addError(`Impossible to create valid lineup - minimum salary (${lowestSalaryLineup}) exceeds cap (${this.config.salaryCap})`);
+      this.addError(
+        `Impossible to create valid lineup - minimum salary (${lowestSalaryLineup}) exceeds cap (${this.config.salaryCap})`
+      );
     }
   }
 
   validateProjections(players) {
     const projections = [];
 
-    players.forEach(player => {
+    players.forEach((player) => {
       const projection = parseFloat(player.projectedPoints);
 
       if (isNaN(projection)) {
-        this.addError(`Player ${player.name}: Invalid projection value (${player.projectedPoints})`);
+        this.addError(
+          `Player ${player.name}: Invalid projection value (${player.projectedPoints})`
+        );
         return;
       }
 
       if (projection < this.config.minProjection) {
-        this.addWarning(`Player ${player.name}: Negative projection (${projection})`);
+        this.addWarning(
+          `Player ${player.name}: Negative projection (${projection})`
+        );
       }
 
       if (projection > this.config.maxProjection) {
-        this.addWarning(`Player ${player.name}: Unusually high projection (${projection})`);
+        this.addWarning(
+          `Player ${player.name}: Unusually high projection (${projection})`
+        );
       }
 
       projections.push(projection);
@@ -362,7 +403,8 @@ class DataValidator {
         min: projections[0],
         max: projections[projections.length - 1],
         median: projections[Math.floor(projections.length / 2)],
-        average: projections.reduce((sum, p) => sum + p, 0) / projections.length
+        average:
+          projections.reduce((sum, p) => sum + p, 0) / projections.length,
       };
     }
   }
@@ -371,20 +413,26 @@ class DataValidator {
     const ownerships = [];
     let totalOwnership = 0;
 
-    players.forEach(player => {
+    players.forEach((player) => {
       const ownership = parseFloat(player.ownership);
 
       if (isNaN(ownership)) {
-        this.addWarning(`Player ${player.name}: Invalid ownership value (${player.ownership})`);
+        this.addWarning(
+          `Player ${player.name}: Invalid ownership value (${player.ownership})`
+        );
         return;
       }
 
       if (ownership < this.config.minOwnership) {
-        this.addWarning(`Player ${player.name}: Negative ownership (${ownership}%)`);
+        this.addWarning(
+          `Player ${player.name}: Negative ownership (${ownership}%)`
+        );
       }
 
       if (ownership > this.config.maxOwnership) {
-        this.addWarning(`Player ${player.name}: Ownership over 100% (${ownership}%)`);
+        this.addWarning(
+          `Player ${player.name}: Ownership over 100% (${ownership}%)`
+        );
       }
 
       ownerships.push(ownership);
@@ -400,33 +448,41 @@ class DataValidator {
         min: ownerships[0],
         max: ownerships[ownerships.length - 1],
         average: avgOwnership,
-        total: totalOwnership
+        total: totalOwnership,
       };
 
       // Check ownership distribution
       if (avgOwnership < 5) {
-        this.addWarning('Very low average ownership - may indicate stale data');
+        this.addWarning("Very low average ownership - may indicate stale data");
       }
       if (avgOwnership > 25) {
-        this.addWarning('Very high average ownership - may indicate chalk-heavy slate');
+        this.addWarning(
+          "Very high average ownership - may indicate chalk-heavy slate"
+        );
       }
     }
   }
 
   validateCrossConsistency(players) {
     // Check value calculations (points per $1000)
-    players.forEach(player => {
+    players.forEach((player) => {
       const projection = parseFloat(player.projectedPoints);
       const salary = parseFloat(player.salary);
 
       if (!isNaN(projection) && !isNaN(salary) && salary > 0) {
-        const calculatedValue = (projection / (salary / 1000));
+        const calculatedValue = projection / (salary / 1000);
         const providedValue = parseFloat(player.value);
 
         if (!isNaN(providedValue)) {
           const valueDiff = Math.abs(calculatedValue - providedValue);
           if (valueDiff > 0.1) {
-            this.addWarning(`Player ${player.name}: Value calculation mismatch (calculated: ${calculatedValue.toFixed(2)}, provided: ${providedValue})`);
+            this.addWarning(
+              `Player ${
+                player.name
+              }: Value calculation mismatch (calculated: ${calculatedValue.toFixed(
+                2
+              )}, provided: ${providedValue})`
+            );
           }
         }
       }
@@ -436,7 +492,11 @@ class DataValidator {
     const nameMap = new Map();
     players.forEach((player, index) => {
       if (nameMap.has(player.name)) {
-        this.addWarning(`Duplicate player name found: ${player.name} (indices ${nameMap.get(player.name)}, ${index})`);
+        this.addWarning(
+          `Duplicate player name found: ${player.name} (indices ${nameMap.get(
+            player.name
+          )}, ${index})`
+        );
       } else {
         nameMap.set(player.name, index);
       }
@@ -447,7 +507,7 @@ class DataValidator {
     const byPosition = {};
 
     // Group players by position
-    players.forEach(player => {
+    players.forEach((player) => {
       if (!byPosition[player.position]) {
         byPosition[player.position] = [];
       }
@@ -455,7 +515,7 @@ class DataValidator {
     });
 
     // Sort each position by salary (ascending)
-    Object.keys(byPosition).forEach(position => {
+    Object.keys(byPosition).forEach((position) => {
       byPosition[position].sort((a, b) => a - b);
     });
 
@@ -463,7 +523,7 @@ class DataValidator {
     let minSalary = 0;
 
     // Add cheapest player from each required position
-    this.config.requiredPositions.forEach(position => {
+    this.config.requiredPositions.forEach((position) => {
       if (byPosition[position] && byPosition[position].length > 0) {
         minSalary += byPosition[position][0]; // Cheapest player
       } else {
@@ -472,20 +532,26 @@ class DataValidator {
     });
 
     // Add cheapest captain (1.5x multiplier)
-    const captainEligible = ['TOP', 'JNG', 'MID', 'ADC', 'SUP'];
+    const captainEligible = ["TOP", "JNG", "MID", "ADC", "SUP"];
     let cheapestCaptain = Infinity;
 
-    captainEligible.forEach(position => {
+    captainEligible.forEach((position) => {
       if (byPosition[position] && byPosition[position].length > 0) {
-        cheapestCaptain = Math.min(cheapestCaptain, byPosition[position][0] * 1.5);
+        cheapestCaptain = Math.min(
+          cheapestCaptain,
+          byPosition[position][0] * 1.5
+        );
       }
     });
 
-    minSalary += cheapestCaptain === Infinity ? this.config.maxSalary * 1.5 : cheapestCaptain;
+    minSalary +=
+      cheapestCaptain === Infinity
+        ? this.config.maxSalary * 1.5
+        : cheapestCaptain;
 
     // Add TEAM player if available
-    if (byPosition['TEAM'] && byPosition['TEAM'].length > 0) {
-      minSalary += byPosition['TEAM'][0];
+    if (byPosition["TEAM"] && byPosition["TEAM"].length > 0) {
+      minSalary += byPosition["TEAM"][0];
     }
 
     return Math.round(minSalary);
@@ -512,7 +578,7 @@ class DataValidator {
    */
   generateReport(validationResults) {
     const report = {
-      status: validationResults.isValid ? 'valid' : 'invalid',
+      status: validationResults.isValid ? "valid" : "invalid",
       summary: this.generateSummary(validationResults),
       details: {
         errors: validationResults.errors,
@@ -522,9 +588,9 @@ class DataValidator {
           teams: validationResults.teamCount,
           positions: validationResults.positionBreakdown,
           projections: validationResults.projectionStats,
-          ownership: validationResults.ownershipStats
-        }
-      }
+          ownership: validationResults.ownershipStats,
+        },
+      },
     };
 
     return report;
@@ -535,10 +601,12 @@ class DataValidator {
       return `Validation failed: ${results.errors.length} error(s) found`;
     }
 
-    const warnings = results.warnings.length > 0 ? ` (${results.warnings.length} warnings)` : '';
+    const warnings =
+      results.warnings.length > 0
+        ? ` (${results.warnings.length} warnings)`
+        : "";
     return `✓ Data validated: ${results.playerCount} players from ${results.teamCount} teams${warnings}`;
   }
 }
 
 module.exports = DataValidator;
-

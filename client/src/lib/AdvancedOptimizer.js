@@ -12,7 +12,6 @@
  * - NexusScore comprehensive lineup evaluation
  */
 
-
 // Add a global counter for truly unique lineup IDs
 let lineupCounter = 0;
 
@@ -32,7 +31,7 @@ class AdvancedOptimizer {
       },
       maxPlayersPerTeam: 4, // Added max players per team constraint
       iterations: 10000, // Monte Carlo iterations
-      randomness: 0.3, // 0-1 scale of how much to randomize projections
+      randomness: 0.4, // 0-1 scale of how much to randomize projections
       targetTop: 0.2, // Target top % of simulations
       leverageMultiplier: 1.0, // How much to consider ownership for leverage
       verboseDebug: false, // Add verbose debugging flag
@@ -48,7 +47,7 @@ class AdvancedOptimizer {
       fieldSize: 1000, // Default field size for tournaments
       debugMode: false, // Enable extra logging for debugging
       stackExposureTargets: {}, // Stack exposure targets from UI
-      contestInfo: { type: 'gpp', fieldSize: 1189, entryFee: 5 }, // Default contest info
+      contestInfo: { type: "gpp", fieldSize: 1189, entryFee: 5 }, // Default contest info
       ...config,
     };
 
@@ -1935,7 +1934,6 @@ class AdvancedOptimizer {
               lineup.firstPlace = (firstPlaceCount / iterations) * 100;
               lineup.top10 = (top10Count / iterations) * 100;
               lineup.cashRate = (cashCount / iterations) * 100;
-
             }
             resolve();
           }, 0);
@@ -1976,7 +1974,6 @@ class AdvancedOptimizer {
               const nexusResult = this._calculateNexusScore(lineup);
               lineup.nexusScore = nexusResult.score;
               lineup.scoreComponents = nexusResult.components;
-
             }
             resolve();
           }, 0);
@@ -2164,7 +2161,10 @@ class AdvancedOptimizer {
     // Scale down to reasonable range (25-65)
     // Average lineup has ~350 points, divide by 10 for base score of 35
     const baseScore = baseProjection / 10;
-    const rawScore = baseScore * leverageFactor * consistencyFactor + stackBonus / 2 + positionBonus / 2;
+    const rawScore =
+      baseScore * leverageFactor * consistencyFactor +
+      stackBonus / 2 +
+      positionBonus / 2;
     const nexusScore = Math.min(65, Math.max(25, rawScore));
 
     // Add component breakdown for UI explanation
@@ -2307,10 +2307,10 @@ class AdvancedOptimizer {
 
     const lineups = [];
     const lineupSignatures = new Set(); // Track unique lineup signatures
-    const maxAttempts = count * 10;
+    const maxAttempts = count * 50; // Increased from 10x to 50x
     let attempts = 0;
     let consecutiveFailures = 0;
-    const maxConsecutiveFailures = Math.min(1000, count * 10); // Scale with lineup count
+    const maxConsecutiveFailures = Math.min(5000, count * 50); // Increased limits significantly
 
     // Reset exposure tracking for new generation
     this._initializeExposureTracking();
@@ -2403,7 +2403,7 @@ class AdvancedOptimizer {
             // Increase randomness for next lineup to ensure diversity
             this.config.randomness = Math.min(
               0.9,
-              this.config.randomness + 0.05
+              this.config.randomness + 0.1
             );
           } else {
             consecutiveFailures++;
@@ -3857,10 +3857,10 @@ class AdvancedOptimizer {
     ]);
 
     // Scale diversity requirement based on how many lineups we have
-    // Start strict (25%) and relax to 15% as we generate more lineups
+    // Start more reasonable (25%) and relax to 15% as we generate more lineups
     const diversityFactor = Math.max(
       0.15,
-      0.25 - existingLineups.length * 0.001
+      0.25 - existingLineups.length * 0.005
     );
     const minDifferentPlayers = Math.max(
       1,
@@ -4066,7 +4066,6 @@ class AdvancedOptimizer {
    * Get simulation summary stats
    */
   _getSimulationSummary() {
-
     // Get top lineup's NexusScore
     const topNexusScore =
       this.simulationResults.length > 0
@@ -4417,7 +4416,12 @@ class AdvancedOptimizer {
             const targetDecimal = targetExposure / 100;
 
             // Check if prediction is within acceptable range
-            const tolerance = 0.15; // 15% tolerance
+            // Use more flexible tolerance for smaller lineup counts
+            const baseTolerance = 0.15; // 15% base tolerance
+            const lineupCount = this.targetLineupCount || 20; // Fallback to 20
+            const adaptiveTolerance =
+              baseTolerance + Math.max(0, (50 - lineupCount) * 0.005); // Add 0.5% per lineup below 50
+            const tolerance = Math.min(0.3, adaptiveTolerance); // Cap at 30%
             if (stats.mean > targetDecimal + tolerance) {
               this.debugLog(
                 `Exposure prediction exceeded for ${team} ${stackSize}-stack: ${(
@@ -5021,4 +5025,3 @@ class AdvancedOptimizer {
 
 // Export the optimizer class
 module.exports = AdvancedOptimizer;
-

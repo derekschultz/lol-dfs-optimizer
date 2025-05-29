@@ -838,10 +838,10 @@ const AIInsights = ({
                   portfolioGrade.grade === "A+"
                     ? "#dcfce7"
                     : portfolioGrade.grade === "A"
-                    ? "#dbeafe"
-                    : portfolioGrade.grade === "B"
-                    ? "#fef3c7"
-                    : "#fee2e2",
+                      ? "#dbeafe"
+                      : portfolioGrade.grade === "B"
+                        ? "#fef3c7"
+                        : "#fee2e2",
                 borderRadius: "8px",
                 minWidth: "60px",
               }}
@@ -854,10 +854,10 @@ const AIInsights = ({
                     portfolioGrade.grade === "A+"
                       ? "#166534"
                       : portfolioGrade.grade === "A"
-                      ? "#1e40af"
-                      : portfolioGrade.grade === "B"
-                      ? "#92400e"
-                      : "#991b1b",
+                        ? "#1e40af"
+                        : portfolioGrade.grade === "B"
+                          ? "#92400e"
+                          : "#991b1b",
                 }}
               >
                 {portfolioGrade.grade}
@@ -976,14 +976,14 @@ const AIInsights = ({
               dataFetchStatus.phase === "error"
                 ? "#fecaca"
                 : dataFetchStatus.phase === "completed"
-                ? "#d1fae5"
-                : "#dbeafe",
+                  ? "#d1fae5"
+                  : "#dbeafe",
             backgroundColor:
               dataFetchStatus.phase === "error"
                 ? "#fef2f2"
                 : dataFetchStatus.phase === "completed"
-                ? "#ecfdf5"
-                : "#eff6ff",
+                  ? "#ecfdf5"
+                  : "#eff6ff",
             display: "flex",
             alignItems: "center",
             gap: "12px",
@@ -1010,8 +1010,8 @@ const AIInsights = ({
                   dataFetchStatus.phase === "error"
                     ? "#991b1b"
                     : dataFetchStatus.phase === "completed"
-                    ? "#166534"
-                    : "#1e40af",
+                      ? "#166534"
+                      : "#1e40af",
                 fontWeight: "500",
               }}
             >
@@ -1467,10 +1467,10 @@ const AIInsights = ({
                       coachingData.portfolio_grade.grade === "A+"
                         ? "#dcfce7"
                         : coachingData.portfolio_grade.grade === "A"
-                        ? "#dbeafe"
-                        : coachingData.portfolio_grade.grade === "B"
-                        ? "#fef3c7"
-                        : "#fee2e2",
+                          ? "#dbeafe"
+                          : coachingData.portfolio_grade.grade === "B"
+                            ? "#fef3c7"
+                            : "#fee2e2",
                     borderRadius: "12px",
                     minWidth: "80px",
                     border: "2px solid",
@@ -1478,10 +1478,10 @@ const AIInsights = ({
                       coachingData.portfolio_grade.grade === "A+"
                         ? "#166534"
                         : coachingData.portfolio_grade.grade === "A"
-                        ? "#1e40af"
-                        : coachingData.portfolio_grade.grade === "B"
-                        ? "#92400e"
-                        : "#991b1b",
+                          ? "#1e40af"
+                          : coachingData.portfolio_grade.grade === "B"
+                            ? "#92400e"
+                            : "#991b1b",
                   }}
                 >
                   <span
@@ -1492,10 +1492,10 @@ const AIInsights = ({
                         coachingData.portfolio_grade.grade === "A+"
                           ? "#166534"
                           : coachingData.portfolio_grade.grade === "A"
-                          ? "#1e40af"
-                          : coachingData.portfolio_grade.grade === "B"
-                          ? "#92400e"
-                          : "#991b1b",
+                            ? "#1e40af"
+                            : coachingData.portfolio_grade.grade === "B"
+                              ? "#92400e"
+                              : "#991b1b",
                     }}
                   >
                     {coachingData.portfolio_grade.grade}
@@ -1717,15 +1717,15 @@ const AIInsights = ({
                       coachingData.meta_alignment.status === "excellent"
                         ? "#ecfdf5"
                         : coachingData.meta_alignment.status === "good"
-                        ? "#fef3c7"
-                        : "#fef2f2",
+                          ? "#fef3c7"
+                          : "#fef2f2",
                     border: "1px solid",
                     borderColor:
                       coachingData.meta_alignment.status === "excellent"
                         ? "#d1fae5"
                         : coachingData.meta_alignment.status === "good"
-                        ? "#fde68a"
-                        : "#fecaca",
+                          ? "#fde68a"
+                          : "#fecaca",
                     borderRadius: "8px",
                     padding: "12px",
                   }}
@@ -1746,8 +1746,8 @@ const AIInsights = ({
                           coachingData.meta_alignment.status === "excellent"
                             ? "#047857"
                             : coachingData.meta_alignment.status === "good"
-                            ? "#92400e"
-                            : "#991b1b",
+                              ? "#92400e"
+                              : "#991b1b",
                       }}
                     >
                       {Math.round(coachingData.meta_alignment.percentage)}%
@@ -1827,8 +1827,8 @@ const AIInsights = ({
                                   tip.difficulty === "Easy"
                                     ? "#10b981"
                                     : tip.difficulty === "Medium"
-                                    ? "#f59e0b"
-                                    : "#ef4444",
+                                      ? "#f59e0b"
+                                      : "#ef4444",
                                 color: "white",
                                 fontSize: "0.75rem",
                                 padding: "2px 6px",
@@ -1972,8 +1972,8 @@ const AIInsights = ({
                                   pred.confidence > 0.8
                                     ? "#10b981"
                                     : pred.confidence > 0.6
-                                    ? "#f59e0b"
-                                    : "#ef4444",
+                                      ? "#f59e0b"
+                                      : "#ef4444",
                                 color: "white",
                                 padding: "2px 8px",
                                 borderRadius: "4px",

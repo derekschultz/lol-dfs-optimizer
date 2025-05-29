@@ -104,38 +104,50 @@ const App = () => {
       const playerExposureMap = new Map();
       const teamExposureMap = new Map();
       const positionExposureMap = new Map();
-      
+
       // Count occurrences
-      lineups.forEach(lineup => {
+      lineups.forEach((lineup) => {
         // Count captain
         if (lineup.cpt) {
           const key = `${lineup.cpt.name}_${lineup.cpt.team}`;
           playerExposureMap.set(key, (playerExposureMap.get(key) || 0) + 1);
-          teamExposureMap.set(lineup.cpt.team, (teamExposureMap.get(lineup.cpt.team) || 0) + 1);
-          positionExposureMap.set('CPT', (positionExposureMap.get('CPT') || 0) + 1);
+          teamExposureMap.set(
+            lineup.cpt.team,
+            (teamExposureMap.get(lineup.cpt.team) || 0) + 1
+          );
+          positionExposureMap.set(
+            "CPT",
+            (positionExposureMap.get("CPT") || 0) + 1
+          );
         }
-        
+
         // Count regular players
         if (lineup.players) {
-          lineup.players.forEach(player => {
+          lineup.players.forEach((player) => {
             const key = `${player.name}_${player.team}`;
             playerExposureMap.set(key, (playerExposureMap.get(key) || 0) + 1);
-            teamExposureMap.set(player.team, (teamExposureMap.get(player.team) || 0) + 1);
-            positionExposureMap.set(player.position, (positionExposureMap.get(player.position) || 0) + 1);
+            teamExposureMap.set(
+              player.team,
+              (teamExposureMap.get(player.team) || 0) + 1
+            );
+            positionExposureMap.set(
+              player.position,
+              (positionExposureMap.get(player.position) || 0) + 1
+            );
           });
         }
       });
-      
+
       // Update exposure settings with actual values
-      setExposureSettings(prev => ({
+      setExposureSettings((prev) => ({
         ...prev,
-        players: prev.players.map(player => {
+        players: prev.players.map((player) => {
           const key = `${player.name}_${player.team}`;
           const count = playerExposureMap.get(key) || 0;
           const actual = (count / lineups.length) * 100;
           return { ...player, actual };
         }),
-        teams: prev.teams.map(team => {
+        teams: prev.teams.map((team) => {
           const count = teamExposureMap.get(team.team) || 0;
           const actual = (count / lineups.length) * 100;
           return { ...team, actual };
@@ -146,7 +158,7 @@ const App = () => {
             const actual = (count / lineups.length) * 100;
             return [pos, { ...settings, actual }];
           })
-        )
+        ),
       }));
     }
   }, [lineups]); // Recalculate whenever lineups change
@@ -158,21 +170,20 @@ const App = () => {
 
       try {
         // Load each data type in parallel for better performance
-        const [playersRes, stacksRes, lineupsRes] =
-          await Promise.all([
-            fetch(`${API_BASE_URL}/players/projections`).catch((err) => {
-              console.error("Error fetching player projections:", err);
-              return { ok: false };
-            }),
-            fetch(`${API_BASE_URL}/teams/stacks`).catch((err) => {
-              console.error("Error fetching team stacks:", err);
-              return { ok: false };
-            }),
-            fetch(`${API_BASE_URL}/lineups`).catch((err) => {
-              console.error("Error fetching lineups:", err);
-              return { ok: false };
-            }),
-          ]);
+        const [playersRes, stacksRes, lineupsRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/players/projections`).catch((err) => {
+            console.error("Error fetching player projections:", err);
+            return { ok: false };
+          }),
+          fetch(`${API_BASE_URL}/teams/stacks`).catch((err) => {
+            console.error("Error fetching team stacks:", err);
+            return { ok: false };
+          }),
+          fetch(`${API_BASE_URL}/lineups`).catch((err) => {
+            console.error("Error fetching lineups:", err);
+            return { ok: false };
+          }),
+        ]);
 
         // Process player projections
         if (playersRes.ok) {
@@ -283,7 +294,10 @@ const App = () => {
             const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership));
             // Calculate NexusScore - scale to reasonable range (25-65)
             const baseScore = totalProj / 10;
-            const nexusScore = Math.min(65, Math.max(25, baseScore * leverageFactor + stackBonus / 2));
+            const nexusScore = Math.min(
+              65,
+              Math.max(25, baseScore * leverageFactor + stackBonus / 2)
+            );
 
             return {
               ...lineup,
@@ -295,7 +309,6 @@ const App = () => {
         } else {
           console.error("Failed to load lineups");
         }
-
 
         displayNotification("App data loaded successfully!");
       } catch (error) {
@@ -369,14 +382,23 @@ const App = () => {
           displayNotification("Detected team stacks file", "info");
           endpoint = `${API_BASE_URL}/teams/stacks/upload`;
         } else if (isDraftKingsSalariesFile || importMethod === "dkSalaries") {
-          displayNotification("Importing DraftKings salaries and player IDs", "info");
+          displayNotification(
+            "Importing DraftKings salaries and player IDs",
+            "info"
+          );
           endpoint = `${API_BASE_URL}/draftkings/import`;
         } else if (isDraftKingsFile || importMethod === "dkImport") {
-          displayNotification("Importing DraftKings contest data and player IDs", "info");
+          displayNotification(
+            "Importing DraftKings contest data and player IDs",
+            "info"
+          );
           endpoint = `${API_BASE_URL}/draftkings/import`;
         } else if (isLolFormat) {
           if (importMethod === "dkImport") {
-            displayNotification("Importing DraftKings contest data and player IDs", "info");
+            displayNotification(
+              "Importing DraftKings contest data and player IDs",
+              "info"
+            );
             endpoint = `${API_BASE_URL}/draftkings/import`;
           } else {
             displayNotification(
@@ -445,14 +467,17 @@ const App = () => {
       if (endpoint.includes("draftkings/import")) {
         // Handle DraftKings import response (contest metadata + player ID mapping)
         displayNotification(
-          `Imported contest data: ${result.contestMetadata?.contestName || 'Unknown'} (${result.playersWithIds}/${result.totalPlayers} players mapped)`
+          `Imported contest data: ${result.contestMetadata?.contestName || "Unknown"} (${result.playersWithIds}/${result.totalPlayers} players mapped)`
         );
-      } else if (endpoint.includes("dkentries") || endpoint.includes("lineups")) {
+      } else if (
+        endpoint.includes("dkentries") ||
+        endpoint.includes("lineups")
+      ) {
         if (result.lineups && Array.isArray(result.lineups)) {
           // Add NexusScore to lineups
           const enhancedLineups = result.lineups.map((lineup) => {
             // Simulate NexusScore
-            const nexusScore = Math.round(Math.random() * 50 + 70); // Random score between 70-120  
+            const nexusScore = Math.round(Math.random() * 50 + 70); // Random score between 70-120
 
             return {
               ...lineup,
@@ -460,7 +485,13 @@ const App = () => {
             };
           });
 
-          setLineups((prevLineups) => [...prevLineups, ...enhancedLineups]);
+          setLineups((prevLineups) => {
+            const existingIds = new Set(prevLineups.map((l) => l.id));
+            const newLineups = enhancedLineups.filter(
+              (l) => !existingIds.has(l.id)
+            );
+            return [...prevLineups, ...newLineups];
+          });
           displayNotification(`Loaded ${result.lineups.length} lineups!`);
 
           // Switch to the lineups tab after successful load
@@ -566,7 +597,6 @@ const App = () => {
     });
   };
 
-
   // Generate lineups
   const generateLineups = async (count) => {
     try {
@@ -640,7 +670,13 @@ const App = () => {
           };
         });
 
-        setLineups([...lineups, ...enhancedLineups]);
+        setLineups((prevLineups) => {
+          const existingIds = new Set(prevLineups.map((l) => l.id));
+          const newLineups = enhancedLineups.filter(
+            (l) => !existingIds.has(l.id)
+          );
+          return [...prevLineups, ...newLineups];
+        });
         displayNotification(`Generated ${result.lineups.length} new lineups!`);
       } else {
         throw new Error("Invalid response format for lineup generation");
@@ -682,13 +718,15 @@ const App = () => {
         // Include stack exposure targets
         stackExposureTargets: exposureSettings.stackExposureTargets,
       };
-      
+
       // DEBUG: Log what we're actually sending
       console.log("🚀 SENDING LINEUP REQUEST:", {
         count,
         hasStackTargets: !!exposureSettings.stackExposureTargets,
-        stackTargetsCount: Object.keys(exposureSettings.stackExposureTargets || {}).length,
-        stackTargets: exposureSettings.stackExposureTargets
+        stackTargetsCount: Object.keys(
+          exposureSettings.stackExposureTargets || {}
+        ).length,
+        stackTargets: exposureSettings.stackExposureTargets,
       });
 
       // Call the API to generate lineups
@@ -772,7 +810,10 @@ const App = () => {
           const leverageFactor = Math.min(1.5, Math.max(0.6, 1 / ownership));
           // Calculate NexusScore - scale to reasonable range (25-65)
           const baseScore = totalProj / 10;
-          const nexusScore = Math.min(65, Math.max(25, baseScore * leverageFactor + stackBonus / 2));
+          const nexusScore = Math.min(
+            65,
+            Math.max(25, baseScore * leverageFactor + stackBonus / 2)
+          );
 
           return {
             ...lineup,
@@ -780,7 +821,13 @@ const App = () => {
           };
         });
 
-        setLineups([...lineups, ...enhancedLineups]);
+        setLineups((prevLineups) => {
+          const existingIds = new Set(prevLineups.map((l) => l.id));
+          const newLineups = enhancedLineups.filter(
+            (l) => !existingIds.has(l.id)
+          );
+          return [...prevLineups, ...newLineups];
+        });
         displayNotification(`Generated ${result.lineups.length} new lineups!`);
 
         // Switch to lineups tab after generation
@@ -1046,17 +1093,17 @@ const App = () => {
   // Handle player data updates (when players are deleted)
   const handlePlayersUpdated = (updatedPlayers) => {
     setPlayerData(updatedPlayers);
-    
+
     // Update exposure settings to remove deleted players
     if (exposureSettings.players.length > 0) {
-      const updatedPlayerIds = new Set(updatedPlayers.map(p => p.id));
+      const updatedPlayerIds = new Set(updatedPlayers.map((p) => p.id));
       const filteredPlayerExposures = exposureSettings.players.filter(
-        playerExp => updatedPlayerIds.has(playerExp.id)
+        (playerExp) => updatedPlayerIds.has(playerExp.id)
       );
-      
-      setExposureSettings(prev => ({
+
+      setExposureSettings((prev) => ({
         ...prev,
-        players: filteredPlayerExposures
+        players: filteredPlayerExposures,
       }));
     }
   };
@@ -1079,7 +1126,17 @@ const App = () => {
         {/* Tabs */}
         <div className="tabs-container">
           <ul style={{ listStyle: "none" }}>
-            {["upload", "players", "lineups", "stack-exposure", "ai-insights", "hybrid", "optimizer", "nexustest", "performance"].map((tab) => (
+            {[
+              "upload",
+              "players",
+              "lineups",
+              "stack-exposure",
+              "ai-insights",
+              "hybrid",
+              "optimizer",
+              "nexustest",
+              "performance",
+            ].map((tab) => (
               <li key={tab} style={{ display: "inline-block" }}>
                 <button
                   className={`tab ${activeTab === tab ? "active" : ""}`}
@@ -1088,18 +1145,18 @@ const App = () => {
                   {tab === "players"
                     ? "Player Management"
                     : tab === "stack-exposure"
-                    ? "Stack Exposure"
-                    : tab === "ai-insights"
-                    ? "AI Insights"
-                    : tab === "hybrid"
-                    ? "Hybrid Optimizer v2.0"
-                    : tab === "optimizer"
-                    ? "Advanced Optimizer (Legacy)"
-                    : tab === "nexustest"
-                    ? "NexusScore Test"
-                    : tab === "performance"
-                    ? "Performance Test"
-                    : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      ? "Stack Exposure"
+                      : tab === "ai-insights"
+                        ? "AI Insights"
+                        : tab === "hybrid"
+                          ? "Hybrid Optimizer v2.0"
+                          : tab === "optimizer"
+                            ? "Advanced Optimizer (Legacy)"
+                            : tab === "nexustest"
+                              ? "NexusScore Test"
+                              : tab === "performance"
+                                ? "Performance Test"
+                                : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               </li>
             ))}
@@ -1122,7 +1179,7 @@ const App = () => {
                     onChange={handleFileUpload}
                   />
                 </div>
-                <div style={{ marginTop: '15px' }}>
+                <div style={{ marginTop: "15px" }}>
                   <label className="form-label">Team Stacks (Stacks CSV)</label>
                   <input
                     type="file"
@@ -1135,7 +1192,9 @@ const App = () => {
               <div className="card">
                 <h2 className="card-title">Import DraftKings Data</h2>
                 <div>
-                  <label className="form-label">DraftKings Contest CSV (Contest + Entry IDs)</label>
+                  <label className="form-label">
+                    DraftKings Contest CSV (Contest + Entry IDs)
+                  </label>
                   <input
                     type="file"
                     accept=".csv"
@@ -1179,20 +1238,65 @@ const App = () => {
                 </div>
               </div>
             </div>
-            
+
             {/* Stack+ Ratings Display */}
             {stackData.length > 0 && (
-              <div style={{ marginTop: '2rem' }}>
-                <h3 style={{ color: '#90cdf4', marginBottom: '1rem' }}>Stack+ Ratings</h3>
-                <div className="table-container" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div style={{ marginTop: "2rem" }}>
+                <h3 style={{ color: "#90cdf4", marginBottom: "1rem" }}>
+                  Stack+ Ratings
+                </h3>
+                <div
+                  className="table-container"
+                  style={{ maxHeight: "400px", overflowY: "auto" }}
+                >
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
-                      <tr style={{ borderBottom: '2px solid #4a5568' }}>
-                        <th style={{ padding: '12px', textAlign: 'left', color: '#90cdf4' }}>Team</th>
-                        <th style={{ padding: '12px', textAlign: 'center', color: '#90cdf4' }}>Stack+</th>
-                        <th style={{ padding: '12px', textAlign: 'center', color: '#90cdf4' }}>Stack+ All Wins</th>
-                        <th style={{ padding: '12px', textAlign: 'center', color: '#90cdf4' }}>Stack+ All Losses</th>
-                        <th style={{ padding: '12px', textAlign: 'center', color: '#90cdf4' }}>Rating Tier</th>
+                      <tr style={{ borderBottom: "2px solid #4a5568" }}>
+                        <th
+                          style={{
+                            padding: "12px",
+                            textAlign: "left",
+                            color: "#90cdf4",
+                          }}
+                        >
+                          Team
+                        </th>
+                        <th
+                          style={{
+                            padding: "12px",
+                            textAlign: "center",
+                            color: "#90cdf4",
+                          }}
+                        >
+                          Stack+
+                        </th>
+                        <th
+                          style={{
+                            padding: "12px",
+                            textAlign: "center",
+                            color: "#90cdf4",
+                          }}
+                        >
+                          Stack+ All Wins
+                        </th>
+                        <th
+                          style={{
+                            padding: "12px",
+                            textAlign: "center",
+                            color: "#90cdf4",
+                          }}
+                        >
+                          Stack+ All Losses
+                        </th>
+                        <th
+                          style={{
+                            padding: "12px",
+                            textAlign: "center",
+                            color: "#90cdf4",
+                          }}
+                        >
+                          Rating Tier
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1200,53 +1304,80 @@ const App = () => {
                         .sort((a, b) => (b.stackPlus || 0) - (a.stackPlus || 0))
                         .map((stack, index) => {
                           const rating = stack.stackPlus || 0;
-                          let tier = 'Poor';
-                          let tierColor = '#ef4444';
-                          
+                          let tier = "Poor";
+                          let tierColor = "#ef4444";
+
                           if (rating >= 200) {
-                            tier = 'Elite';
-                            tierColor = '#10b981';
+                            tier = "Elite";
+                            tierColor = "#10b981";
                           } else if (rating >= 150) {
-                            tier = 'Very Strong';
-                            tierColor = '#34d399';
+                            tier = "Very Strong";
+                            tierColor = "#34d399";
                           } else if (rating >= 100) {
-                            tier = 'Strong';
-                            tierColor = '#60a5fa';
+                            tier = "Strong";
+                            tierColor = "#60a5fa";
                           } else if (rating >= 50) {
-                            tier = 'Above Average';
-                            tierColor = '#93c5fd';
+                            tier = "Above Average";
+                            tierColor = "#93c5fd";
                           } else if (rating >= 20) {
-                            tier = 'Slightly Above';
-                            tierColor = '#cbd5e1';
+                            tier = "Slightly Above";
+                            tierColor = "#cbd5e1";
                           } else if (rating >= 10) {
-                            tier = 'Average';
-                            tierColor = '#94a3b8';
+                            tier = "Average";
+                            tierColor = "#94a3b8";
                           } else if (rating >= 5) {
-                            tier = 'Below Average';
-                            tierColor = '#f59e0b';
+                            tier = "Below Average";
+                            tierColor = "#f59e0b";
                           }
-                          
+
                           return (
-                            <tr key={index} style={{ borderBottom: '1px solid #4a5568' }}>
-                              <td style={{ padding: '12px', color: '#e2e8f0' }}>{stack.team}</td>
-                              <td style={{ padding: '12px', textAlign: 'center', color: '#e2e8f0' }}>
-                                {stack.stackPlus?.toFixed(2) || '0.00'}
+                            <tr
+                              key={index}
+                              style={{ borderBottom: "1px solid #4a5568" }}
+                            >
+                              <td style={{ padding: "12px", color: "#e2e8f0" }}>
+                                {stack.team}
                               </td>
-                              <td style={{ padding: '12px', textAlign: 'center', color: '#10b981' }}>
-                                {stack.stackPlusAllWins?.toFixed(2) || '0.00'}
+                              <td
+                                style={{
+                                  padding: "12px",
+                                  textAlign: "center",
+                                  color: "#e2e8f0",
+                                }}
+                              >
+                                {stack.stackPlus?.toFixed(2) || "0.00"}
                               </td>
-                              <td style={{ padding: '12px', textAlign: 'center', color: '#ef4444' }}>
-                                {stack.stackPlusAllLosses?.toFixed(2) || '0.00'}
+                              <td
+                                style={{
+                                  padding: "12px",
+                                  textAlign: "center",
+                                  color: "#10b981",
+                                }}
+                              >
+                                {stack.stackPlusAllWins?.toFixed(2) || "0.00"}
                               </td>
-                              <td style={{ padding: '12px', textAlign: 'center' }}>
-                                <span style={{ 
-                                  backgroundColor: tierColor + '20',
-                                  color: tierColor,
-                                  padding: '4px 12px',
-                                  borderRadius: '12px',
-                                  fontSize: '0.875rem',
-                                  fontWeight: '500'
-                                }}>
+                              <td
+                                style={{
+                                  padding: "12px",
+                                  textAlign: "center",
+                                  color: "#ef4444",
+                                }}
+                              >
+                                {stack.stackPlusAllLosses?.toFixed(2) || "0.00"}
+                              </td>
+                              <td
+                                style={{ padding: "12px", textAlign: "center" }}
+                              >
+                                <span
+                                  style={{
+                                    backgroundColor: tierColor + "20",
+                                    color: tierColor,
+                                    padding: "4px 12px",
+                                    borderRadius: "12px",
+                                    fontSize: "0.875rem",
+                                    fontWeight: "500",
+                                  }}
+                                >
                                   {tier}
                                 </span>
                               </td>
@@ -1327,12 +1458,13 @@ const App = () => {
             onTargetExposureUpdate={(targetData) => {
               console.log("Target exposure updated:", targetData);
               // Update exposure settings to include stack targets in backend-expected format
-              setExposureSettings(prev => ({
+              setExposureSettings((prev) => ({
                 ...prev,
                 stackExposureTargets: {
                   ...prev.stackExposureTargets,
-                  [`${targetData.team}_${targetData.stackSize}_target`]: targetData.targetExposure
-                }
+                  [`${targetData.team}_${targetData.stackSize}_target`]:
+                    targetData.targetExposure,
+                },
               }));
             }}
           />
@@ -1386,7 +1518,13 @@ const App = () => {
             onGenerateLineups={generateOptimizedLineups}
             onImportLineups={(optimizedLineups) => {
               // Add imported lineups to existing lineups
-              setLineups((prev) => [...prev, ...optimizedLineups]);
+              setLineups((prev) => {
+                const existingIds = new Set(prev.map((l) => l.id));
+                const newLineups = optimizedLineups.filter(
+                  (l) => !existingIds.has(l.id)
+                );
+                return [...prev, ...newLineups];
+              });
               displayNotification(
                 `Imported ${optimizedLineups.length} optimized lineups!`
               );
@@ -1406,7 +1544,13 @@ const App = () => {
             onUpdateExposures={handleExposureUpdate}
             onImportLineups={(optimizedLineups) => {
               // Add imported lineups to existing lineups
-              setLineups((prev) => [...prev, ...optimizedLineups]);
+              setLineups((prev) => {
+                const existingIds = new Set(prev.map((l) => l.id));
+                const newLineups = optimizedLineups.filter(
+                  (l) => !existingIds.has(l.id)
+                );
+                return [...prev, ...newLineups];
+              });
               displayNotification(
                 `Imported ${optimizedLineups.length} optimized lineups!`
               );
