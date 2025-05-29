@@ -3,6 +3,7 @@ import { useLineup } from "../../contexts/LineupContext";
 import { usePlayer } from "../../contexts/PlayerContext";
 import { useExposure } from "../../contexts/ExposureContext";
 import { useNotification } from "../../contexts/NotificationContext";
+import { useLineupGeneration } from "../../hooks/useLineupGeneration";
 import AIInsights from "../AIInsights";
 
 const AIInsightsPage = () => {
@@ -10,14 +11,10 @@ const AIInsightsPage = () => {
   const { playerData } = usePlayer();
   const { exposureSettings, setExposureSettings } = useExposure();
   const { displayNotification } = useNotification();
+  const { generateOptimizedLineups } = useLineupGeneration();
 
   const handleUpdateExposures = (newExposureSettings) => {
     setExposureSettings(newExposureSettings);
-  };
-
-  const handleGenerateOptimizedLineups = async (config) => {
-    // TODO: Implement optimized lineup generation
-    console.log("Generate optimized lineups:", config);
   };
 
   const handleLineupsUpdated = (updatedLineups) => {
@@ -32,7 +29,7 @@ const AIInsightsPage = () => {
       displayNotification={displayNotification}
       exposureSettings={exposureSettings}
       onUpdateExposures={handleUpdateExposures}
-      onGenerateOptimizedLineups={handleGenerateOptimizedLineups}
+      onGenerateOptimizedLineups={generateOptimizedLineups}
       onLineupsUpdated={handleLineupsUpdated}
     />
   );
