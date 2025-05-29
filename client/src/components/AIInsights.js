@@ -59,33 +59,57 @@ const AIInsights = ({
       const response = await fetch(`${AI_SERVICE_URL}/api/ai/coach`);
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(
-          errorData.details || `AI Coach error! status: ${response.status}`
+          errorData.details ||
+            errorData.error ||
+            `AI Coach error! status: ${response.status}`
         );
       }
 
       const data = await response.json();
+      console.log("Coach response data:", data); // Debug logging
 
       if (data.success && data.coaching) {
-        setPortfolioGrade(data.coaching.portfolio_grade);
-        setCoachingData({
-          ...data.coaching,
-          player_predictions: data.player_predictions,
-        });
-        setShowCoachInsights(true);
-        displayNotification(
-          `Portfolio Grade: ${data.coaching.portfolio_grade.grade} (${data.coaching.portfolio_grade.score}/100)`,
-          "info"
-        );
-        return data.coaching;
+        // Check if portfolio_grade exists
+        if (data.coaching.portfolio_grade) {
+          setPortfolioGrade(data.coaching.portfolio_grade);
+          setCoachingData({
+            ...data.coaching,
+            player_predictions: data.player_predictions,
+          });
+          setShowCoachInsights(true);
+          displayNotification(
+            `Portfolio Grade: ${data.coaching.portfolio_grade.grade} (${data.coaching.portfolio_grade.score}/100)`,
+            "info"
+          );
+          return data.coaching;
+        } else {
+          throw new Error("Portfolio grade not generated");
+        }
+      } else {
+        console.error("Unexpected response structure:", data);
+        throw new Error(data.error || "Invalid response from AI service");
       }
     } catch (error) {
       console.error("Error fetching coach insights:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+      });
+
       if (error.message.includes("circular")) {
         displayNotification("Data error - please refresh the page", "error");
+      } else if (error.message.includes("Portfolio grade not generated")) {
+        displayNotification(
+          "Failed to generate portfolio grade - please try again",
+          "error"
+        );
       } else {
-        displayNotification("Failed to get portfolio grade", "error");
+        displayNotification(
+          `Failed to get portfolio grade: ${error.message}`,
+          "error"
+        );
       }
     } finally {
       setLoading(false);

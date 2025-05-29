@@ -122,7 +122,6 @@ class OptimizationService {
             savedLineups.push(savedLineup);
             existingSignatures.add(signature);
           } else {
-            console.log("Skipping duplicate lineup composition:", signature);
           }
         }
 

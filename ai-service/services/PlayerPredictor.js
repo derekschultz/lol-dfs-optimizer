@@ -70,10 +70,6 @@ class PlayerPredictor {
       // Use ML model if available, otherwise fallback to statistical model
       let mlPrediction = null;
 
-      console.log(
-        `🔍 PlayerPredictor: ML Service Ready = ${this.mlService.isReady}, Player = ${player.name}`
-      );
-
       if (this.mlService.isReady) {
         const playerFeatures = this.mlService.extractPlayerFeatures(
           player,
@@ -83,7 +79,6 @@ class PlayerPredictor {
           playerFeatures,
           player
         );
-        console.log(`✅ ML Prediction completed for ${player.name}`);
       }
 
       // Feature engineering for statistical model

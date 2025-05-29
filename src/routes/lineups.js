@@ -357,17 +357,132 @@ router.post(
   })
 );
 
-// POST /lineups/generate - Generate new lineups (placeholder for future optimization integration)
+// POST /lineups/generate - Generate new lineups using basic optimization
 router.post(
   "/generate",
   catchAsync(async (req, res) => {
-    // This endpoint will be implemented when we integrate the optimization services
-    throw new AppError(
-      "Lineup generation not yet implemented in refactored API. Use optimization service.",
-      501
-    );
+    const lineupService = req.app.get("services").lineup;
+    const playerRepository = req.app.get("repositories").player;
+
+    const { count = 5, settings = {}, exposureSettings = {} } = req.body;
+
+    // Get player data for optimization
+    const players = await playerRepository.findAll();
+    if (players.length === 0) {
+      throw new AppError(
+        "No player projections available for lineup generation",
+        400
+      );
+    }
+
+    // Simple lineup generation (this is a basic implementation)
+    // In a full implementation, this would use proper optimization algorithms
+    const generatedLineups = [];
+
+    for (let i = 0; i < count; i++) {
+      // Simple random selection with salary constraints
+      const lineup = generateBasicLineup(players, i);
+      if (lineup) {
+        // Save lineup to database
+        const savedLineup = await lineupService.createLineup({
+          name: `Generated Lineup ${Date.now()}-${i}`,
+          cpt: lineup.cpt,
+          players: lineup.players,
+          projectedScore: lineup.projectedScore,
+          totalSalary: lineup.totalSalary,
+          algorithm: "basic_random",
+          metadata: {
+            generatedAt: new Date().toISOString(),
+            settings,
+            exposureSettings,
+          },
+        });
+        generatedLineups.push(savedLineup);
+      }
+    }
+
+    res.json({
+      success: true,
+      lineups: generatedLineups,
+      message: `Generated ${generatedLineups.length} lineups successfully`,
+    });
   })
 );
+
+// Helper function for basic lineup generation
+function generateBasicLineup(players, seed) {
+  const SALARY_CAP = 50000;
+  const POSITIONS = ["TOP", "JNG", "MID", "ADC", "SUP"];
+
+  // Seed random for reproducible results
+  const random = () => {
+    const x = Math.sin(seed++) * 10000;
+    return x - Math.floor(x);
+  };
+
+  // Select captain (higher projected points preferred)
+  const captainCandidates = players
+    .filter((p) => p.projectedPoints > 0)
+    .sort((a, b) => b.projectedPoints - a.projectedPoints)
+    .slice(0, Math.max(10, Math.floor(players.length * 0.3)));
+
+  if (captainCandidates.length === 0) return null;
+
+  const captain =
+    captainCandidates[Math.floor(random() * captainCandidates.length)];
+  let remainingSalary = SALARY_CAP - captain.salary * 1.5; // Captain costs 1.5x
+
+  // Select one player from each position
+  const selectedPlayers = [];
+  const usedPlayers = new Set([captain.id]);
+
+  for (const position of POSITIONS) {
+    const positionPlayers = players
+      .filter(
+        (p) =>
+          p.position === position &&
+          !usedPlayers.has(p.id) &&
+          p.salary <= remainingSalary &&
+          p.projectedPoints > 0
+      )
+      .sort(
+        (a, b) =>
+          b.projectedPoints / Math.max(b.salary, 1000) -
+          a.projectedPoints / Math.max(a.salary, 1000)
+      );
+
+    if (positionPlayers.length === 0) continue;
+
+    // Pick from top 50% for some optimization
+    const topHalf = positionPlayers.slice(
+      0,
+      Math.max(1, Math.floor(positionPlayers.length * 0.5))
+    );
+    const selected = topHalf[Math.floor(random() * topHalf.length)];
+
+    selectedPlayers.push(selected);
+    usedPlayers.add(selected.id);
+    remainingSalary -= selected.salary;
+  }
+
+  // Calculate projected score
+  const projectedScore =
+    captain.projectedPoints * 1.5 +
+    selectedPlayers.reduce((sum, p) => sum + p.projectedPoints, 0);
+
+  const totalSalary =
+    captain.salary * 1.5 +
+    selectedPlayers.reduce((sum, p) => sum + p.salary, 0);
+
+  return {
+    id: `generated_${Date.now()}_${seed}`,
+    cpt: { ...captain, position: "CPT" },
+    players: selectedPlayers,
+    projectedScore: Math.round(projectedScore * 100) / 100,
+    totalSalary: Math.round(totalSalary),
+    algorithm: "basic_random",
+  };
+}
 
 // POST /lineups/generate-hybrid - Generate lineups with hybrid optimizer
 router.post(
@@ -414,13 +529,45 @@ router.post(
           );
         }
 
+        // Save lineups to memory store if requested
+        let savedLineups = result.lineups;
+        if (saveToLineups && result.lineups && result.lineups.length > 0) {
+          try {
+            const savePromises = result.lineups.map(async (lineup) => {
+              return await lineupService.createLineup({
+                name: lineup.name || `Hybrid Lineup ${lineup.id || Date.now()}`,
+                cpt: lineup.cpt,
+                players: lineup.players,
+                projectedScore: lineup.projectedScore,
+                totalSalary: lineup.totalSalary,
+                algorithm: lineup.algorithm || "hybrid",
+                metadata: {
+                  generatedAt: new Date().toISOString(),
+                  strategy: strategy,
+                  sessionId: sessionId,
+                  hybridGenerated: true,
+                },
+              });
+            });
+
+            savedLineups = await Promise.all(savePromises);
+            console.log(
+              `✅ Saved ${savedLineups.length} hybrid lineups to memory store`
+            );
+          } catch (saveError) {
+            console.warn("Failed to save some lineups:", saveError.message);
+            // Continue with original lineups if save fails
+          }
+        }
+
         res.json({
           success: true,
-          lineups: result.lineups,
+          lineups: savedLineups,
           metadata: result.metadata,
           summary: result.summary,
           algorithms: result.algorithms,
-          message: `Generated ${result.lineups.length} lineups using ${strategy} strategy`,
+          message: `Generated ${savedLineups.length} lineups using ${strategy} strategy`,
+          saved: saveToLineups,
         });
         return;
       }
@@ -444,13 +591,45 @@ router.post(
       sessionId,
     });
 
+    // Save lineups to memory store if requested
+    let savedLineups = result.lineups;
+    if (saveToLineups && result.lineups && result.lineups.length > 0) {
+      try {
+        const savePromises = result.lineups.map(async (lineup) => {
+          return await lineupService.createLineup({
+            name: lineup.name || `Hybrid Lineup ${lineup.id || Date.now()}`,
+            cpt: lineup.cpt,
+            players: lineup.players,
+            projectedScore: lineup.projectedScore,
+            totalSalary: lineup.totalSalary,
+            algorithm: lineup.algorithm || "hybrid",
+            metadata: {
+              generatedAt: new Date().toISOString(),
+              strategy: strategy,
+              sessionId: sessionId,
+              hybridGenerated: true,
+            },
+          });
+        });
+
+        savedLineups = await Promise.all(savePromises);
+        console.log(
+          `✅ Saved ${savedLineups.length} hybrid lineups to memory store`
+        );
+      } catch (saveError) {
+        console.warn("Failed to save some lineups:", saveError.message);
+        // Continue with original lineups if save fails
+      }
+    }
+
     res.json({
       success: true,
-      lineups: result.lineups,
+      lineups: savedLineups,
       metadata: result.metadata,
       summary: result.summary,
       algorithms: result.algorithms,
-      message: `Generated ${result.lineups.length} lineups using ${strategy} strategy`,
+      message: `Generated ${savedLineups.length} lineups using ${strategy} strategy`,
+      saved: saveToLineups,
     });
   })
 );

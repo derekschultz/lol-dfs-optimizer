@@ -29,8 +29,8 @@ const PORT = process.env.AI_PORT || 3002;
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json({ limit: "10mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
 
 // Initialize shared services first
 const mlModelService = new MLModelService();
@@ -1105,16 +1105,51 @@ app.get("/api/ai/coach", async (req, res) => {
   try {
     console.log("Generating AI coach recommendations...");
 
-    // Get current data
-    const players = dataSyncService.getPlayers();
-    const lineups = dataSyncService.getLineups();
-    const exposures = dataSyncService.getExposures();
+    // Try to get current data
+    let players = dataSyncService.getPlayers();
+    let lineups = dataSyncService.getLineups();
+    let exposures = dataSyncService.getExposures();
 
+    // If no data, try to force refresh from main server
     if (!players.length || !lineups.length) {
+      console.log(
+        "No cached data found, attempting to sync from main server..."
+      );
+      try {
+        await dataSyncService.forceRefreshAll();
+        players = dataSyncService.getPlayers();
+        lineups = dataSyncService.getLineups();
+        exposures = dataSyncService.getExposures();
+      } catch (syncError) {
+        console.error(
+          "Failed to sync data from main server:",
+          syncError.message
+        );
+      }
+    }
+
+    // Check again after sync attempt
+    if (!players.length || !lineups.length) {
+      console.log("Data check results:", {
+        playersCount: players.length,
+        lineupsCount: lineups.length,
+        cacheState: {
+          players: !!dataSyncService.cache.players.data,
+          lineups: !!dataSyncService.cache.lineups.data,
+        },
+      });
+
       return res.status(404).json({
         success: false,
         error: "Insufficient data for coaching",
-        message: "Please upload player projections and generate lineups first",
+        message:
+          "Please upload player projections and generate lineups first, then try again",
+        details: {
+          playersFound: players.length,
+          lineupsFound: lineups.length,
+          suggestion:
+            "Make sure you have uploaded players and generated lineups in the main application",
+        },
       });
     }
 
@@ -1123,16 +1158,47 @@ app.get("/api/ai/coach", async (req, res) => {
     const cleanPlayers = JSON.parse(JSON.stringify(players));
     const cleanExposures = JSON.parse(JSON.stringify(exposures));
 
-    // Generate coaching insights
-    const [recommendations, metaInsights, riskAnalysis] = await Promise.all([
-      recommendationEngine.generateRecommendations({
-        lineups: cleanLineups,
-        playerData: cleanPlayers,
-        exposureData: cleanExposures,
-      }),
-      metaDetector.getCurrentMetaInsights(),
-      riskAssessor.assessPortfolioRisk(cleanLineups, cleanExposures),
-    ]);
+    // Generate coaching insights with error handling
+    let recommendations = [];
+    let metaInsights = {};
+    let riskAnalysis = { risk_score: 25, overall_risk: "medium" }; // Safe defaults
+
+    try {
+      const results = await Promise.allSettled([
+        recommendationEngine.generateRecommendations({
+          lineups: cleanLineups,
+          playerData: cleanPlayers,
+          exposureData: cleanExposures,
+        }),
+        metaDetector.getCurrentMetaInsights(),
+        riskAssessor.assessPortfolioRisk(cleanLineups, cleanExposures),
+      ]);
+
+      // Extract results with fallbacks
+      recommendations =
+        results[0].status === "fulfilled" ? results[0].value : [];
+      metaInsights = results[1].status === "fulfilled" ? results[1].value : {};
+      riskAnalysis =
+        results[2].status === "fulfilled" ? results[2].value : riskAnalysis;
+
+      // Log any failures for debugging
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          const serviceNames = [
+            "recommendations",
+            "meta insights",
+            "risk analysis",
+          ];
+          console.warn(
+            `Failed to generate ${serviceNames[index]}:`,
+            result.reason?.message
+          );
+        }
+      });
+    } catch (error) {
+      console.error("Error in Promise.allSettled:", error);
+      // Continue with defaults
+    }
 
     // Get top players by projected points and generate predictions
     const topPlayers = cleanPlayers
@@ -1150,30 +1216,38 @@ app.get("/api/ai/coach", async (req, res) => {
       console.warn("Failed to generate player predictions:", error.message);
     }
 
-    // Generate coaching summary
-    const coachingSummary = {
-      portfolio_grade: calculatePortfolioGrade(riskAnalysis, recommendations),
-      key_strengths: identifyStrengths(
-        cleanLineups,
-        cleanPlayers,
-        metaInsights
-      ),
-      areas_for_improvement: identifyImprovements(
-        riskAnalysis,
-        recommendations
-      ),
-      actionable_tips: generateActionableTips(
-        recommendations,
-        metaInsights,
-        riskAnalysis
-      ),
-      meta_alignment: assessMetaAlignment(
-        cleanPlayers,
-        cleanLineups,
-        metaInsights
-      ),
-      next_steps: generateNextSteps(recommendations, riskAnalysis),
-    };
+    // Generate coaching summary with error handling
+    let coachingSummary;
+    try {
+      coachingSummary = {
+        portfolio_grade: calculatePortfolioGrade(riskAnalysis, recommendations),
+        key_strengths: identifyStrengths(
+          cleanLineups,
+          cleanPlayers,
+          metaInsights
+        ),
+        areas_for_improvement: identifyImprovements(
+          riskAnalysis,
+          recommendations
+        ),
+        actionable_tips: generateActionableTips(
+          recommendations,
+          metaInsights,
+          riskAnalysis
+        ),
+        meta_alignment: assessMetaAlignment(
+          cleanPlayers,
+          cleanLineups,
+          metaInsights
+        ),
+        next_steps: generateNextSteps(recommendations, riskAnalysis),
+      };
+    } catch (summaryError) {
+      console.error("Error generating coaching summary:", summaryError);
+      throw new Error(
+        `Failed to generate coaching summary: ${summaryError.message}`
+      );
+    }
 
     res.json({
       success: true,
@@ -1220,18 +1294,21 @@ function calculatePortfolioGrade(riskAnalysis, recommendations) {
   let grade = "A";
   let score = 85;
 
+  // Safe access to risk score with fallbacks
+  const riskScore = riskAnalysis?.risk_score ?? 25; // Default to medium risk if undefined
+
   // Deduct points for high risk
-  if (riskAnalysis.risk_score > 70) {
+  if (riskScore > 70) {
     grade = "C";
     score = 65;
-  } else if (riskAnalysis.risk_score > 50) {
+  } else if (riskScore > 50) {
     grade = "B";
     score = 75;
   }
 
-  // Add points for good recommendations
-  const highPriorityRecs = recommendations.filter(
-    (r) => r.priority === "high"
+  // Add points for good recommendations (safe access)
+  const highPriorityRecs = (recommendations || []).filter(
+    (r) => r?.priority === "high"
   ).length;
   if (highPriorityRecs === 0) {
     score += 10;

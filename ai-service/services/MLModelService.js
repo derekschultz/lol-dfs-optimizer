@@ -348,14 +348,6 @@ class MLModelService {
       const ceiling = adjustedPoints + variance * 1.5;
       const floor = Math.max(1, adjustedPoints - variance);
 
-      console.log(
-        `🎯 ML Prediction for ${player.name}: Base=${baseProjection.toFixed(
-          1
-        )}, MLFactor=${mlFactor.toFixed(3)}, Adjustment=${mlAdjustment.toFixed(
-          1
-        )}, Final=${adjustedPoints.toFixed(1)}`
-      );
-
       return {
         fantasyPoints: adjustedPoints,
         variance: variance,
@@ -442,12 +434,6 @@ class MLModelService {
     // Use projected points as a base if available
     const baseProjection =
       player.projectedPoints || player.projected_points || 12;
-    console.log(`🔍 ML Feature Extraction for ${player.name}:`, {
-      baseProjection,
-      position: player.position,
-      salary: player.salary,
-      providedData: Object.keys(player),
-    });
 
     return [
       (player.avg_kda || 2.5) / 6.0, // Real if provided, else decent default
