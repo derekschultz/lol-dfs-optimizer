@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import LineupList from "../components/LineupList";
+import LineupList from "../components/features/lineup-management/LineupList";
 import AdvancedOptimizerUI from "../components/AdvancedOptimizerUI";
 
 /**

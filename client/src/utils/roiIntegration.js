@@ -59,7 +59,12 @@ function getHistoricalData(lineup) {
  * Format ROI for display
  */
 function formatROI(roiValue) {
-  if (roiValue === null || roiValue === undefined) return "N/A";
+  if (
+    roiValue === null ||
+    roiValue === undefined ||
+    typeof roiValue !== "number"
+  )
+    return "N/A";
 
   const sign = roiValue >= 0 ? "+" : "";
   return `${sign}${roiValue.toFixed(1)}%`;
@@ -69,6 +74,12 @@ function formatROI(roiValue) {
  * Get ROI color based on value
  */
 function getROIColor(roiValue) {
+  if (
+    roiValue === null ||
+    roiValue === undefined ||
+    typeof roiValue !== "number"
+  )
+    return "#a0aec0"; // Gray - N/A
   if (roiValue >= 20) return "#10b981"; // Green - Excellent
   if (roiValue >= 10) return "#3b82f6"; // Blue - Good
   if (roiValue >= 0) return "#f59e0b"; // Yellow - Break-even

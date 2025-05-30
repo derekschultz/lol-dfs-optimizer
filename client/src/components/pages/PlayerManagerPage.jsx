@@ -1,7 +1,7 @@
 import React from "react";
 import { usePlayer } from "../../contexts/PlayerContext";
 import { useNotification } from "../../contexts/NotificationContext";
-import PlayerManagerRefactored from "../features/player-manager/PlayerManagerRefactored";
+import PlayerManager from "../features/player-manager/PlayerManager";
 
 const PlayerManagerPage = () => {
   const { playerData, setPlayerData } = usePlayer();
@@ -12,7 +12,7 @@ const PlayerManagerPage = () => {
   };
 
   return (
-    <PlayerManagerRefactored
+    <PlayerManager
       playerData={playerData}
       onPlayersUpdated={handlePlayersUpdated}
       displayNotification={displayNotification}

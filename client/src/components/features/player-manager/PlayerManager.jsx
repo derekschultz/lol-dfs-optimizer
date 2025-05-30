@@ -6,7 +6,7 @@ import {
   PlayerTable,
 } from "./index";
 
-const PlayerManagerRefactored = ({
+const PlayerManager = ({
   playerData,
   onPlayersUpdated,
   displayNotification,
@@ -96,19 +96,6 @@ const PlayerManagerRefactored = ({
       return;
     }
 
-    const playerNames = filteredPlayers
-      .filter((p) => selectedPlayers.has(p.id))
-      .map((p) => p.name)
-      .join(", ");
-
-    if (
-      !window.confirm(
-        `Are you sure you want to delete ${selectedPlayers.size} player(s): ${playerNames}?`
-      )
-    ) {
-      return;
-    }
-
     try {
       setIsLoading(true);
 
@@ -158,14 +145,6 @@ const PlayerManagerRefactored = ({
   };
 
   const handleDeletePlayer = async (player) => {
-    if (
-      !window.confirm(
-        `Are you sure you want to delete ${player.name} (${player.team} - ${player.position})?`
-      )
-    ) {
-      return;
-    }
-
     try {
       setIsLoading(true);
 
@@ -272,4 +251,4 @@ const PlayerManagerRefactored = ({
   );
 };
 
-export default PlayerManagerRefactored;
+export default PlayerManager;

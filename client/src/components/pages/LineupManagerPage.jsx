@@ -3,7 +3,7 @@ import { useLineup } from "../../contexts/LineupContext";
 import { usePlayer } from "../../contexts/PlayerContext";
 import { useNotification } from "../../contexts/NotificationContext";
 import { lineupService } from "../../services";
-import LineupList from "../LineupList";
+import LineupList from "../features/lineup-management/LineupList";
 
 const LineupManagerPage = () => {
   const { lineups, setLineups } = useLineup();
