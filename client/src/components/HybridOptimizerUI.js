@@ -292,9 +292,6 @@ const HybridOptimizerUI = ({
             // Handle completion messages (e.g. "Genetic optimization completed: Selected 6 lineups (18/20 total)")
             const currentCount = parseInt(completedMatch[3]);
             const totalCount = parseInt(completedMatch[4]);
-            console.log(
-              `[UI] Completion message parsed: ${currentCount}/${totalCount} from "${data.status}"`
-            );
             setCurrentLineupCount(currentCount);
             setTargetLineupCount(totalCount);
           } else {
@@ -444,23 +441,21 @@ const HybridOptimizerUI = ({
                   "4-3": portfolioConfig.stack43Ratio,
                   "4-2-1": 1 - portfolioConfig.stack43Ratio,
                 },
+                exposureSettings: exposureSettings || {},
                 ...customConfig,
               },
               saveToLineups: true,
-              exposureSettings: exposureSettings || {},
-              stackExposureTargets:
-                exposureSettings?.stackExposureTargets || {},
               contestInfo: contestInfo,
             }
           : {
               count: lineupCount,
               strategy: selectedStrategy,
               progressSessionId: progressSessionId,
-              customConfig,
+              customConfig: {
+                exposureSettings: exposureSettings || {},
+                ...customConfig,
+              },
               saveToLineups: true,
-              exposureSettings: exposureSettings || {},
-              stackExposureTargets:
-                exposureSettings?.stackExposureTargets || {},
               contestInfo: contestInfo,
               sessionId: currentSessionId,
             };

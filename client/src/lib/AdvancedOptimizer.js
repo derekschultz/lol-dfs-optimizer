@@ -668,64 +668,118 @@ class AdvancedOptimizer {
         this.config.stackExposureTargets
       );
 
-      Object.entries(this.config.stackExposureTargets).forEach(
-        ([key, value]) => {
-          if (value !== null && value !== undefined) {
-            // Parse the key (format: "team_stackSize_type" like "KT_4_target")
-            const parts = key.split("_");
-            if (parts.length >= 3) {
-              const type = parts[parts.length - 1]; // Last part is type (target/min/max)
-              const stackSize = parts[parts.length - 2]; // Second to last is stack size
-              const team = parts.slice(0, -2).join("_"); // Everything before last 2 parts is team name
+      // Handle new nested object format: { "TES": { "4": 25 } }
+      const firstKey = Object.keys(this.config.stackExposureTargets)[0];
+      const isNestedFormat =
+        typeof this.config.stackExposureTargets[firstKey] === "object" &&
+        this.config.stackExposureTargets[firstKey] !== null &&
+        !Array.isArray(this.config.stackExposureTargets[firstKey]);
 
-              this.debugLog(`Processing stack target: ${key}`, {
-                team,
-                stackSize,
-                type,
-                value,
-                parsedStackSize: parseInt(stackSize),
-              });
+      if (isNestedFormat) {
+        this.debugLog(
+          "Processing nested object format for stack exposure targets"
+        );
+        Object.entries(this.config.stackExposureTargets).forEach(
+          ([team, stackTargets]) => {
+            if (stackTargets && typeof stackTargets === "object") {
+              Object.entries(stackTargets).forEach(
+                ([stackSize, targetValue]) => {
+                  if (
+                    targetValue !== null &&
+                    targetValue !== undefined &&
+                    targetValue !== ""
+                  ) {
+                    // Create stack exposure entry
+                    let stackExposure = this.teamStackExposures.find(
+                      (se) =>
+                        se.team === team && se.stackSize === parseInt(stackSize)
+                    );
 
-              if (team && stackSize && type && value !== "") {
-                // Find existing stack exposure or create new one
-                let stackExposure = this.teamStackExposures.find(
-                  (se) =>
-                    se.team === team && se.stackSize === parseInt(stackSize)
-                );
+                    if (!stackExposure) {
+                      stackExposure = {
+                        team,
+                        stackSize: parseInt(stackSize),
+                        min: 0,
+                        max: 1,
+                        target: null,
+                      };
+                      this.teamStackExposures.push(stackExposure);
+                    }
 
-                if (!stackExposure) {
-                  stackExposure = {
-                    team,
-                    stackSize: parseInt(stackSize),
-                    min: 0,
-                    max: 1,
-                    target: null,
-                  };
-                  this.teamStackExposures.push(stackExposure);
-                  this.debugLog(
-                    `Created new stack exposure constraint:`,
-                    stackExposure
-                  );
+                    // Set target value (convert percentage to decimal)
+                    stackExposure.target = parseInt(targetValue) / 100;
+
+                    this.debugLog(
+                      `Added stack exposure target: ${team} ${stackSize}-stack = ${targetValue}%`
+                    );
+                  }
                 }
+              );
+            }
+          }
+        );
+      } else {
+        // Handle legacy format: { "TES_4_target": 25 }
 
-                // Set the appropriate value (convert percentage to decimal)
-                if (type === "min") {
-                  stackExposure.min = parseInt(value) / 100;
-                } else if (type === "max") {
-                  stackExposure.max = parseInt(value) / 100;
-                } else if (type === "target") {
-                  stackExposure.target = parseInt(value) / 100;
-                  this.debugLog(
-                    `Set target for ${team} ${stackSize}-stack: ${
-                      stackExposure.target * 100
-                    }%`
+        Object.entries(this.config.stackExposureTargets).forEach(
+          ([key, value]) => {
+            if (value !== null && value !== undefined) {
+              // Parse the key (format: "team_stackSize_type" like "KT_4_target")
+              const parts = key.split("_");
+              if (parts.length >= 3) {
+                const type = parts[parts.length - 1]; // Last part is type (target/min/max)
+                const stackSize = parts[parts.length - 2]; // Second to last is stack size
+                const team = parts.slice(0, -2).join("_"); // Everything before last 2 parts is team name
+
+                this.debugLog(`Processing stack target: ${key}`, {
+                  team,
+                  stackSize,
+                  type,
+                  value,
+                  parsedStackSize: parseInt(stackSize),
+                });
+
+                if (team && stackSize && type && value !== "") {
+                  // Find existing stack exposure or create new one
+                  let stackExposure = this.teamStackExposures.find(
+                    (se) =>
+                      se.team === team && se.stackSize === parseInt(stackSize)
                   );
+
+                  if (!stackExposure) {
+                    stackExposure = {
+                      team,
+                      stackSize: parseInt(stackSize),
+                      min: 0,
+                      max: 1,
+                      target: null,
+                    };
+                    this.teamStackExposures.push(stackExposure);
+                    this.debugLog(
+                      `Created new stack exposure constraint:`,
+                      stackExposure
+                    );
+                  }
+
+                  // Set the appropriate value (convert percentage to decimal)
+                  if (type === "min") {
+                    stackExposure.min = parseInt(value) / 100;
+                  } else if (type === "max") {
+                    stackExposure.max = parseInt(value) / 100;
+                  } else if (type === "target") {
+                    stackExposure.target = parseInt(value) / 100;
+                    this.debugLog(
+                      `Set target for ${team} ${stackSize}-stack: ${
+                        stackExposure.target * 100
+                      }%`
+                    );
+                  }
                 }
               }
             }
           }
-        }
-      );
+        );
+      } // End of legacy format processing
 
       this.debugLog("Final team stack exposures:", this.teamStackExposures);
     }
@@ -2460,8 +2514,30 @@ class AdvancedOptimizer {
    * Now includes stack-specific exposure checks
    */
   _teamNeedsExposure(team, stackSize = null) {
-    // DISABLED: Return false to prevent aggressive targeting
-    return false;
+    // Check if we have stack exposure targets for this team
+    if (!this.teamStackExposures || this.teamStackExposures.length === 0) {
+      return false;
+    }
+
+    // Find the exposure target for this team and stack size
+    const stackSizeStr = stackSize ? stackSize.toString() : "4"; // Default to 4-stack
+    const targetExposure = this.teamStackExposures.find(
+      (t) => t.team === team && t.stackSize === stackSizeStr
+    );
+
+    if (!targetExposure || !targetExposure.target) {
+      return false;
+    }
+
+    // Calculate current exposure percentage
+    const currentStacks = this.exposureTracking.teamStacks[team] || {};
+    const currentCount = currentStacks[stackSizeStr] || 0;
+    const totalLineups = Math.max(1, this.targetLineupCount || 1);
+    const currentExposure = (currentCount / totalLineups) * 100;
+
+    // Return true if we're significantly under the target
+    const threshold = targetExposure.target * 0.8; // Allow 20% tolerance
+    return currentExposure < threshold;
   }
 
   /**
@@ -3299,7 +3375,7 @@ class AdvancedOptimizer {
     const currentExposure = this._getCachedStackExposure(team, stackSize);
 
     // Calculate deficit (positive = needs more exposure, negative = has too much)
-    const targetExposure = stackConstraint.target / 100; // Convert percentage to decimal
+    const targetExposure = stackConstraint.target; // Already in decimal format (0.25 for 25%)
     const deficit = targetExposure - currentExposure;
 
     // Convert deficit to multiplier
@@ -3812,7 +3888,66 @@ class AdvancedOptimizer {
       return false;
     }
 
+    // Check exposure constraints for stack exposure targets
+    if (!this._isExposureConstraintMet(lineup)) {
+      this.debugLog("Lineup invalid: would violate exposure constraints");
+      return false;
+    }
+
     // Note: Uniqueness check is handled by signature checking in the main generation loop
+
+    return true;
+  }
+
+  /**
+   * Check if accepting this lineup would violate exposure constraints
+   */
+  _isExposureConstraintMet(lineup) {
+    if (!this.teamStackExposures || this.teamStackExposures.length === 0) {
+      return true; // No constraints to check
+    }
+
+    // Count team stacks in this lineup
+    const teamCounts = {};
+    if (lineup.cpt && lineup.cpt.team) {
+      teamCounts[lineup.cpt.team] = (teamCounts[lineup.cpt.team] || 0) + 1;
+    }
+    lineup.players.forEach((player) => {
+      if (player && player.team) {
+        teamCounts[player.team] = (teamCounts[player.team] || 0) + 1;
+      }
+    });
+
+    // Check each team that has stack targets
+    for (const target of this.teamStackExposures) {
+      if (!target.target || !teamCounts[target.team]) {
+        continue; // No target or team not in this lineup
+      }
+
+      const stackSize = parseInt(target.stackSize);
+      const currentTeamCount = teamCounts[target.team];
+
+      // Only check if this lineup would create the target stack size
+      if (currentTeamCount >= stackSize) {
+        const currentStacks =
+          this.exposureTracking.teamStacks[target.team] || {};
+        const currentCount = currentStacks[target.stackSize] || 0;
+        const totalLineups = Math.max(1, this.targetLineupCount || 1);
+
+        // Simulate adding this lineup
+        const projectedCount = currentCount + 1;
+        const projectedExposure = (projectedCount / totalLineups) * 100;
+
+        // Check if this would exceed maximum allowed exposure (target + 20% tolerance)
+        const maxAllowed = target.target * 1.2;
+        if (projectedExposure > maxAllowed) {
+          this.debugLog(
+            `Would exceed max exposure for ${target.team} ${target.stackSize}-stack: ${projectedExposure}% > ${maxAllowed}%`
+          );
+          return false;
+        }
+      }
+    }
 
     return true;
   }
@@ -4439,7 +4574,7 @@ class AdvancedOptimizer {
           // Find corresponding target exposure
           const targetExposure = this._getTargetExposure(team, stackSize);
           if (targetExposure !== null) {
-            const targetDecimal = targetExposure / 100;
+            const targetDecimal = targetExposure;
 
             // Check if prediction is within acceptable range
             // Use more flexible tolerance for smaller lineup counts
@@ -4500,7 +4635,7 @@ class AdvancedOptimizer {
         const currentCount =
           this.exposureTracking.teamStacks.get(stackKey) || 0;
         const currentExposure = currentCount / currentLineupCount;
-        const targetExposure = (stackExp.target || 0) / 100;
+        const targetExposure = stackExp.target || 0;
 
         if (targetExposure > 0) {
           // Bayesian update of target based on current performance
@@ -4534,7 +4669,7 @@ class AdvancedOptimizer {
         const currentCount =
           this.exposureTracking.teamStacks.get(stackKey) || 0;
         const currentExposure = currentCount / currentLineupCount;
-        const targetExposure = (stackExp.target || 0) / 100;
+        const targetExposure = stackExp.target || 0;
 
         if (targetExposure > 0) {
           this._updateAccuracyMetrics(
@@ -4554,7 +4689,7 @@ class AdvancedOptimizer {
         if (playerId) {
           const currentCount = this.exposureTracking.players.get(playerId) || 0;
           const currentExposure = currentCount / currentLineupCount;
-          const targetExposure = (playerExp.target || 0) / 100;
+          const targetExposure = playerExp.target || 0;
 
           if (targetExposure > 0) {
             const playerKey = `player_${playerId}`;
@@ -4955,7 +5090,7 @@ class AdvancedOptimizer {
           const currentCount =
             this.exposureTracking.teamStacks.get(stackKey) || 0;
           const currentExposure = currentCount / currentLineupCount;
-          const targetExposure = stackExp.target / 100;
+          const targetExposure = stackExp.target;
           const deviation = Math.abs(currentExposure - targetExposure);
           const deviationPct = Math.round(deviation * 100);
 
@@ -5015,7 +5150,7 @@ class AdvancedOptimizer {
       const stackKey = `${stackExp.team}_${stackExp.stackSize}`;
       const currentCount = this.exposureTracking.teamStacks.get(stackKey) || 0;
       const currentExposure = currentCount / totalLineups;
-      const targetExposure = (stackExp.target || 0) / 100;
+      const targetExposure = stackExp.target || 0;
       const deviation = Math.abs(currentExposure - targetExposure);
 
       // Get confidence interval if available

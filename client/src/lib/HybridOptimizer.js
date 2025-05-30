@@ -399,6 +399,27 @@ class HybridOptimizer {
       complexityScore += stackConstraints.length * 3;
     }
 
+    // Stack exposure targets (new format)
+    if (
+      exposureSettings.stackExposureTargets &&
+      typeof exposureSettings.stackExposureTargets === "object"
+    ) {
+      const stackTargetCount = Object.keys(
+        exposureSettings.stackExposureTargets
+      ).reduce((total, team) => {
+        return (
+          total +
+          Object.keys(exposureSettings.stackExposureTargets[team]).length
+        );
+      }, 0);
+
+      if (stackTargetCount > 0) {
+        analysis.hasStackConstraints = true;
+        analysis.constraintCount += stackTargetCount;
+        complexityScore += stackTargetCount * 3;
+      }
+    }
+
     // Position constraints
     if (exposureSettings.positions) {
       const positionConstraints = Object.keys(
