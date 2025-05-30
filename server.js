@@ -2,7 +2,6 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 
-// Import refactored services and routes
 const serviceRegistry = require("./src/services/ServiceRegistry");
 const { router: playerRoutes } = require("./src/routes/players");
 const { router: lineupRoutes } = require("./src/routes/lineups");
